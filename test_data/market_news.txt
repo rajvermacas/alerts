@@ -1,0 +1,38 @@
+===== ACME Corp News Timeline =====
+
+2024-03-16 09:00 - Reuters: BREAKING - TechGiant announces acquisition of ACME Corp for $150/share in all-cash deal
+2024-03-16 09:15 - Bloomberg: ACME shares surge 47% on acquisition news, trading halted
+2024-03-16 10:00 - WSJ: TechGiant CEO: "ACME acquisition will accelerate our healthcare technology division"
+2024-03-15 16:30 - No significant news
+2024-03-14 14:00 - No significant news
+2024-03-13 11:00 - No significant news
+2024-03-12 09:30 - No significant news
+2024-03-11 10:00 - No significant news
+2024-03-10 08:00 - No significant news
+2024-03-08 15:00 - No significant news
+
+===== TECHCORP News Timeline =====
+
+2024-04-10 08:00 - TECHCORP Press Release: Q1 2024 earnings exceed analyst expectations by 15%
+2024-04-10 08:30 - Bloomberg: TECHCORP shares up 8% in pre-market on strong earnings
+2024-04-09 14:00 - Reuters: Tech sector showing strength ahead of earnings season
+2024-04-08 10:00 - WSJ: Analysts remain bullish on TECHCORP ahead of Q1 report
+2024-04-07 09:00 - MarketWatch: Tech stocks rally as inflation concerns ease
+2024-04-05 11:30 - Bloomberg: Multiple analysts upgrade TECHCORP to "Buy" citing strong demand
+2024-04-03 14:00 - Reuters: TECHCORP announces new product launch at industry conference
+2024-04-01 09:00 - WSJ: Tech sector outlook positive for Q1 earnings season
+2024-03-28 16:00 - CNBC: Industry experts predict strong quarter for cloud computing companies
+2024-03-25 10:30 - Bloomberg: TECHCORP among top picks for Q1 by several investment banks
+
+===== PHARMAX News Timeline =====
+
+2024-05-21 07:30 - FDA Press Release: FDA approves PHARMAX's new cancer treatment drug Oncovex
+2024-05-21 08:00 - Reuters: PHARMAX shares jump 27% on FDA approval news
+2024-05-20 15:00 - Bloomberg: Biotech sector sees mixed trading ahead of FDA decisions
+2024-05-18 11:00 - WSJ: Multiple FDA decisions expected this week for cancer treatments
+2024-05-17 09:30 - Reuters: PHARMAX's Oncovex shows promising Phase 3 trial results (previously announced)
+2024-05-15 14:00 - MarketWatch: Biotech investors watching FDA calendar closely
+2024-05-13 10:00 - Bloomberg: Healthcare analysts mixed on PHARMAX approval chances
+2024-05-10 16:30 - Reuters: FDA advisory committee gives mixed recommendation for Oncovex
+2024-05-08 08:00 - WSJ: PHARMAX CEO expresses confidence in FDA approval during investor call
+2024-05-05 11:00 - Bloomberg: Biotech sector volatile as FDA decision dates approach

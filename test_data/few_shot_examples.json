@@ -1,0 +1,64 @@
+{
+  "examples": [
+    {
+      "id": "ex_001",
+      "scenario": "genuine_clear",
+      "alert_summary": "Back-office employee with no trading authorization purchased 50,000 shares of healthcare stock 36 hours before M&A announcement. Employee has never traded healthcare sector in 12 months of history.",
+      "trader_baseline": "Trades tech sector only, average 2,000 shares/day, no healthcare history in past year. This trade is 25x normal volume in a completely new sector.",
+      "market_context": "No public news about the company before the announcement. No analyst coverage changes. First public mention was the official M&A press release.",
+      "peer_activity": "No other internal traders bought this symbol in the two weeks before announcement. External institutional flow was net selling.",
+      "determination": "ESCALATE",
+      "reasoning": "Classic pre-announcement insider trading pattern. Multiple red flags: (1) Trader has no legitimate business reason to trade this sector, (2) Trade size is 25x their normal volume, (3) Back-office role means no information access through normal channels, (4) Complete absence of public information that could justify the trade, (5) Isolated trading activity suggests non-public information source. This case strongly resembles textbook insider trading and warrants immediate escalation."
+    },
+    {
+      "id": "ex_002",
+      "scenario": "false_positive_clear",
+      "alert_summary": "Portfolio manager purchased 15,000 shares of tech stock 48 hours before positive earnings. Manager regularly trades this stock and sector.",
+      "trader_baseline": "Trades tech sector daily, has traded this specific stock 8 times in past 3 months, average position size 10,000-15,000 shares. This trade is consistent with historical pattern.",
+      "market_context": "Multiple analyst upgrades in the week before earnings. Public guidance from company was positive. Industry publications predicted strong quarter. Earnings beat was widely expected.",
+      "peer_activity": "Many institutional and retail traders accumulated positions in the weeks before earnings. Net buying across the market.",
+      "determination": "CLOSE",
+      "reasoning": "This trade fits the trader's established pattern and is consistent with publicly available information. Key factors: (1) Trader regularly trades this stock - 8 trades in 3 months, (2) Position size matches their normal range, (3) Public analyst upgrades provided legitimate basis for bullish view, (4) Peer activity shows broad market consensus, (5) Role as portfolio manager means trading is their job. The timing coincidence does not indicate insider trading when the trade aligns with public market sentiment and personal trading history."
+    },
+    {
+      "id": "ex_003",
+      "scenario": "genuine_subtle",
+      "alert_summary": "Research analyst covering adjacent sector purchased stock 5 days before FDA approval. Trade size is 3x normal but analyst covers related therapeutic area.",
+      "trader_baseline": "Covers biotech sector, trades healthcare stocks regularly but not this specific company. Average trade 5,000 shares, this trade was 15,000 shares.",
+      "market_context": "FDA decision was publicly scheduled. Advisory committee gave mixed recommendation 10 days prior. Market consensus was 50/50 on approval.",
+      "peer_activity": "Mixed institutional activity - some buying, some selling. No clear directional consensus.",
+      "determination": "ESCALATE",
+      "reasoning": "While less obvious than classic insider trading, several factors warrant escalation: (1) Research analyst role in adjacent sector creates potential for information leakage through industry contacts, (2) Trade size is 3x normal suggesting unusual confidence, (3) Despite mixed public signals and 50/50 market odds, trader took large directional bet, (4) Timing 5 days before decision allows some distance but is still suspicious window. The combination of elevated position size, uncertain public outlook, and potential information access through professional network justifies investigation."
+    },
+    {
+      "id": "ex_004",
+      "scenario": "false_positive_subtle",
+      "alert_summary": "Trader increased position in stock 2 days before surprise acquisition announcement. However, trader has been steadily accumulating for 6 months.",
+      "trader_baseline": "Has bought this stock in 12 separate transactions over 6 months, averaging down. Latest purchase continues established dollar-cost-averaging pattern.",
+      "market_context": "Acquisition was genuinely surprising - no prior rumors or analyst speculation. Stock had declined 30% over past year making it an apparent value play.",
+      "peer_activity": "Several value-focused funds had been accumulating. Stock appeared on multiple 'undervalued' screens.",
+      "determination": "CLOSE",
+      "reasoning": "Despite suspicious timing, the evidence strongly suggests coincidence: (1) Clear 6-month pattern of accumulation predates any possible knowledge of acquisition, (2) Dollar-cost-averaging strategy is documented and consistent, (3) Value thesis was publicly articulable - stock down 30% in declining market, (4) Other value investors following same strategy, (5) Acquisition was genuinely secret with no advance signals. The trader's long-term accumulation pattern provides strong evidence of independent investment thesis unrelated to the acquisition."
+    },
+    {
+      "id": "ex_005",
+      "scenario": "ambiguous_mixed",
+      "alert_summary": "Mid-level compliance officer's spouse traded biotech stock 7 days before FDA approval. Compliance officer has access to restricted lists but no direct deal involvement.",
+      "trader_baseline": "Spouse account shows irregular trading pattern - only 5 trades in past year, varying sectors. This trade is 4x largest previous trade.",
+      "market_context": "FDA decision was publicly known. Some positive Phase 3 data was public. Analyst opinions were cautiously optimistic.",
+      "peer_activity": "Moderate institutional buying in the week before decision. Some retail activity tracking biotech sector.",
+      "determination": "NEEDS_HUMAN_REVIEW",
+      "reasoning": "This case has conflicting signals that prevent confident determination: FOR ESCALATION: (1) Spouse relationship to compliance officer creates potential conduit, (2) Trade size significantly larger than historical pattern, (3) Compliance role means awareness of material events even without direct involvement. FOR CLOSING: (1) 7-day gap is longer than typical insider trading window, (2) Public information provided legitimate basis for bullish view, (3) No direct involvement in the deal, (4) Peer activity suggests trade aligned with market sentiment. The indirect relationship and mixed evidence require human judgment to assess the spouse's trading history and the compliance officer's specific access level."
+    },
+    {
+      "id": "ex_006",
+      "scenario": "genuine_indirect",
+      "alert_summary": "Executive assistant to CFO purchased options on company stock 3 days before earnings miss announcement, betting on stock decline.",
+      "trader_baseline": "No previous trading history in company stock or options. First-ever derivatives trade. Small account size.",
+      "market_context": "Analyst expectations were high. No public signals of earnings miss. Company guidance was positive in prior quarter.",
+      "peer_activity": "Net buying by institutions. Retail sentiment was bullish. Very few put options traded.",
+      "determination": "ESCALATE",
+      "reasoning": "Strong indicators of classic insider trading via support staff: (1) Executive assistant to CFO has direct access to financial information and likely knew of earnings miss, (2) First-ever options trade shows unusual sophistication for this account, (3) Betting against the stock contradicts all public sentiment and analyst expectations, (4) Timing 3 days before announcement is classic window, (5) Put options specifically target downside - this is not a hedge but a directional bet. Support staff with executive access represents known insider trading vector. Immediate escalation required."
+    }
+  ]
+}

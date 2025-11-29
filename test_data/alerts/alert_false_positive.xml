@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SMARTSAlert>
+  <AlertID>ITA-2024-002156</AlertID>
+  <AlertType>Pre-Announcement Trading</AlertType>
+  <RuleViolated>MAR-03-001</RuleViolated>
+  <GeneratedTimestamp>2024-04-10T14:15:00Z</GeneratedTimestamp>
+
+  <Trader>
+    <TraderID>T002</TraderID>
+    <Name>Sarah Johnson</Name>
+    <Department>Equities</Department>
+  </Trader>
+
+  <SuspiciousActivity>
+    <Symbol>TECHCORP</Symbol>
+    <TradeDate>2024-04-08</TradeDate>
+    <Side>BUY</Side>
+    <Quantity>15000</Quantity>
+    <Price>85.25</Price>
+    <TotalValue>1278750</TotalValue>
+  </SuspiciousActivity>
+
+  <AnomalyIndicators>
+    <AnomalyScore>62</AnomalyScore>
+    <ConfidenceLevel>MEDIUM</ConfidenceLevel>
+    <TemporalProximity>48 hours before earnings beat</TemporalProximity>
+    <EstimatedProfit>112500</EstimatedProfit>
+  </AnomalyIndicators>
+
+  <RelatedEvent>
+    <EventType>Earnings Announcement</EventType>
+    <EventDate>2024-04-10</EventDate>
+    <EventDescription>TECHCORP Q1 earnings beat expectations by 15%</EventDescription>
+  </RelatedEvent>
+</SMARTSAlert>

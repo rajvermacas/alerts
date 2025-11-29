@@ -1,0 +1,9 @@
+trader_id,name,role,department,access_level,restrictions
+T001,John Smith,BACK_OFFICE,Operations,LOW,No trading allowed
+T002,Sarah Johnson,PORTFOLIO_MANAGER,Equities,HIGH,None
+T003,Michael Chen,RESEARCH_ANALYST,Research,MEDIUM,Restricted list applies
+T004,Emily Davis,TRADER,Trading Desk,LOW,Execution only
+T005,Robert Wilson,COMPLIANCE,Compliance,NONE,No trading allowed
+T006,Jennifer Lee,PORTFOLIO_MANAGER,Fixed Income,HIGH,None
+T007,David Brown,RESEARCH_ANALYST,Research,MEDIUM,Restricted list applies
+T008,Lisa Martinez,BACK_OFFICE,Settlement,NONE,No trading allowed

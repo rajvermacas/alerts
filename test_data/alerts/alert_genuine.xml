@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SMARTSAlert>
+  <AlertID>ITA-2024-001847</AlertID>
+  <AlertType>Pre-Announcement Trading</AlertType>
+  <RuleViolated>MAR-03-001</RuleViolated>
+  <GeneratedTimestamp>2024-03-16T10:30:00Z</GeneratedTimestamp>
+
+  <Trader>
+    <TraderID>T001</TraderID>
+    <Name>John Smith</Name>
+    <Department>Operations</Department>
+  </Trader>
+
+  <SuspiciousActivity>
+    <Symbol>ACME</Symbol>
+    <TradeDate>2024-03-15</TradeDate>
+    <Side>BUY</Side>
+    <Quantity>50000</Quantity>
+    <Price>101.50</Price>
+    <TotalValue>5075000</TotalValue>
+  </SuspiciousActivity>
+
+  <AnomalyIndicators>
+    <AnomalyScore>87</AnomalyScore>
+    <ConfidenceLevel>HIGH</ConfidenceLevel>
+    <TemporalProximity>36 hours before M&amp;A announcement</TemporalProximity>
+    <EstimatedProfit>675000</EstimatedProfit>
+  </AnomalyIndicators>
+
+  <RelatedEvent>
+    <EventType>M&amp;A Announcement</EventType>
+    <EventDate>2024-03-16</EventDate>
+    <EventDescription>ACME Corp acquired by TechGiant for $150/share</EventDescription>
+  </RelatedEvent>
+</SMARTSAlert>

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SMARTSAlert>
+  <AlertID>ITA-2024-003289</AlertID>
+  <AlertType>Pre-Announcement Trading</AlertType>
+  <RuleViolated>MAR-03-002</RuleViolated>
+  <GeneratedTimestamp>2024-05-20T09:45:00Z</GeneratedTimestamp>
+
+  <Trader>
+    <TraderID>T003</TraderID>
+    <Name>Michael Chen</Name>
+    <Department>Research</Department>
+  </Trader>
+
+  <SuspiciousActivity>
+    <Symbol>PHARMAX</Symbol>
+    <TradeDate>2024-05-18</TradeDate>
+    <Side>BUY</Side>
+    <Quantity>25000</Quantity>
+    <Price>42.75</Price>
+    <TotalValue>1068750</TotalValue>
+  </SuspiciousActivity>
+
+  <AnomalyIndicators>
+    <AnomalyScore>71</AnomalyScore>
+    <ConfidenceLevel>MEDIUM</ConfidenceLevel>
+    <TemporalProximity>72 hours before FDA approval announcement</TemporalProximity>
+    <EstimatedProfit>287500</EstimatedProfit>
+  </AnomalyIndicators>
+
+  <RelatedEvent>
+    <EventType>FDA Approval</EventType>
+    <EventDate>2024-05-21</EventDate>
+    <EventDescription>PHARMAX receives FDA approval for new cancer treatment drug</EventDescription>
+  </RelatedEvent>
+</SMARTSAlert>
