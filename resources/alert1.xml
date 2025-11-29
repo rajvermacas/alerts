@@ -1,0 +1,124 @@
+<Alert>
+    <AlertID>ITA-2024-001847</AlertID>
+    <AlertType>Insider Trading Detection</AlertType>
+    <Severity>HIGH</Severity>
+    <CreatedDateTime>2024-11-28T14:32:15Z</CreatedDateTime>
+    <Status>Active</Status>
+    <RuleViolated>
+      <RuleName>Pre-Announcement Trading Anomaly</RuleName>
+      <RuleCode>MAR-03-001</RuleCode>
+      <Description>Unusual trading activity detected 48 hours before material news announcement</Description>
+    </RuleViolated>
+    
+    <TradingActivity>
+      <Symbol>ACME</Symbol>
+      <SecurityType>Equity</SecurityType>
+      <AnomalyPeriod>
+        <StartDate>2024-11-26T09:30:00Z</StartDate>
+        <EndDate>2024-11-27T16:00:00Z</EndDate>
+      </AnomalyPeriod>
+      
+      <Order>
+        <OrderID>ORD-2024-556781</OrderID>
+        <Timestamp>2024-11-26T10:15:32Z</Timestamp>
+        <TraderID>T-4521</TraderID>
+        <TraderName>John M. Richardson</TraderName>
+        <TraderTitle>VP - Operations</TraderTitle>
+        <AccountType>Personal</AccountType>
+        <Side>BUY</Side>
+        <Quantity>25000</Quantity>
+        <Price>45.32</Price>
+        <OrderValue>1133000</OrderValue>
+        <OrderType>Market</OrderType>
+        <Venue>NASDAQ</Venue>
+      </Order>
+      
+      <Order>
+        <OrderID>ORD-2024-556812</OrderID>
+        <Timestamp>2024-11-26T14:47:19Z</Timestamp>
+        <TraderID>T-4521</TraderID>
+        <TraderName>John M. Richardson</TraderName>
+        <Side>BUY</Side>
+        <Quantity>15000</Quantity>
+        <Price>45.78</Price>
+        <OrderValue>687000</OrderValue>
+        <OrderType>Market</OrderType>
+        <Venue>NASDAQ</Venue>
+      </Order>
+      
+      <Order>
+        <OrderID>ORD-2024-557023</OrderID>
+        <Timestamp>2024-11-27T09:42:05Z</Timestamp>
+        <TraderID>T-4521</TraderID>
+        <TraderName>John M. Richardson</TraderName>
+        <Side>BUY</Side>
+        <Quantity>20000</Quantity>
+        <Price>46.15</Price>
+        <OrderValue>923000</OrderValue>
+        <OrderType>Market</OrderType>
+        <Venue>NASDAQ</Venue>
+      </Order>
+      
+      <TotalVolume>60000</TotalVolume>
+      <TotalValue>2743000</TotalValue>
+      <HistoricalAverageDailyVolume>8500</HistoricalAverageDailyVolume>
+      <AnomalyMultiplier>7.06</AnomalyMultiplier>
+      <AnomalyPercentage>706%</AnomalyPercentage>
+    </TradingActivity>
+    
+    <CorrelatedEvent>
+      <EventType>Material Announcement</EventType>
+      <AnnouncementDate>2024-11-28T08:30:00Z</AnnouncementDate>
+      <TimeDifferenceHours>18</TimeDifferenceHours>
+      <NewsHeadline>ACME Corp Reports Record Q3 Earnings, Announces $5B Acquisition</NewsHeadline>
+      <ImpactOnPrice>Up 12.5%</ImpactOnPrice>
+    </CorrelatedEvent>
+    
+    <RelatedParties>
+      <RelatedParty>
+        <Name>Sarah K. Richardson</Name>
+        <Relationship>Spouse</Relationship>
+        <TraderID>T-6734</TraderID>
+        <CoordinatedTradingFound>YES</CoordinatedTradingFound>
+        <TradesPlaced>2</TradesPlaced>
+        <TradesValue>450000</TradesValue>
+      </RelatedParty>
+    </RelatedParties>
+    
+    <RiskIndicators>
+      <InsiderStatus>YES</InsiderStatus>
+      <InsiderCategory>Officer</InsiderCategory>
+      <AccessToNonPublicInfo>LIKELY</AccessToNonPublicInfo>
+      <CommunicationWithInsiders>Flagged</CommunicationWithInsiders>
+      <UnusualTradingPattern>YES</UnusualTradingPattern>
+      <TimingCorrelation>STRONG</TimingCorrelation>
+      <ProfitabilityFromMove>$750,000</ProfitabilityFromMove>
+    </RiskIndicators>
+    
+    <AnomalyScore>9.2</AnomalyScore>
+    <ConfidenceLevel>94%</ConfidenceLevel>
+    
+    <RegulatoryContext>
+      <ApplicableRegulations>
+        <Regulation>MAR (Market Abuse Regulation)</Regulation>
+        <Regulation>Dodd-Frank Act Section 16</Regulation>
+        <Regulation>Securities Exchange Act Section 10(b)</Regulation>
+        <Regulation>Rule 10b5</Regulation>
+      </ApplicableRegulations>
+    </RegulatoryContext>
+    
+    <InvestigationNotes>
+      <Note>Trader identified as VP of Operations with access to earnings information</Note>
+      <Note>Spouse also placed coordinated trades within 2 hours</Note>
+      <Note>Trading occurred during restricted window (2 days before announcement)</Note>
+      <Note>Pattern consistent with information leakage</Note>
+    </InvestigationNotes>
+    
+    <CaseManagement>
+      <CaseID>CASE-2024-8847</CaseID>
+      <AssignedAnalyst>Compliance Officer - Sarah M. Chen</AssignedAnalyst>
+      <AssignedDate>2024-11-28T15:00:00Z</AssignedDate>
+      <Priority>URGENT</Priority>
+      <Status>Under Investigation</Status>
+    </CaseManagement>
+  </Alert>

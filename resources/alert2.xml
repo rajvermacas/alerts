@@ -1,0 +1,81 @@
+<Alert>
+    <AlertID>ITA-2024-001923</AlertID>
+    <AlertType>Insider Trading Detection</AlertType>
+    <Severity>MEDIUM-HIGH</Severity>
+    <CreatedDateTime>2024-11-28T11:45:22Z</CreatedDateTime>
+    <Status>Active</Status>
+    <RuleViolated>
+      <RuleName>Information Leakage Detection</RuleName>
+      <RuleCode>MAR-03-005</RuleCode>
+      <Description>Trading pattern matches rumor circulation timeline</Description>
+    </RuleViolated>
+    
+    <TradingActivity>
+      <Symbol>TECH-X</Symbol>
+      <SecurityType>Equity</SecurityType>
+      <AnomalyPeriod>
+        <StartDate>2024-11-25T09:30:00Z</StartDate>
+        <EndDate>2024-11-27T16:00:00Z</EndDate>
+      </AnomalyPeriod>
+      
+      <Order>
+        <OrderID>ORD-2024-554421</OrderID>
+        <Timestamp>2024-11-25T13:22:45Z</Timestamp>
+        <TraderID>T-8934</TraderID>
+        <TraderName>Michael T. Foster</TraderName>
+        <TraderTitle>Director - Strategy</TraderTitle>
+        <Side>SELL</Side>
+        <Quantity>35000</Quantity>
+        <Price>78.45</Price>
+        <OrderValue>2745750</OrderValue>
+        <OrderType>Market</OrderType>
+        <Venue>NYSE</Venue>
+      </Order>
+      
+      <Order>
+        <OrderID>ORD-2024-554512</OrderID>
+        <Timestamp>2024-11-26T10:05:18Z</Timestamp>
+        <TraderID>T-8934</TraderID>
+        <TraderName>Michael T. Foster</TraderName>
+        <Side>SELL</Side>
+        <Quantity>25000</Quantity>
+        <Price>78.92</Price>
+        <OrderValue>1973000</OrderValue>
+        <OrderType>Limit</OrderType>
+        <Venue>NYSE</Venue>
+      </Order>
+      
+      <TotalVolume>60000</TotalVolume>
+      <TotalValue>4718750</TotalValue>
+      <HistoricalAverageDailyVolume>12000</HistoricalAverageDailyVolume>
+      <AnomalyMultiplier>5.0</AnomalyMultiplier>
+    </TradingActivity>
+    
+    <CorrelatedEvent>
+      <EventType>Corporate Action Announcement</EventType>
+      <AnnouncementDate>2024-11-28T09:15:00Z</AnnouncementDate>
+      <TimeDifferenceHours>19.5</TimeDifferenceHours>
+      <NewsHeadline>TECH-X Receives Unsolicited Acquisition Offer - Board Reviewing</NewsHeadline>
+      <ImpactOnPrice>Down 8.3%</ImpactOnPrice>
+    </CorrelatedEvent>
+    
+    <RiskIndicators>
+      <InsiderStatus>YES</InsiderStatus>
+      <InsiderCategory>Director</InsiderCategory>
+      <AccessToNonPublicInfo>LIKELY</AccessToNonPublicInfo>
+      <UnusualTradingPattern>YES</UnusualTradingPattern>
+      <TradeDirectionBeforeNegativeNews>SELL</TradeDirectionBeforeNegativeNews>
+      <ProfitFromAvoidingLoss>$498,000</ProfitFromAvoidingLoss>
+    </RiskIndicators>
+    
+    <AnomalyScore>8.7</AnomalyScore>
+    <ConfidenceLevel>89%</ConfidenceLevel>
+    
+    <CaseManagement>
+      <CaseID>CASE-2024-8923</CaseID>
+      <AssignedAnalyst>Compliance Officer - David R. Kumar</AssignedAnalyst>
+      <AssignedDate>2024-11-28T12:00:00Z</AssignedDate>
+      <Priority>HIGH</Priority>
+      <Status>Under Investigation</Status>
+    </CaseManagement>
+  </Alert>

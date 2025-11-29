@@ -1,0 +1,224 @@
+Keep in mind we are at the proof of concept stage hence keep it minimalistic. 
+  ---
+  1. System Integration Questions
+
+  Q1: How will SMARTS alerts arrive?
+    1. It will be present in a alert.xml
+
+  Q2: Where does the Trade History Database live?
+    We will need to create dummy data in csv file
+
+  Q3: Market News Data source?
+    Dummy data present in some txt file
+
+
+  2. Agent Architecture Questions
+
+  Q4: Do you want a single monolithic agent or decomposed specialist agents?
+    Create a single agent with multiple tools. Use langgraph.
+  
+  Q6: Latency requirements?
+    Keep it synchronous and simple for poc phase
+
+  ---
+  3. Data Access Pattern Questions
+
+  Q7: Are the 7 "tools" you listed actual APIs that exist, or do we need to build them?
+
+  query_trader_history()
+  query_market_news()
+  query_market_volatility()
+  query_trader_profile()
+  query_competitor_trades()
+  query_calendar_events()
+
+  Default assumption: These are logical tools we need to implement as wrappers around existing data sources. - Yes and the datasource will be a text file for now. These tools should call LLM internally to understand the unstrcutred data. And provide insight to the agent so that agent can use this information along with other tools information and conclude using few shots examples whether its a genuine alert or false positive.
+
+  Q8: For query_internal_communication() - what's the data source?
+  - not needed for now
+
+  4. Critical Architectural Decisions
+
+  Q9: How do you want to handle the scoring algorithm?
+
+  Option A: Pure LLM - Agent reasons and assigns scores based on prompt
+ 
+
+  Default assumption: Option A initially (pure LLM), with structured output validation.
+
+  Q10: Audit trail requirements?
+  - Do you need to store the full reasoning chain for regulatory review? - Yes
+  - How long must audit logs be retained? - do not go into that complexity just store them
+
+    The reasoning is the most important aspect. Any human analyst should be Able to read the reasoning of this to know how Agent was able to get to this decision of genuine alert or false positive
+
+  ---
+  5. Questions You Should Be Asking Yourself
+
+  Before we finalize, consider:
+
+  1. Ground Truth Data: no not now. but i'll have it later. for now just focus on treating the application I will test it later
+   
+  2. Feedback Loop: When a human analyst reviews an escalated alert, will that decision flow back to improve the system?
+    Yes in the future this will be provided as the feedback loop
+
+  3. Explainability: Regulators may ask "why did you close this alert?" - is the JSON output sufficient, or do you need narrative
+  documentation?
+    Narrative documentation should be good along with Jason or in the Jason only you can have a property which should have a narration kind of
+
+  4. Failsafe Mode: If the agent fails/times out, do alerts auto-escalate (safe) or auto-close (risky)?
+    If the agent fails there should be no fail safe mode I should be able to it fast so it should be a fail fast I need to know if it fails I don't not want any fail safe or work around or exception handling for this particular case if it fails it fails.
+
+  5. Volume: How many alerts/day? 10? 1000? 10000? This affects architecture significantly.
+    For now just consider it in double digits
+
+  6. Confidence Calibration: Your thresholds (70% escalate, 75% close) leave a gap. What happens to alerts in the 65-70% genuine /
+  65-75% false positive zone?
+    I don't have an idea about it
+
+  ---
+  Proposed Lean Architecture - I don't think we need a XML parser rather just share the whole XML with the agent's LLM does it make sense?
+
+  
+-----------------------------
+  On Your Key Decision: "Share whole XML with LLM"
+
+  Yes, this makes sense for POC. Modern LLMs handle XML well. Avoids building a parser. The agent can extract what it needs.
+
+  However, one consideration:
+
+  Q11: XML size - how large are typical SMARTS alerts?
+    - Right now I'll just try to provide the whole XML I believe XML should be of a small size because going forward I'll try to write an extractor XML parts basically to only provide basic subset of the XML tags to the LLM so that I'll handle later.
+
+  ---
+  On "Tools should call LLM internally"
+
+  You mentioned each tool (e.g., query_trader_history()) should:
+  1. Read from text/CSV file
+  2. Call LLM to interpret unstructured data
+  3. Return insight to the main agent
+
+  Q12: This creates nested LLM calls. Are you okay with:
+  - Higher latency (multiple LLM round-trips per alert)?
+  - Higher cost (each tool = 1 LLM call, so 5-6 tools = 5-6 calls + 1 final reasoning call)?
+
+
+  
+
+  Which do you prefer?
+    I prefer: Each tool calls LLM internally (your original idea)
+    Because as we the cost is associated with the numbmer of token and not with the actual LLM call so it will not make any difference if I call it separately inside the tool or just share all the data with LLM because in both the cases the number of tokens will be same. The only concern is about the round trip time but I'll try to take that chance for a better accuracy.
+  
+
+  ---
+  On Confidence Gap (65-75% zone)
+
+  You said you're unsure. Here are practical options:
+
+  | Zone                  | Option 1             | Option 2               | Option 3                   |
+  |-----------------------|----------------------|------------------------|----------------------------|
+  | Neither threshold met | Auto-escalate (safe) | Mark as "NEEDS_REVIEW" | Force agent to pick a side |
+
+  Q13: For POC, which feels right?
+
+  Default assumption: Force agent to pick a side (simplest) - no "inconclusive" bucket. But if there are conflicts and it's not wise to take a decision then the agent can ask for a human feedback.
+
+  ---
+  On Fail-Fast
+    try-catch Should be there but there should be feel safe branches.
+  no graceful degradation. If something breaks, it crashes loudly.
+
+  Q14: Should the crash:
+  - Print stack trace to console and exit? - yes
+
+  Default assumption: Print to console + write to error log file.- sure
+
+  ---
+  Revised Lean Architecture (POC)
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                         INPUT FILES                              │
+  │   alert.xml | trader_history.csv | market_news.txt | etc.        │
+  └─────────────────────────────┬───────────────────────────────────┘
+                                │
+                                ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                     LANGGRAPH AGENT                              │
+  │                                                                  │
+  │  ┌────────────┐  ┌────────────┐  ┌────────────┐                 │
+  │  │ read_alert │  │query_trader│  │query_market│  ... (tools)    │
+  │  │    (XML)   │  │  _history  │  │   _news    │                 │
+  │  └────────────┘  └────────────┘  └────────────┘                 │
+  │         │               │               │                        │
+  │         └───────────────┼───────────────┘                        │
+  │                         │                                        │
+  │                         ▼                                        │
+  │              ┌─────────────────────┐                             │
+  │              │   LLM REASONING     │                             │
+  │              │  (with few-shot     │                             │
+  │              │   examples)         │                             │
+  │              └─────────────────────┘                             │
+  │                         │                                        │
+  │                         ▼                                        │
+  │              ┌─────────────────────┐                             │
+  │              │  STRUCTURED OUTPUT  │                             │
+  │              │  (Pydantic model)   │                             │
+  │              └─────────────────────┘                             │
+  └─────────────────────────┬───────────────────────────────────────┘
+                            │
+                            ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                      OUTPUT                                      │
+  │   decision.json (with full reasoning narrative)                  │
+  │   + audit_log.jsonl (append-only log of all decisions)           │
+  └─────────────────────────────────────────────────────────────────┘
+
+  ---
+  Proposed Tool List (Simplified for POC)
+
+  | Tool                 | Input              | Data Source         | Returns                     |
+  |----------------------|--------------------|---------------------|-----------------------------|
+  | read_alert           | -                  | alert.xml           | Full XML content            |
+  | query_trader_history | trader_id          | trader_history.csv  | Filtered rows for trader    |
+  | query_trader_profile | trader_id          | trader_profiles.csv | Trader's role, restrictions |
+  | query_market_news    | symbol, date_range | market_news.txt     | Relevant news snippets      |
+  | query_market_data    | symbol, date_range | market_data.csv     | Price/volume/volatility     |
+  | query_peer_trades    | symbol, date_range | peer_trades.csv     | Other traders' activity     |
+
+  Q15: Is 6 tools sufficient, or do you want query_calendar_events as a 7th?
+
+  Default assumption: 6 tools is enough for POC.
+
+  ---
+  Dummy Data Files Needed
+
+  test_data/
+  ├── alert.xml              # Sample SMARTS alert
+  ├── trader_history.csv     # trader_id, date, symbol, side, qty, price
+  ├── trader_profiles.csv    # trader_id, name, role, department, restrictions
+  ├── market_news.txt        # Timestamped news items
+  ├── market_data.csv        # symbol, date, open, high, low, close, volume, vix
+  └── peer_trades.csv        # Same schema as trader_history, different traders
+
+  Q16: Should I create realistic dummy data, or do you have sample files?
+
+  Default assumption: I'll create realistic dummy data that demonstrates both a genuine alert scenario and a false positive
+  scenario.
+
+  ---
+  Final Questions Before Algorithm Design
+
+  Q17: LLM provider preference?
+  - OpenAI (gpt-4o / gpt-4o-mini)? - make it config driven
+  - Azure OpenAI? - It should support both openai and azure openai
+
+  Q18: Output destination - where should the decision JSON go?
+  - write in output folder
+
+
+Here is an example of the workflow of an analyst:
+1. The analyst first checks about the account for its last one year of data for the trade pattern to if the account has been regularly involved in volume and sector stock or is it just out of the blue that he has invested in such a sector out of nowhere with such great quantity and made a profit because that would it is more aligned with a genuine insider trading alert.
+
+2. So right now what do you need to check basically is I mean for the agent is volume analysis is it a large volume or is it a low volume based on the past one year trading pattern of the account Is this a new sector or in this sector he keeps on buying and selling. 3rd one is the market analysis that is done just before a market event on an announcement earnings growth whatever that is that might benefit the trader account in case of insider trading.
+-----------------------------------
+

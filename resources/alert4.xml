@@ -1,0 +1,85 @@
+<Alert>
+    <AlertID>ITA-2024-002001</AlertID>
+    <AlertType>Insider Trading Detection</AlertType>
+    <Severity>HIGH</Severity>
+    <CreatedDateTime>2024-11-28T09:20:44Z</CreatedDateTime>
+    <Status>Active</Status>
+    <RuleViolated>
+      <RuleName>M&A Activity Pre-Trading Detection</RuleName>
+      <RuleCode>MAR-03-009</RuleCode>
+      <Description>Trading activity detected before M&A announcement within restricted period</Description>
+    </RuleViolated>
+    
+    <TradingActivity>
+      <Symbol>TARGET-CORP</Symbol>
+      <SecurityType>Equity</SecurityType>
+      <AnomalyPeriod>
+        <StartDate>2024-11-26T09:30:00Z</StartDate>
+        <EndDate>2024-11-27T16:00:00Z</EndDate>
+      </AnomalyPeriod>
+      
+      <Order>
+        <OrderID>ORD-2024-558234</OrderID>
+        <Timestamp>2024-11-26T14:33:21Z</Timestamp>
+        <TraderID>T-5632</TraderID>
+        <TraderName>Robert H. Sullivan</TraderName>
+        <TraderTitle>General Counsel</TraderTitle>
+        <Side>BUY</Side>
+        <Quantity>45000</Quantity>
+        <Price>32.15</Price>
+        <OrderValue>1446750</OrderValue>
+        <OrderType>Market</OrderType>
+        <Venue>NASDAQ</Venue>
+      </Order>
+      
+      <Order>
+        <OrderID>ORD-2024-558467</OrderID>
+        <Timestamp>2024-11-27T11:02:18Z</Timestamp>
+        <TraderID>T-5632</TraderID>
+        <TraderName>Robert H. Sullivan</TraderName>
+        <Side>BUY</Side>
+        <Quantity>30000</Quantity>
+        <Price>32.54</Price>
+        <OrderValue>976200</OrderValue>
+        <OrderType>Market</OrderType>
+        <Venue>NASDAQ</Venue>
+      </Order>
+      
+      <TotalVolume>75000</TotalVolume>
+      <TotalValue>2422950</TotalValue>
+      <HistoricalAverageDailyVolume>6200</HistoricalAverageDailyVolume>
+      <AnomalyMultiplier>12.1</AnomalyMultiplier>
+    </TradingActivity>
+    
+    <CorrelatedEvent>
+      <EventType>M&A Announcement</EventType>
+      <AnnouncementDate>2024-11-28T07:45:00Z</AnnouncementDate>
+      <TimeDifferenceHours>17.25</TimeDifferenceHours>
+      <NewsHeadline>ACQUIRE-INC to Buy TARGET-CORP for $38.50 per Share - Premium of 19.7%</NewsHeadline>
+      <ImpactOnPrice>Up 19.7%</ImpactOnPrice>
+      <DealValue>$15.2 Billion</DealValue>
+    </CorrelatedEvent>
+    
+    <RiskIndicators>
+      <InsiderStatus>YES</InsiderStatus>
+      <InsiderCategory>Officer - Legal</InsiderCategory>
+      <AccessToNonPublicInfo>HIGHLY LIKELY</AccessToNonPublicInfo>
+      <RestrictedTradingWindow>YES</RestrictedTradingWindow>
+      <UnusualTradingPattern>YES</UnusualTradingPattern>
+      <TradeAlignedWithAnnouncement>YES</TradeAlignedWithAnnouncement>
+      <ImmediateProfitFromAnnouncement>$1,479,750</ImmediateProfitFromAnnouncement>
+    </RiskIndicators>
+    
+    <AnomalyScore>9.6</AnomalyScore>
+    <ConfidenceLevel>96%</ConfidenceLevel>
+    
+    <CaseManagement>
+      <CaseID>CASE-2024-9001</CaseID>
+      <AssignedAnalyst>Compliance Officer - Maria S. Lopez</AssignedAnalyst>
+      <AssignedDate>2024-11-28T09:35:00Z</AssignedDate>
+      <Priority>URGENT</Priority>
+      <Status>Under Investigation</Status>
+      <EscalationRequired>YES</EscalationRequired>
+      <RegulatoryReportingRequired>YES</RegulatoryReportingRequired>
+    </CaseManagement>
+  </Alert>
