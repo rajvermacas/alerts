@@ -23,7 +23,7 @@ def create_llm(config):
         config: AppConfig instance
 
     Returns:
-        LangChain LLM instance
+        LangChain LLM instance (AzureChatOpenAI, ChatOpenAI, or ChatOpenAI with OpenRouter)
     """
     logger.info(f"Creating LLM with provider: {config.llm.provider}")
 
@@ -34,6 +34,26 @@ def create_llm(config):
             azure_endpoint=config.llm.azure_endpoint,
             api_version=config.llm.azure_api_version,
             api_key=config.llm.api_key,
+            temperature=config.llm.temperature,
+            max_tokens=config.llm.max_tokens,
+        )
+    elif config.llm.provider == "openrouter":
+        logger.info(f"Using OpenRouter: {config.llm.model}")
+
+        # Build optional headers for site tracking
+        default_headers = {}
+        if config.llm.openrouter_site_url:
+            default_headers["HTTP-Referer"] = config.llm.openrouter_site_url
+            logger.debug(f"OpenRouter HTTP-Referer header set: {config.llm.openrouter_site_url}")
+        if config.llm.openrouter_site_name:
+            default_headers["X-Title"] = config.llm.openrouter_site_name
+            logger.debug(f"OpenRouter X-Title header set: {config.llm.openrouter_site_name}")
+
+        return ChatOpenAI(
+            model=config.llm.model,
+            api_key=config.llm.api_key,
+            base_url="https://openrouter.ai/api/v1",
+            default_headers=default_headers if default_headers else None,
             temperature=config.llm.temperature,
             max_tokens=config.llm.max_tokens,
         )

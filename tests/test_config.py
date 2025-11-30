@@ -68,6 +68,41 @@ class TestLLMConfig:
                 azure_api_version=None
             )
 
+    def test_openrouter_config(self):
+        """Test OpenRouter configuration."""
+        config = LLMConfig(
+            provider="openrouter",
+            model="openai/gpt-4o",
+            api_key="test-openrouter-key"
+        )
+
+        assert config.provider == "openrouter"
+        assert config.model == "openai/gpt-4o"
+        assert not config.is_azure()
+
+    def test_openrouter_config_with_site_tracking(self):
+        """Test OpenRouter configuration with site tracking headers."""
+        config = LLMConfig(
+            provider="openrouter",
+            model="anthropic/claude-instant-v1",
+            api_key="test-openrouter-key",
+            openrouter_site_url="https://example.com",
+            openrouter_site_name="My App"
+        )
+
+        assert config.provider == "openrouter"
+        assert config.openrouter_site_url == "https://example.com"
+        assert config.openrouter_site_name == "My App"
+
+    def test_openrouter_missing_api_key_raises(self):
+        """Test that OpenRouter without API key raises error."""
+        with pytest.raises(ConfigurationError):
+            LLMConfig(
+                provider="openrouter",
+                model="openai/gpt-4o",
+                api_key=None
+            )
+
 
 class TestDataConfig:
     """Tests for DataConfig."""
@@ -148,6 +183,34 @@ class TestAppConfig:
         assert config.llm.provider == "azure"
         assert config.llm.api_key == "test-azure-key"
         assert config.llm.is_azure()
+
+    def test_from_env_openrouter(self, monkeypatch):
+        """Test loading OpenRouter config from environment."""
+        monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+        monkeypatch.setenv("OPENROUTER_MODEL", "anthropic/claude-instant-v1")
+        monkeypatch.setenv("OPENROUTER_SITE_URL", "https://example.com")
+        monkeypatch.setenv("OPENROUTER_SITE_NAME", "My Alert App")
+
+        config = AppConfig.from_env()
+
+        assert config.llm.provider == "openrouter"
+        assert config.llm.api_key == "test-openrouter-key"
+        assert config.llm.model == "anthropic/claude-instant-v1"
+        assert config.llm.openrouter_site_url == "https://example.com"
+        assert config.llm.openrouter_site_name == "My Alert App"
+
+    def test_from_env_openrouter_without_site_tracking(self, monkeypatch):
+        """Test OpenRouter config without optional site tracking."""
+        monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+        monkeypatch.setenv("OPENROUTER_MODEL", "openai/gpt-4o")
+
+        config = AppConfig.from_env()
+
+        assert config.llm.provider == "openrouter"
+        assert config.llm.openrouter_site_url is None
+        assert config.llm.openrouter_site_name is None
 
     def test_from_env_invalid_provider(self, monkeypatch):
         """Test invalid provider raises error."""

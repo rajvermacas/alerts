@@ -30,22 +30,26 @@ class LLMConfig:
     """LLM provider configuration.
 
     Attributes:
-        provider: LLM provider type ("openai" or "azure")
+        provider: LLM provider type ("openai", "azure", or "openrouter")
         model: Model name/deployment name
         temperature: Sampling temperature (0.0 for deterministic)
         max_tokens: Maximum tokens in response
         api_key: API key for the provider
         azure_endpoint: Azure OpenAI endpoint (required for Azure)
         azure_api_version: Azure API version (required for Azure)
+        openrouter_site_url: Optional site URL for OpenRouter ranking (OpenRouter only)
+        openrouter_site_name: Optional site name for OpenRouter ranking (OpenRouter only)
     """
 
-    provider: Literal["openai", "azure"] = "openai"
+    provider: Literal["openai", "azure", "openrouter"] = "openai"
     model: str = "gpt-4o"
     temperature: float = 0.0
     max_tokens: int = 4000
     api_key: Optional[str] = None
     azure_endpoint: Optional[str] = None
     azure_api_version: Optional[str] = None
+    openrouter_site_url: Optional[str] = None
+    openrouter_site_name: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
@@ -54,7 +58,7 @@ class LLMConfig:
         if not self.api_key:
             raise ConfigurationError(
                 f"API key required for provider '{self.provider}'. "
-                f"Set OPENAI_API_KEY or AZURE_OPENAI_API_KEY environment variable."
+                f"Set OPENAI_API_KEY, AZURE_OPENAI_API_KEY, or OPENROUTER_API_KEY environment variable."
             )
 
         if self.provider == "azure":
@@ -67,6 +71,12 @@ class LLMConfig:
                     "Azure API version required. Set AZURE_OPENAI_API_VERSION environment variable."
                 )
             logger.info(f"Azure OpenAI configured: endpoint={self.azure_endpoint}")
+        elif self.provider == "openrouter":
+            logger.info(f"OpenRouter configured: model={self.model}")
+            if self.openrouter_site_url:
+                logger.debug(f"OpenRouter site URL: {self.openrouter_site_url}")
+            if self.openrouter_site_name:
+                logger.debug(f"OpenRouter site name: {self.openrouter_site_name}")
         else:
             logger.info(f"OpenAI configured: model={self.model}")
 
@@ -193,15 +203,18 @@ class AppConfig:
 
         # Determine provider
         provider = os.getenv("LLM_PROVIDER", "openai").lower()
-        if provider not in ("openai", "azure"):
+        if provider not in ("openai", "azure", "openrouter"):
             raise ConfigurationError(
-                f"Invalid LLM_PROVIDER '{provider}'. Must be 'openai' or 'azure'."
+                f"Invalid LLM_PROVIDER '{provider}'. Must be 'openai', 'azure', or 'openrouter'."
             )
 
-        # Get API key based on provider
+        # Get API key and model based on provider
         if provider == "azure":
             api_key = os.getenv("AZURE_OPENAI_API_KEY")
             model = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+        elif provider == "openrouter":
+            api_key = os.getenv("OPENROUTER_API_KEY")
+            model = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o")
         else:
             api_key = os.getenv("OPENAI_API_KEY")
             model = os.getenv("OPENAI_MODEL", "gpt-4o")
@@ -215,6 +228,8 @@ class AppConfig:
             api_key=api_key,
             azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
             azure_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+            openrouter_site_url=os.getenv("OPENROUTER_SITE_URL"),
+            openrouter_site_name=os.getenv("OPENROUTER_SITE_NAME"),
         )
 
         # Build data config

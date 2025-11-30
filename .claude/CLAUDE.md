@@ -154,7 +154,7 @@ Loaded via `prompts/system_prompt.py:load_few_shot_examples()` and injected into
 
 ### Configuration Management
 
-**Environment-based** configuration supporting both OpenAI and Azure OpenAI:
+**Environment-based** configuration supporting OpenAI, Azure OpenAI, and OpenRouter:
 
 ```python
 # config.py uses dataclasses with fail-fast validation
@@ -166,7 +166,7 @@ AppConfig
 
 Load with: `get_config()` (reads from `.env` file via `python-dotenv`)
 
-**Provider switching**: Set `LLM_PROVIDER=openai` or `LLM_PROVIDER=azure` in `.env`
+**Provider switching**: Set `LLM_PROVIDER=openai`, `LLM_PROVIDER=azure`, or `LLM_PROVIDER=openrouter` in `.env`
 
 ### Output Schema
 
@@ -206,11 +206,32 @@ All data sources are **local files** in `test_data/`:
 - `few_shot_examples.json` - Few-shot precedents
 
 ### LLM Provider Support
-Code is **provider-agnostic**. Switch between OpenAI and Azure via configuration:
-- OpenAI: `OPENAI_API_KEY` + `OPENAI_MODEL`
-- Azure: `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_DEPLOYMENT`
 
-Implementation: `main.py:create_llm()` uses LangChain's `ChatOpenAI` or `AzureChatOpenAI`
+Code is **provider-agnostic**. Switch between three providers via configuration:
+
+**OpenAI**:
+- Environment variables: `OPENAI_API_KEY` + `OPENAI_MODEL`
+- Models: Any OpenAI model (e.g., "gpt-4o", "gpt-4-turbo")
+
+**Azure OpenAI**:
+- Environment variables: `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_DEPLOYMENT` + `AZURE_OPENAI_API_VERSION`
+- Models: Any deployed model in Azure
+
+**OpenRouter** (NEW):
+- Environment variables: `OPENROUTER_API_KEY` + `OPENROUTER_MODEL`
+- Optional: `OPENROUTER_SITE_URL` + `OPENROUTER_SITE_NAME` (for site ranking)
+- Models: Any model in OpenRouter catalog (e.g., "openai/gpt-4o", "anthropic/claude-opus", "meta-llama/llama-3-8b")
+- Base URL: Automatically set to `https://openrouter.ai/api/v1`
+
+Implementation: `main.py:create_llm()` uses LangChain's `ChatOpenAI` or `AzureChatOpenAI`. OpenRouter also uses `ChatOpenAI` with OpenAI-compatible API.
+
+**Example OpenRouter Usage**:
+```bash
+export LLM_PROVIDER=openrouter
+export OPENROUTER_API_KEY=sk-or-...
+export OPENROUTER_MODEL=anthropic/claude-opus  # Or any other model
+python -m alerts.main
+```
 
 ### No Hardcoded Scoring
 The system uses **pure LLM reasoning** - no weight-based scoring formulas. To adjust behavior:
