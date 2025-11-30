@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.tools import tool as create_tool
+from langchain_core.tools import StructuredTool
 from langgraph.graph import END, MessagesState, StateGraph, START
 from langgraph.prebuilt import ToolNode
+from pydantic import BaseModel, Field
 
 from alerts.models import (
     AlertDecision,
@@ -35,6 +36,47 @@ from alerts.tools import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Tool argument schemas
+class ReadAlertArgs(BaseModel):
+    """Arguments for the read_alert tool."""
+    alert_file_path: str = Field(
+        description="Path to the alert XML file to read (e.g., 'test_data/alerts/alert_genuine.xml')"
+    )
+
+
+class QueryTraderHistoryArgs(BaseModel):
+    """Arguments for the query_trader_history tool."""
+    trader_id: str = Field(description="Trader ID to query")
+    symbol: str = Field(description="The flagged stock symbol")
+    trade_date: str = Field(description="The flagged trade date in YYYY-MM-DD format")
+
+
+class QueryTraderProfileArgs(BaseModel):
+    """Arguments for the query_trader_profile tool."""
+    trader_id: str = Field(description="Trader ID to query")
+
+
+class QueryMarketNewsArgs(BaseModel):
+    """Arguments for the query_market_news tool."""
+    symbol: str = Field(description="Stock symbol to query")
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+
+
+class QueryMarketDataArgs(BaseModel):
+    """Arguments for the query_market_data tool."""
+    symbol: str = Field(description="Stock symbol to query")
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
+
+
+class QueryPeerTradesArgs(BaseModel):
+    """Arguments for the query_peer_trades tool."""
+    symbol: str = Field(description="Stock symbol to query")
+    start_date: str = Field(description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(description="End date in YYYY-MM-DD format")
 
 
 class AlertAnalyzerAgent:
@@ -111,26 +153,41 @@ class AlertAnalyzerAgent:
         ]
 
     def _create_langchain_tools(self) -> list:
-        """Convert tool instances to LangChain tools.
+        """Convert tool instances to LangChain tools with proper schemas.
 
         Returns:
             List of LangChain tools
         """
+        # Map tool names to their argument schemas
+        schema_map = {
+            "read_alert": ReadAlertArgs,
+            "query_trader_history": QueryTraderHistoryArgs,
+            "query_trader_profile": QueryTraderProfileArgs,
+            "query_market_news": QueryMarketNewsArgs,
+            "query_market_data": QueryMarketDataArgs,
+            "query_peer_trades": QueryPeerTradesArgs,
+        }
+
         langchain_tools = []
 
         for tool_instance in self.tool_instances:
-            # Create a wrapper function for each tool
-            # We need to capture the instance in a closure
+            # Get the schema for this tool
+            args_schema = schema_map.get(tool_instance.name)
+            if not args_schema:
+                raise ValueError(f"No schema defined for tool: {tool_instance.name}")
+
+            # Create a wrapper function that captures the instance
             def make_tool_func(instance):
                 def tool_func(**kwargs) -> str:
                     return instance(**kwargs)
                 return tool_func
 
-            # Create the LangChain tool
-            lc_tool = create_tool(
+            # Create StructuredTool with explicit schema
+            lc_tool = StructuredTool.from_function(
                 func=make_tool_func(tool_instance),
                 name=tool_instance.name,
                 description=tool_instance.description,
+                args_schema=args_schema,
             )
             langchain_tools.append(lc_tool)
 
