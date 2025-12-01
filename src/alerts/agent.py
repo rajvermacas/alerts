@@ -21,6 +21,7 @@ from alerts.models import (
     MarketContext,
     TraderBaselineAnalysis,
 )
+from alerts.reports.html_generator import HTMLReportGenerator
 from alerts.prompts.system_prompt import (
     get_final_decision_prompt,
     get_system_prompt,
@@ -359,6 +360,9 @@ class AlertAnalyzerAgent:
         if not alert_file_path.exists():
             raise FileNotFoundError(f"Alert file not found: {alert_file_path}")
 
+        # Store alert file path for HTML report generation
+        self._current_alert_path = alert_file_path
+
         # Create initial message with alert file path
         initial_message = HumanMessage(
             content=f"""Please analyze the following SMARTS alert for potential insider trading.
@@ -398,6 +402,7 @@ After collecting all evidence, provide your determination with detailed reasonin
 
             # Write outputs
             self._write_decision(decision)
+            self._write_html_report(decision, alert_file_path)
             self._write_audit_log(decision, elapsed)
 
             return decision
@@ -424,6 +429,34 @@ After collecting all evidence, provide your determination with detailed reasonin
             f.write(decision.model_dump_json(indent=2))
 
         return output_file
+
+    def _write_html_report(self, decision: AlertDecision, alert_file_path: Path) -> Path:
+        """Write decision to HTML report.
+
+        Args:
+            decision: AlertDecision to write
+            alert_file_path: Path to the original alert XML file
+
+        Returns:
+            Path to written HTML file
+        """
+        output_file = self.output_dir / f"decision_{decision.alert_id}.html"
+
+        self.logger.info(f"Writing HTML report to {output_file}")
+
+        try:
+            generator = HTMLReportGenerator.from_xml_file(alert_file_path, decision)
+            html_content = generator.generate()
+
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(html_content)
+
+            self.logger.info(f"HTML report written successfully: {output_file}")
+            return output_file
+
+        except Exception as e:
+            self.logger.error(f"Failed to write HTML report: {e}", exc_info=True)
+            raise
 
     def _write_audit_log(self, decision: AlertDecision, processing_time: float) -> None:
         """Append to audit log.

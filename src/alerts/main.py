@@ -210,9 +210,12 @@ def main() -> int:
             for gap in decision.data_gaps:
                 print(f"  - {gap}")
 
-        # Print output file location
-        output_file = config.data.output_dir / f"decision_{decision.alert_id}.json"
-        print(f"\nFull report written to: {output_file}")
+        # Print output file locations
+        json_file = config.data.output_dir / f"decision_{decision.alert_id}.json"
+        html_file = config.data.output_dir / f"decision_{decision.alert_id}.html"
+        print(f"\nReports written to:")
+        print(f"  JSON: {json_file}")
+        print(f"  HTML: {html_file}")
 
         # Print tool stats
         stats = agent.get_tool_stats()
