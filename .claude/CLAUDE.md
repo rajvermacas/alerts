@@ -91,9 +91,67 @@ src/alerts/
 │   ├── market_news.py
 │   ├── market_data.py
 │   └── peer_trades.py
-└── prompts/
-    └── system_prompt.py # Agent system prompt + few-shot loader
+├── prompts/
+│   └── system_prompt.py # Agent system prompt + few-shot loader
+└── a2a/                 # A2A (Agent-to-Agent) protocol integration
+    ├── __init__.py
+    ├── insider_trading_executor.py  # A2A executor for insider trading agent
+    ├── insider_trading_server.py    # A2A server entry point
+    ├── orchestrator.py              # Orchestrator agent logic
+    ├── orchestrator_executor.py     # A2A executor for orchestrator
+    ├── orchestrator_server.py       # A2A server for orchestrator
+    └── test_client.py               # Test client for A2A servers
 ```
+
+### A2A (Agent-to-Agent) Protocol Integration
+
+The system supports Google's A2A protocol for agent-to-agent communication, enabling an orchestrator pattern where a central agent routes alerts to specialized agents.
+
+**Architecture:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 Orchestrator Agent (Port 10000)                 │
+│  (Reads alerts, determines type, routes to specialized agents)  │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ A2A Protocol (JSON-RPC over HTTP)
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│           Insider Trading Agent A2A Server (Port 10001)         │
+│  (Existing AlertAnalyzerAgent exposed via A2A)                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Running A2A Servers:**
+```bash
+# Terminal 1: Start the insider trading agent server
+python -m alerts.a2a.insider_trading_server --port 10001
+
+# Terminal 2: Start the orchestrator server
+python -m alerts.a2a.orchestrator_server --port 10000
+
+# Terminal 3: Test with the client
+python -m alerts.a2a.test_client --server-url http://localhost:10000 \
+    --alert test_data/alerts/alert_genuine.xml
+```
+
+**Using installed script entry points:**
+```bash
+alerts-insider-trading-server --port 10001
+alerts-orchestrator-server --port 10000 --insider-trading-url http://localhost:10001
+```
+
+**Key A2A Concepts:**
+- **AgentCard**: JSON document at `/.well-known/agent.json` describing agent capabilities
+- **AgentExecutor**: Handles incoming A2A requests and executes agent logic
+- **Task**: Core abstraction for tracking long-running operations
+- **A2AClient**: Client for communicating with remote A2A agents
+
+**Flow:**
+1. User sends alert to Orchestrator via A2A
+2. Orchestrator reads alert XML to determine type
+3. If insider trading → routes to Insider Trading Agent via A2A
+4. Insider Trading Agent analyzes and returns decision
+5. Orchestrator returns result to user
 
 ### LangGraph Workflow
 
@@ -280,6 +338,9 @@ Third-party loggers (httpx, openai) suppressed to WARNING level.
 | `tools/base.py` | Tool infrastructure | Common tool functionality |
 | `config.py` | Environment config | Add config parameters |
 | `main.py` | Entry point | CLI arguments, output formatting |
+| `a2a/orchestrator.py` | Alert routing logic | Add new alert types or agents |
+| `a2a/insider_trading_executor.py` | A2A executor | Modify how alerts are processed |
+| `a2a/*_server.py` | A2A servers | Change server configuration |
 
 ## Anti-Patterns to Avoid
 
