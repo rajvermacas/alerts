@@ -1,0 +1,179 @@
+/**
+ * Custom styles for SMARTS Alert Analyzer.
+ * Most styling is handled by Tailwind CSS CDN.
+ * This file contains additional custom styles.
+ */
+
+/* Loading spinner animation enhancement */
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+/* Pulse animation for status indicator */
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.animate-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Toast notification animations */
+#toast-container > div {
+    transform: translateY(10px);
+    opacity: 0;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+#toast-container > div.translate-y-0 {
+    transform: translateY(0);
+}
+
+#toast-container > div.opacity-100 {
+    opacity: 1;
+}
+
+/* Drag and drop zone hover effect */
+#drop-zone {
+    transition: all 0.2s ease;
+}
+
+#drop-zone.drag-over {
+    border-color: #3B82F6;
+    background-color: #EFF6FF;
+    transform: scale(1.02);
+}
+
+/* XML preview syntax styling */
+#xml-preview {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    tab-size: 2;
+}
+
+/* Cytoscape container styles */
+#cytoscape-container {
+    background-color: #F9FAFB;
+    border-radius: 0.5rem;
+}
+
+/* Progress bar transitions */
+.bg-red-500,
+.bg-green-500 {
+    transition: width 0.5s ease-in-out;
+}
+
+/* Determination badge styles */
+.determination-escalate {
+    background-color: #FEE2E2;
+    color: #991B1B;
+    border-color: #FECACA;
+}
+
+.determination-close {
+    background-color: #DCFCE7;
+    color: #166534;
+    border-color: #BBF7D0;
+}
+
+.determination-review {
+    background-color: #FEF9C3;
+    color: #854D0E;
+    border-color: #FEF08A;
+}
+
+/* Table styles for trade flows */
+table {
+    border-collapse: collapse;
+}
+
+table th,
+table td {
+    border-bottom: 1px solid #E5E7EB;
+}
+
+/* Scrollbar styling for preview areas */
+pre::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+pre::-webkit-scrollbar-track {
+    background: #1F2937;
+    border-radius: 4px;
+}
+
+pre::-webkit-scrollbar-thumb {
+    background: #4B5563;
+    border-radius: 4px;
+}
+
+pre::-webkit-scrollbar-thumb:hover {
+    background: #6B7280;
+}
+
+/* Details/summary styling */
+details summary {
+    list-style: none;
+}
+
+details summary::-webkit-details-marker {
+    display: none;
+}
+
+details summary::before {
+    content: '+ ';
+    font-weight: bold;
+    margin-right: 0.25rem;
+}
+
+details[open] summary::before {
+    content: '- ';
+}
+
+/* Print styles */
+@media print {
+    header,
+    footer,
+    #toast-container,
+    button {
+        display: none !important;
+    }
+
+    .shadow-md {
+        box-shadow: none !important;
+    }
+
+    body {
+        background-color: white;
+    }
+}
+
+/* Focus styles for accessibility */
+button:focus,
+a:focus,
+input:focus {
+    outline: 2px solid #3B82F6;
+    outline-offset: 2px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+    #cytoscape-container {
+        height: 250px;
+    }
+
+    .grid-cols-4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}

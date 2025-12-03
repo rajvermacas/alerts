@@ -448,6 +448,75 @@ pytest tests/test_tools.py -v
 | LLM provider | Config-driven | Flexibility for enterprise deployment |
 | Regulatory framework | APAC-focused | Supports MAS SFA, SFC SFO, ASIC, FSA FIEA |
 
+## Web UI Frontend
+
+The system includes a web-based user interface for uploading and analyzing alerts.
+
+### Starting the Web UI
+
+**Step 1: Start the A2A Agent Servers**
+
+Follow the multi-agent orchestrator setup above (Terminals 1-3).
+
+**Step 2: Start the Frontend Server**
+
+```bash
+# Terminal 5 - Frontend UI
+python -m frontend.app --port 8080
+
+# Or using the console script:
+alerts-frontend --port 8080
+
+# With custom orchestrator URL:
+alerts-frontend --port 8080 --orchestrator-url http://localhost:10000
+```
+
+**Step 3: Open in Browser**
+
+Navigate to `http://localhost:8080`
+
+### Web UI Features
+
+- **Drag-and-Drop Upload**: Upload XML alert files via drag-and-drop or file browser
+- **XML Preview**: Collapsible preview of uploaded XML content
+- **Real-time Analysis**: Status polling with progress updates
+- **Results Display**: Dynamic rendering of analysis results including:
+  - Determination badge (ESCALATE/CLOSE/NEEDS_HUMAN_REVIEW)
+  - Confidence score bars
+  - Key findings and indicators
+  - Insider trading: Trader baseline and market context
+  - Wash trade: Interactive Cytoscape.js relationship network graph
+- **Download Reports**: JSON and HTML report downloads
+
+### Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| UI Port | 8080 | Frontend server port |
+| Orchestrator URL | http://localhost:10000 | A2A orchestrator endpoint |
+
+### Full Startup Sequence
+
+```bash
+# Terminal 1: Insider Trading Agent
+source venv/bin/activate
+python -m alerts.a2a.insider_trading_server --port 10001
+
+# Terminal 2: Wash Trade Agent
+source venv/bin/activate
+python -m alerts.a2a.wash_trade_server --port 10002
+
+# Terminal 3: Orchestrator
+source venv/bin/activate
+python -m alerts.a2a.orchestrator_server --port 10000
+
+# Terminal 4: Frontend UI
+source venv/bin/activate
+python -m frontend.app --port 8080
+
+# Browser: Open http://localhost:8080
+```
+
 ## Future Enhancements
 
 - [ ] Feedback loop: Human decisions become new examples
@@ -455,7 +524,7 @@ pytest tests/test_tools.py -v
 - [ ] Calendar events tool for earnings/event correlation
 - [ ] Internal communications tool
 - [ ] Async processing for higher volume
-- [ ] Web UI for compliance analysts
+- [x] Web UI for compliance analysts
 
 ## Execution commands
 ---

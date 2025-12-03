@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Alert - SMARTS Alert Analyzer{% endblock %}
+
+{% block content %}
+<!-- Upload Section -->
+<div id="upload-section" class="max-w-3xl mx-auto">
+    <div class="bg-white rounded-lg shadow-md p-8">
+        <h2 class="text-2xl font-bold text-gray-900 mb-2">Analyze SMARTS Alert</h2>
+        <p class="text-gray-600 mb-6">Upload an XML alert file to analyze for potential insider trading or wash trading violations.</p>
+
+        <!-- Drag and Drop Zone -->
+        <div id="drop-zone"
+             class="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors duration-200">
+            <svg class="mx-auto h-16 w-16 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+            </svg>
+            <p class="text-lg text-gray-600 mb-2">Drag and drop your XML file here</p>
+            <p class="text-sm text-gray-500 mb-4">or</p>
+            <label class="inline-block bg-blue-600 text-white px-6 py-2 rounded-lg cursor-pointer hover:bg-blue-700 transition-colors">
+                Browse Files
+                <input type="file" id="file-input" accept=".xml" class="hidden">
+            </label>
+            <p class="text-xs text-gray-400 mt-4">Only XML files are accepted</p>
+        </div>
+
+        <!-- File Preview -->
+        <div id="file-preview" class="hidden mt-6">
+            <div class="flex items-center justify-between bg-gray-50 rounded-lg p-4 mb-4">
+                <div class="flex items-center">
+                    <svg class="h-8 w-8 text-blue-500 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    <div>
+                        <p id="file-name" class="font-medium text-gray-900"></p>
+                        <p id="file-size" class="text-sm text-gray-500"></p>
+                    </div>
+                </div>
+                <button id="clear-file" class="text-red-500 hover:text-red-700">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- XML Content Preview (Collapsible) -->
+            <details class="mb-4">
+                <summary class="cursor-pointer text-sm font-medium text-gray-700 hover:text-gray-900">
+                    Preview XML Content
+                </summary>
+                <pre id="xml-preview" class="mt-2 bg-gray-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto max-h-64 overflow-y-auto"></pre>
+            </details>
+
+            <!-- Analyze Button -->
+            <button id="analyze-btn"
+                    class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-blue-700 transition-colors duration-200 flex items-center justify-center">
+                <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+                </svg>
+                Analyze Alert
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Section -->
+<div id="loading-section" class="hidden max-w-3xl mx-auto">
+    <div class="bg-white rounded-lg shadow-md p-8 text-center">
+        <!-- Spinner -->
+        <div class="inline-block animate-spin rounded-full h-16 w-16 border-4 border-blue-600 border-t-transparent mb-6"></div>
+
+        <h2 class="text-xl font-semibold text-gray-900 mb-2">Analyzing Alert</h2>
+        <p id="loading-status" class="text-gray-600">Sending alert to analysis agents...</p>
+
+        <div class="mt-6 bg-gray-100 rounded-lg p-4">
+            <div class="flex items-center justify-center text-sm text-gray-500">
+                <svg class="animate-pulse h-4 w-4 mr-2 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                    <circle cx="10" cy="10" r="10"/>
+                </svg>
+                <span>This may take 30-60 seconds</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Results Section -->
+<div id="results-section" class="hidden">
+    <!-- Results will be rendered here by results.js -->
+</div>
+
+<!-- Error Section -->
+<div id="error-section" class="hidden max-w-3xl mx-auto">
+    <div class="bg-white rounded-lg shadow-md p-8">
+        <div class="text-center">
+            <svg class="mx-auto h-16 w-16 text-red-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </svg>
+            <h2 class="text-xl font-semibold text-gray-900 mb-2">Analysis Failed</h2>
+            <p id="error-message" class="text-gray-600 mb-6"></p>
+            <button id="try-again-btn"
+                    class="bg-blue-600 text-white py-2 px-6 rounded-lg font-semibold hover:bg-blue-700 transition-colors">
+                Try Again
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/upload.js"></script>
+<script src="/static/js/polling.js"></script>
+<script src="/static/js/results.js"></script>
+{% endblock %}
