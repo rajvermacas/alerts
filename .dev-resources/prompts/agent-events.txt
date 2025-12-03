@@ -1,0 +1,36 @@
+All default answers are correct except for the below one:
+
+Question: Where exactly should events be emitted in the LangGraph workflow?
+
+  START → agent → tools? → [tools → agent]* → respond → END
+                ↑        ↑              ↑
+             Option A  Option B      Option C
+
+  - Option A: Before tool execution (tool_started)
+  - Option B: After tool execution (tool_completed with result summary)
+  - Option C: After agent processes tool result (agent_thinking)
+
+  Answer: A + B + C -> That is before tool call, after tool call and when agent is thinking
+
+6. Error Handling in Stream
+  What happens if an agent crashes mid-stream?
+  - Fail fast. send an explicit error event without any sort of fallback
+
+7. Reconnection Strategy
+  If browser loses connection:
+    just resume from current state?
+
+8. Frontend State Management
+
+  How should the UI display events?
+  - follow industry practice
+
+9. Historical Event Access
+
+  After analysis completes, should users be able to see the event history?
+  - Store events in task_manager alongside final result? - Yes
+
+10. Rate Limiting
+
+  Some tools execute in milliseconds, others in seconds. Should we:
+    - stream all events immediately

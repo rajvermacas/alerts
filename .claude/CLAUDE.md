@@ -62,8 +62,33 @@ pytest --cov=alerts
 # Run specific test file
 pytest tests/test_tools.py -v
 
+# Run a single test function
+pytest tests/test_tools.py::test_alert_reader_tool -v
+
+# Run tests matching a keyword
+pytest -k "wash_trade" -v
+
 # Run with verbose output and short traceback
 pytest -v --tb=short
+```
+
+### Web UI (Frontend)
+```bash
+# Start all required servers (4 terminals)
+
+# Terminal 1: Insider Trading Agent
+python -m alerts.a2a.insider_trading_server --port 10001
+
+# Terminal 2: Wash Trade Agent
+python -m alerts.a2a.wash_trade_server --port 10002
+
+# Terminal 3: Orchestrator
+python -m alerts.a2a.orchestrator_server --port 10000
+
+# Terminal 4: Frontend UI
+python -m frontend.app --port 8080
+
+# Open browser: http://localhost:8080
 ```
 
 ## Architecture
@@ -87,51 +112,61 @@ This creates a **two-tier LLM architecture**:
 ### Core Components
 
 ```
-src/alerts/
-├── main.py              # CLI entry point, LLM initialization
-├── config.py            # Environment-based configuration (OpenAI/Azure/OpenRouter)
-├── models/
-│   ├── __init__.py
-│   ├── base.py          # BaseAlertDecision
-│   ├── insider_trading.py  # InsiderTradingDecision
-│   └── wash_trade.py    # WashTradeDecision + RelationshipNetwork
-├── tools/               # Shared tools (used by all agents)
-│   ├── base.py          # BaseTool class with LLM interpretation
-│   ├── alert_reader.py
-│   ├── trader_history.py
-│   ├── trader_profile.py
-│   ├── market_news.py
-│   ├── market_data.py
-│   └── peer_trades.py
-├── agents/
-│   ├── insider_trading/ # Insider trading agent
-│   │   ├── __init__.py
-│   │   ├── agent.py     # AlertAnalyzerAgent
-│   │   └── prompts/
-│   │       └── system_prompt.py
-│   └── wash_trade/      # Wash trade agent
-│       ├── __init__.py
-│       ├── agent.py     # WashTradeAnalyzerAgent
-│       ├── prompts/
-│       │   └── system_prompt.py
-│       └── tools/       # Wash-trade-specific tools
-│           ├── account_relationships.py
-│           ├── related_accounts_history.py
-│           ├── trade_timing.py
-│           └── counterparty_analysis.py
-├── reports/
-│   ├── html_generator.py        # Insider trading HTML report
-│   └── wash_trade_report.py     # Wash trade HTML with SVG network
-└── a2a/                 # A2A (Agent-to-Agent) protocol integration
-    ├── __init__.py
-    ├── insider_trading_executor.py
-    ├── insider_trading_server.py
-    ├── wash_trade_executor.py   # A2A executor for wash trade
-    ├── wash_trade_server.py     # A2A server for wash trade
-    ├── orchestrator.py          # Routes alerts to specialized agents
-    ├── orchestrator_executor.py
-    ├── orchestrator_server.py
-    └── test_client.py
+src/
+├── alerts/                      # Backend analysis engine
+│   ├── main.py                  # CLI entry point, LLM initialization
+│   ├── config.py                # Environment-based configuration (OpenAI/Azure/OpenRouter)
+│   ├── models/
+│   │   ├── base.py              # BaseAlertDecision
+│   │   ├── insider_trading.py   # InsiderTradingDecision
+│   │   └── wash_trade.py        # WashTradeDecision + RelationshipNetwork
+│   ├── tools/                   # Shared tools (used by all agents)
+│   │   ├── base.py              # BaseTool class with LLM interpretation
+│   │   ├── alert_reader.py
+│   │   ├── trader_history.py
+│   │   ├── trader_profile.py
+│   │   ├── market_news.py
+│   │   ├── market_data.py
+│   │   └── peer_trades.py
+│   ├── agents/
+│   │   ├── insider_trading/     # Insider trading agent
+│   │   │   ├── agent.py         # AlertAnalyzerAgent
+│   │   │   └── prompts/
+│   │   │       └── system_prompt.py
+│   │   └── wash_trade/          # Wash trade agent
+│   │       ├── agent.py         # WashTradeAnalyzerAgent
+│   │       ├── prompts/
+│   │       │   └── system_prompt.py
+│   │       └── tools/           # Wash-trade-specific tools
+│   │           ├── account_relationships.py
+│   │           ├── related_accounts_history.py
+│   │           ├── trade_timing.py
+│   │           └── counterparty_analysis.py
+│   ├── reports/
+│   │   ├── html_generator.py    # Insider trading HTML report
+│   │   └── wash_trade_report.py # Wash trade HTML with SVG network
+│   └── a2a/                     # A2A (Agent-to-Agent) protocol integration
+│       ├── insider_trading_executor.py
+│       ├── insider_trading_server.py
+│       ├── wash_trade_executor.py
+│       ├── wash_trade_server.py
+│       ├── orchestrator.py      # Routes alerts to specialized agents
+│       ├── orchestrator_executor.py
+│       ├── orchestrator_server.py
+│       └── test_client.py
+│
+└── frontend/                    # Web UI (FastAPI + HTMX)
+    ├── app.py                   # FastAPI routes, A2A client integration
+    ├── task_manager.py          # In-memory task tracking
+    ├── templates/
+    │   ├── base.html            # Base template with Tailwind CSS
+    │   └── upload.html          # Upload page with all UI states
+    └── static/
+        ├── css/styles.css       # Custom styles (animations, accessibility)
+        └── js/
+            ├── upload.js        # File upload and drag-drop handling
+            ├── polling.js       # Status polling (2s interval)
+            └── results.js       # Results rendering + Cytoscape.js graph
 ```
 
 ### A2A (Agent-to-Agent) Protocol Integration
@@ -399,6 +434,42 @@ The system uses **pure LLM reasoning** - no weight-based scoring formulas. To ad
 - Test data generation scripts go in `scripts/` folder (currently empty)
 - HTML report tests verify Tailwind CSS output and structure
 
+### Web UI Frontend
+
+The system includes a web interface for uploading alerts and viewing results:
+
+**Architecture:**
+```
+Browser (http://localhost:8080)
+    │
+    ├── POST /api/analyze (multipart XML upload)
+    ├── GET /api/status/{task_id} (2s polling)
+    └── GET /api/download/{task_id}/{json|html}
+    │
+    ▼
+FastAPI Frontend Service (Port 8080)
+    │
+    └── A2A Protocol (JSON-RPC over HTTP)
+    │
+    ▼
+Orchestrator Agent (Port 10000)
+    ├── Insider Trading Agent (Port 10001)
+    └── Wash Trade Agent (Port 10002)
+```
+
+**Key Components:**
+- `frontend/app.py`: FastAPI routes, A2A client, response parsing
+- `frontend/task_manager.py`: In-memory task tracking (POC - no persistence)
+- `frontend/static/js/results.js`: Dynamic rendering + Cytoscape.js graph for wash trade
+
+**A2A Response Parsing Challenge:**
+The orchestrator wraps agent responses, creating nested JSON-RPC structures. The `extract_decision_from_response()` function handles this by:
+1. Detecting nested responses in artifact text
+2. Extracting embedded JSON-RPC using brace matching
+3. Finding artifacts ending in `_json` (e.g., `alert_decision_json`)
+
+Debug files are saved to `resources/debug/a2a_response_*.json` for investigation.
+
 ### HTML Report Generation
 
 The system generates professional HTML reports using Tailwind CSS:
@@ -458,6 +529,9 @@ Third-party loggers (httpx, openai) suppressed to WARNING level.
 | `a2a/insider_trading_executor.py` | IT A2A executor | Modify how IT alerts are processed |
 | `a2a/wash_trade_executor.py` | WT A2A executor | Modify how WT alerts are processed |
 | `a2a/*_server.py` | A2A servers | Change server configuration |
+| `frontend/app.py` | Web UI backend | Add API endpoints, A2A integration |
+| `frontend/static/js/results.js` | Results rendering | Add UI sections, modify Cytoscape graph |
+| `frontend/task_manager.py` | Task tracking | Modify task lifecycle |
 
 ## Anti-Patterns to Avoid
 
