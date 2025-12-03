@@ -409,6 +409,13 @@ class ProgressTimeline {
             cleaned = cleaned.slice(0, -1);
         }
 
+        // Unescape escaped characters (newlines, tabs, etc.)
+        cleaned = cleaned
+            .replace(/\\n/g, '\n')
+            .replace(/\\t/g, '\t')
+            .replace(/\\r/g, '\r')
+            .replace(/\\\\/g, '\\');
+
         // Trim again and return null if empty
         cleaned = cleaned.trim();
         return cleaned.length > 0 ? cleaned : null;

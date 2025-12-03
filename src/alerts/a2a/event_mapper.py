@@ -299,7 +299,7 @@ class EventMapper:
             if tool_input:
                 payload["input"] = str(tool_input)[:200]
             if tool_output:
-                payload["output_summary"] = str(tool_output)[:200]
+                payload["output_summary"] = str(tool_output)
             self.logger.debug(f"Created tool event payload: {event_name}, tool={name}")
         elif event_name in ("on_chat_model_start", "on_chat_model_end"):
             payload = {
