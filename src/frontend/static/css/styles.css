@@ -431,3 +431,82 @@ input:focus {
         background: #475569;
     }
 }
+
+/* ============================================
+   Output Summary Styles (Tool Result)
+   ============================================ */
+
+/* Output summary container */
+.output-summary {
+    margin-top: 0.5rem;
+}
+
+/* Details element styling */
+.output-summary-details {
+    font-size: 0.75rem;
+}
+
+/* Rotate chevron when open */
+.output-summary-details[open] .output-summary-chevron {
+    transform: rotate(90deg);
+}
+
+/* Summary header (clickable) - override default details/summary styling */
+.output-summary-header {
+    list-style: none;
+    user-select: none;
+}
+
+.output-summary-header::-webkit-details-marker {
+    display: none;
+}
+
+/* Override the default +/- from details summary */
+.output-summary-details .output-summary-header::before {
+    content: none;
+}
+
+/* Content area with max height and scroll */
+.output-summary-content {
+    max-height: 150px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #CBD5E1 #F1F5F9;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.output-summary-content::-webkit-scrollbar {
+    width: 4px;
+}
+
+.output-summary-content::-webkit-scrollbar-track {
+    background: #F1F5F9;
+    border-radius: 2px;
+}
+
+.output-summary-content::-webkit-scrollbar-thumb {
+    background: #CBD5E1;
+    border-radius: 2px;
+}
+
+/* Animation for expand/collapse */
+.output-summary-details[open] .output-summary-content {
+    animation: slide-down 0.2s ease-out;
+}
+
+@keyframes slide-down {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Chevron transition */
+.output-summary-chevron {
+    transition: transform 0.2s ease;
+}

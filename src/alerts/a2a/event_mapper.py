@@ -155,6 +155,8 @@ class EventMapper:
         self.agent_name = agent_name
         self.event_count = 0
         self.logger = logging.getLogger(f"{__name__}.{agent_name}")
+        # Track tool start times for duration calculation
+        self._tool_start_times: Dict[str, datetime] = {}
 
     def create_event(
         self,
@@ -277,10 +279,23 @@ class EventMapper:
         elif event_name in ("on_tool_start", "on_tool_end"):
             tool_input = data.get("input", {})
             tool_output = data.get("output", "")
+            run_id_str = str(run_id) if run_id else name  # Use run_id to track unique tool invocations
+
             payload = {
                 "tool_name": name,
                 "message": f"{'Starting' if 'start' in event_name else 'Completed'} tool: {name}",
             }
+
+            if event_name == "on_tool_start":
+                # Record start time for duration calculation
+                self._tool_start_times[run_id_str] = datetime.now(timezone.utc)
+            elif event_name == "on_tool_end":
+                # Calculate duration if we have the start time
+                start_time = self._tool_start_times.pop(run_id_str, None)
+                if start_time:
+                    duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+                    payload["duration_seconds"] = round(duration, 2)
+
             if tool_input:
                 payload["input"] = str(tool_input)[:200]
             if tool_output:

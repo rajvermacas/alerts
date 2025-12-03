@@ -276,6 +276,18 @@ class ProgressTimeline {
             }
         }
 
+        // Extract output_summary and duration_seconds for tool_completed events
+        let outputSummary = null;
+        let durationSeconds = null;
+        if (type === 'tool_completed') {
+            if (payload.output_summary) {
+                outputSummary = this.cleanOutputSummary(payload.output_summary);
+            }
+            if (payload.duration_seconds !== undefined && payload.duration_seconds !== null) {
+                durationSeconds = payload.duration_seconds;
+            }
+        }
+
         // Determine icon and color based on event type
         const { icon, color } = this.getEventStyle(type, payload);
 
@@ -289,6 +301,8 @@ class ProgressTimeline {
             stage: payload.stage,
             confidence: payload.confidence,
             determination: payload.determination,
+            outputSummary,
+            durationSeconds,
         };
     }
 
@@ -374,6 +388,77 @@ class ProgressTimeline {
     }
 
     /**
+     * Clean output summary by removing LangChain wrapper format.
+     * @param {string} summary - Raw output summary
+     * @returns {string|null} Cleaned summary text
+     */
+    cleanOutputSummary(summary) {
+        if (!summary || typeof summary !== 'string') {
+            return null;
+        }
+
+        let cleaned = summary.trim();
+
+        // Remove "content='" prefix if present (LangChain format)
+        if (cleaned.startsWith("content='")) {
+            cleaned = cleaned.substring(9);
+        }
+
+        // Remove trailing quote if the string was truncated mid-content
+        if (cleaned.endsWith("'")) {
+            cleaned = cleaned.slice(0, -1);
+        }
+
+        // Trim again and return null if empty
+        cleaned = cleaned.trim();
+        return cleaned.length > 0 ? cleaned : null;
+    }
+
+    /**
+     * Create DOM element for output summary display.
+     * Uses a collapsible details element for better UX.
+     * @param {string} summary - Cleaned output summary text
+     * @param {number|null} durationSeconds - Tool execution duration
+     * @returns {HTMLElement} Summary container element
+     */
+    createOutputSummaryElement(summary, durationSeconds) {
+        const container = document.createElement('div');
+        container.className = 'output-summary mt-2';
+
+        // Create collapsible details element
+        const details = document.createElement('details');
+        details.className = 'output-summary-details';
+
+        // Summary header (clickable) with duration
+        const summaryHeader = document.createElement('summary');
+        summaryHeader.className = 'output-summary-header text-xs text-blue-600 cursor-pointer hover:text-blue-800 flex items-center gap-1';
+
+        // Build header text with optional duration
+        let headerText = 'Tool result';
+        if (durationSeconds !== null && durationSeconds !== undefined) {
+            headerText += ` (${durationSeconds.toFixed(2)}s)`;
+        }
+
+        summaryHeader.innerHTML = `
+            <svg class="output-summary-chevron w-3 h-3 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+            <span>${headerText}</span>
+        `;
+
+        // Content (revealed when expanded)
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'output-summary-content mt-1 pl-4 text-xs text-gray-600 leading-relaxed border-l-2 border-gray-200';
+        contentDiv.textContent = summary;
+
+        details.appendChild(summaryHeader);
+        details.appendChild(contentDiv);
+        container.appendChild(details);
+
+        return container;
+    }
+
+    /**
      * Add an event to the visual timeline.
      * @param {Object} eventInfo - Event information
      */
@@ -397,6 +482,17 @@ class ProgressTimeline {
         message.className = 'text-sm text-gray-800 break-words';
         message.textContent = eventInfo.message;
 
+        content.appendChild(message);
+
+        // Output summary (for tool_completed events with summary data)
+        if (eventInfo.outputSummary) {
+            const summaryElement = this.createOutputSummaryElement(
+                eventInfo.outputSummary,
+                eventInfo.durationSeconds
+            );
+            content.appendChild(summaryElement);
+        }
+
         // Meta info (timestamp, tool name)
         const meta = document.createElement('div');
         meta.className = 'flex items-center gap-2 mt-1';
@@ -414,7 +510,6 @@ class ProgressTimeline {
             meta.appendChild(toolBadge);
         }
 
-        content.appendChild(message);
         content.appendChild(meta);
 
         item.appendChild(iconContainer);
