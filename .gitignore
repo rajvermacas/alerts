@@ -93,3 +93,4 @@ agent.log
 resources/reports
 
 .dev-resources/images
+resources/debug

@@ -12,6 +12,7 @@ from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
 from a2a.types import (
+    DataPart,
     InternalError,
     InvalidParamsError,
     Part,
@@ -152,17 +153,17 @@ class InsiderTradingAgentExecutor(AgentExecutor):
             # Format result as text
             result = self._format_decision(decision)
 
-            # Convert decision to JSON
-            decision_json = decision.model_dump_json(indent=2, exclude_none=True)
+            # Convert decision to dict for DataPart
+            decision_dict = decision.model_dump(mode="json", exclude_none=True)
 
-            # Add two artifacts: formatted text and JSON
+            # Add two artifacts: formatted text (for humans) and structured data (for machines)
             await updater.add_artifact(
                 [Part(root=TextPart(text=result))],
                 name="alert_decision_text",
             )
 
             await updater.add_artifact(
-                [Part(root=TextPart(text=decision_json))],
+                [Part(root=DataPart(data=decision_dict))],
                 name="alert_decision_json",
             )
 

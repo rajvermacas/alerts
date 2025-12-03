@@ -275,24 +275,26 @@ async def send_to_orchestrator(alert_path: str) -> Dict[str, Any]:
 
 
 def extract_decision_from_response(response: Dict[str, Any]) -> Dict[str, Any] | None:
-    """Extract decision JSON from A2A response.
+    """Extract decision JSON from A2A response using DataPart artifacts.
 
-    The A2A response contains nested structures. This function
-    navigates to find the actual decision JSON.
+    This function extracts structured JSON data from DataPart artifacts.
+    Fail-fast: If DataPart extraction fails, return None immediately.
 
     Args:
         response: Raw A2A response dictionary
 
     Returns:
         Decision dictionary or None if not found
+
+    Raises:
+        ValueError: If response structure is invalid
     """
     logger.info("=" * 60)
-    logger.info("EXTRACTING DECISION FROM RESPONSE")
+    logger.info("EXTRACTING DECISION FROM RESPONSE (DataPart only)")
     logger.info("=" * 60)
     logger.info(f"Response keys: {response.keys() if response else 'None'}")
-    logger.info(f"Full response (first 2000 chars): {json.dumps(response, indent=2)[:2000]}")
 
-    # Save full response to debug file in project folder
+    # Save full response to debug file
     debug_dir = Path("resources/debug")
     debug_dir.mkdir(parents=True, exist_ok=True)
     debug_file = debug_dir / f"a2a_response_{uuid4().hex[:8]}.json"
@@ -303,149 +305,61 @@ def extract_decision_from_response(response: Dict[str, Any]) -> Dict[str, Any] |
     except Exception as e:
         logger.warning(f"Failed to save debug response: {e}")
 
+    # Extract from DataPart (fail-fast if not found)
+    decision = _extract_from_datapart(response)
+    if decision:
+        logger.info("Successfully extracted decision from DataPart")
+        return decision
+
+    logger.error("Failed to extract decision from DataPart - no fallback, failing fast")
+    return None
+
+
+def _extract_from_datapart(response: Dict[str, Any]) -> Dict[str, Any] | None:
+    """Extract decision from DataPart artifacts (new approach).
+
+    Args:
+        response: Raw A2A response dictionary
+
+    Returns:
+        Decision dictionary or None if not found
+    """
     try:
-        # Navigate through the A2A response structure
-        # Response format: {result: {status: {message: {parts: [{kind: "text", text: "..."}]}}}}
         result = response.get("result", {})
-        logger.info(f"result keys: {result.keys() if result else 'None'}")
-
-        status = result.get("status", {})
-        logger.info(f"status keys: {status.keys() if isinstance(status, dict) else f'status is: {type(status)}'}")
-
-        message = status.get("message", {}) if isinstance(status, dict) else {}
-        logger.info(f"message keys: {message.keys() if isinstance(message, dict) else f'message is: {type(message)}'}")
-
-        parts = message.get("parts", []) if isinstance(message, dict) else []
-        logger.info(f"Number of parts: {len(parts)}")
-
-        for idx, part in enumerate(parts):
-            logger.info(f"Part {idx}: kind={part.get('kind')}, keys={part.keys()}")
-            if part.get("kind") == "text":
-                text = part.get("text", "")
-                logger.info(f"Part {idx} text (first 500 chars): {text[:500]}")
-                # Try to parse as JSON
-                try:
-                    # The text might contain the decision JSON
-                    decision = json.loads(text)
-                    logger.info(f"Parsed JSON successfully, keys: {decision.keys() if isinstance(decision, dict) else 'not a dict'}")
-                    if isinstance(decision, dict) and "determination" in decision:
-                        logger.info("Found determination in parsed JSON!")
-                        return decision
-                except json.JSONDecodeError as e:
-                    logger.info(f"JSON decode failed: {e}")
-                    # Text is not JSON, try to find JSON in the text
-                    start_idx = text.find("{")
-                    end_idx = text.rfind("}") + 1
-                    logger.info(f"Looking for JSON substring: start={start_idx}, end={end_idx}")
-                    if start_idx != -1 and end_idx > start_idx:
-                        try:
-                            json_str = text[start_idx:end_idx]
-                            logger.info(f"Trying to parse substring (first 500 chars): {json_str[:500]}")
-                            decision = json.loads(json_str)
-                            if isinstance(decision, dict) and "determination" in decision:
-                                logger.info("Found determination in substring JSON!")
-                                return decision
-                        except json.JSONDecodeError as e2:
-                            logger.info(f"Substring JSON decode failed: {e2}")
-
-            elif part.get("kind") == "data":
-                # Data part might contain structured decision
-                data = part.get("data", {})
-                logger.info(f"Part {idx} data keys: {data.keys() if isinstance(data, dict) else 'not a dict'}")
-                if isinstance(data, dict) and "determination" in data:
-                    logger.info("Found determination in data part!")
-                    return data
-
-        # Try alternative paths in the response
-        logger.info("Trying alternative response paths...")
-
-        # Check if result directly contains the decision
-        if isinstance(result, dict) and "determination" in result:
-            logger.info("Found determination directly in result!")
-            return result
-
-        # Check if there's an 'artifact' or 'artifacts' field
         artifacts = result.get("artifacts", [])
-        logger.info(f"Artifacts: {len(artifacts) if isinstance(artifacts, list) else artifacts}")
-        for idx, artifact in enumerate(artifacts if isinstance(artifacts, list) else []):
-            logger.info(f"Artifact {idx}: {artifact.keys() if isinstance(artifact, dict) else artifact}")
-            if isinstance(artifact, dict):
+
+        # Look for orchestrator_result_json artifact with DataPart
+        for artifact in artifacts:
+            if artifact.get("name") == "orchestrator_result_json":
+                logger.info("Found orchestrator_result_json artifact")
                 parts = artifact.get("parts", [])
-                for pidx, part in enumerate(parts):
-                    if part.get("kind") == "text":
-                        text = part.get("text", "")
-                        logger.info(f"Artifact {idx} part {pidx} text (first 500): {text[:500]}")
+                for part in parts:
+                    if part.get("kind") == "data":
+                        logger.info("Found DataPart in orchestrator_result_json")
+                        # Direct access to structured JSON
+                        data = part.get("data", {})
 
-                        # Try to parse as JSON directly
-                        try:
-                            decision = json.loads(text)
-                            if isinstance(decision, dict) and "determination" in decision:
-                                logger.info("Found determination in artifact text!")
-                                return decision
-                        except json.JSONDecodeError:
-                            pass
+                        # Extract from nested agent response
+                        nested_result = data.get("result", {})
+                        nested_artifacts = nested_result.get("artifacts", [])
+                        logger.info(f"Found {len(nested_artifacts)} nested artifacts")
 
-                        # Check if this is orchestrator response with nested agent response
-                        if "Agent Response" in text or "jsonrpc" in text:
-                            logger.info("Detected nested orchestrator response, parsing...")
-                            # Try to extract the nested JSON response
-                            try:
-                                # Find the JSON-RPC response in the text
-                                start_idx = text.find('{\n  "id":')
-                                if start_idx == -1:
-                                    start_idx = text.find('{"id":')
-                                if start_idx != -1:
-                                    # Find matching closing brace
-                                    brace_count = 0
-                                    end_idx = start_idx
-                                    for i in range(start_idx, len(text)):
-                                        if text[i] == '{':
-                                            brace_count += 1
-                                        elif text[i] == '}':
-                                            brace_count -= 1
-                                            if brace_count == 0:
-                                                end_idx = i + 1
-                                                break
+                        # Look for *_decision_json artifact with DataPart
+                        for nested_artifact in nested_artifacts:
+                            artifact_name = nested_artifact.get("name", "")
+                            logger.info(f"Checking nested artifact: {artifact_name}")
+                            if artifact_name.endswith("_json"):
+                                nested_parts = nested_artifact.get("parts", [])
+                                for nested_part in nested_parts:
+                                    if nested_part.get("kind") == "data":
+                                        decision = nested_part.get("data", {})
+                                        if isinstance(decision, dict) and "determination" in decision:
+                                            logger.info(f"Found determination in DataPart: {artifact_name}")
+                                            return decision
 
-                                    if end_idx > start_idx:
-                                        nested_json_str = text[start_idx:end_idx]
-                                        logger.info(f"Found nested JSON-RPC (length: {len(nested_json_str)})")
-                                        try:
-                                            nested_response = json.loads(nested_json_str)
-                                            logger.info(f"Parsed nested response, keys: {nested_response.keys()}")
-
-                                            # Now extract from the nested response
-                                            if "result" in nested_response:
-                                                nested_result = nested_response["result"]
-                                                nested_artifacts = nested_result.get("artifacts", [])
-                                                logger.info(f"Nested artifacts count: {len(nested_artifacts)}")
-
-                                                for nidx, nartifact in enumerate(nested_artifacts):
-                                                    logger.info(f"Nested artifact {nidx}: {nartifact.get('name')}")
-                                                    nparts = nartifact.get("parts", [])
-                                                    for npart in nparts:
-                                                        if npart.get("kind") == "text":
-                                                            ntext = npart.get("text", "")
-                                                            # Check if this is JSON artifact
-                                                            if nartifact.get("name", "").endswith("_json"):
-                                                                logger.info(f"Found JSON artifact: {nartifact.get('name')}")
-                                                                try:
-                                                                    decision = json.loads(ntext)
-                                                                    if isinstance(decision, dict) and "determination" in decision:
-                                                                        logger.info("Found determination in nested JSON artifact!")
-                                                                        return decision
-                                                                except json.JSONDecodeError as e:
-                                                                    logger.info(f"Failed to parse nested JSON artifact: {e}")
-                                        except json.JSONDecodeError as e:
-                                            logger.info(f"Failed to parse nested JSON-RPC: {e}")
-                            except Exception as e:
-                                logger.info(f"Error parsing nested response: {e}")
-
-        logger.warning("Could not extract decision from response - no determination field found")
         return None
-
     except Exception as e:
-        logger.error(f"Error extracting decision: {e}", exc_info=True)
+        logger.error(f"Error in DataPart extraction: {e}", exc_info=True)
         return None
 
 

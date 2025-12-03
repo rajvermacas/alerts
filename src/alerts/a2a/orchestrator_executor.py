@@ -12,6 +12,7 @@ from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
 from a2a.types import (
+    DataPart,
     InternalError,
     InvalidParamsError,
     Part,
@@ -151,11 +152,20 @@ class OrchestratorAgentExecutor(AgentExecutor):
             else:
                 response_text = self._format_unsupported_response(result)
 
-            # Add artifact with the result
+            # Add text artifact (for human readability)
             await updater.add_artifact(
                 [Part(root=TextPart(text=response_text))],
-                name="orchestrator_result",
+                name="orchestrator_result_text",
             )
+
+            # Add structured data artifact (for machine parsing)
+            agent_response = result.get("agent_response", {})
+            if agent_response.get("status") == "success":
+                agent_response_data = agent_response.get("response", {})
+                await updater.add_artifact(
+                    [Part(root=DataPart(data=agent_response_data))],
+                    name="orchestrator_result_json",
+                )
 
             # Complete the task
             await updater.complete()
