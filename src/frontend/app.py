@@ -292,6 +292,17 @@ def extract_decision_from_response(response: Dict[str, Any]) -> Dict[str, Any] |
     logger.info(f"Response keys: {response.keys() if response else 'None'}")
     logger.info(f"Full response (first 2000 chars): {json.dumps(response, indent=2)[:2000]}")
 
+    # Save full response to debug file in project folder
+    debug_dir = Path("resources/debug")
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    debug_file = debug_dir / f"a2a_response_{uuid4().hex[:8]}.json"
+    try:
+        with open(debug_file, "w") as f:
+            json.dump(response, f, indent=2)
+        logger.info(f"Full response saved to: {debug_file}")
+    except Exception as e:
+        logger.warning(f"Failed to save debug response: {e}")
+
     try:
         # Navigate through the A2A response structure
         # Response format: {result: {status: {message: {parts: [{kind: "text", text: "..."}]}}}}
@@ -364,6 +375,8 @@ def extract_decision_from_response(response: Dict[str, Any]) -> Dict[str, Any] |
                     if part.get("kind") == "text":
                         text = part.get("text", "")
                         logger.info(f"Artifact {idx} part {pidx} text (first 500): {text[:500]}")
+
+                        # Try to parse as JSON directly
                         try:
                             decision = json.loads(text)
                             if isinstance(decision, dict) and "determination" in decision:
@@ -371,6 +384,62 @@ def extract_decision_from_response(response: Dict[str, Any]) -> Dict[str, Any] |
                                 return decision
                         except json.JSONDecodeError:
                             pass
+
+                        # Check if this is orchestrator response with nested agent response
+                        if "Agent Response" in text or "jsonrpc" in text:
+                            logger.info("Detected nested orchestrator response, parsing...")
+                            # Try to extract the nested JSON response
+                            try:
+                                # Find the JSON-RPC response in the text
+                                start_idx = text.find('{\n  "id":')
+                                if start_idx == -1:
+                                    start_idx = text.find('{"id":')
+                                if start_idx != -1:
+                                    # Find matching closing brace
+                                    brace_count = 0
+                                    end_idx = start_idx
+                                    for i in range(start_idx, len(text)):
+                                        if text[i] == '{':
+                                            brace_count += 1
+                                        elif text[i] == '}':
+                                            brace_count -= 1
+                                            if brace_count == 0:
+                                                end_idx = i + 1
+                                                break
+
+                                    if end_idx > start_idx:
+                                        nested_json_str = text[start_idx:end_idx]
+                                        logger.info(f"Found nested JSON-RPC (length: {len(nested_json_str)})")
+                                        try:
+                                            nested_response = json.loads(nested_json_str)
+                                            logger.info(f"Parsed nested response, keys: {nested_response.keys()}")
+
+                                            # Now extract from the nested response
+                                            if "result" in nested_response:
+                                                nested_result = nested_response["result"]
+                                                nested_artifacts = nested_result.get("artifacts", [])
+                                                logger.info(f"Nested artifacts count: {len(nested_artifacts)}")
+
+                                                for nidx, nartifact in enumerate(nested_artifacts):
+                                                    logger.info(f"Nested artifact {nidx}: {nartifact.get('name')}")
+                                                    nparts = nartifact.get("parts", [])
+                                                    for npart in nparts:
+                                                        if npart.get("kind") == "text":
+                                                            ntext = npart.get("text", "")
+                                                            # Check if this is JSON artifact
+                                                            if nartifact.get("name", "").endswith("_json"):
+                                                                logger.info(f"Found JSON artifact: {nartifact.get('name')}")
+                                                                try:
+                                                                    decision = json.loads(ntext)
+                                                                    if isinstance(decision, dict) and "determination" in decision:
+                                                                        logger.info("Found determination in nested JSON artifact!")
+                                                                        return decision
+                                                                except json.JSONDecodeError as e:
+                                                                    logger.info(f"Failed to parse nested JSON artifact: {e}")
+                                        except json.JSONDecodeError as e:
+                                            logger.info(f"Failed to parse nested JSON-RPC: {e}")
+                            except Exception as e:
+                                logger.info(f"Error parsing nested response: {e}")
 
         logger.warning("Could not extract decision from response - no determination field found")
         return None

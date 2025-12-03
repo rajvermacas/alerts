@@ -152,13 +152,21 @@ class WashTradeAgentExecutor(AgentExecutor):
             agent = self._get_agent()
             decision: WashTradeDecision = agent.analyze(alert_file)
 
-            # Format result
+            # Format result as text
             result = self._format_decision(decision)
 
-            # Add artifact with the result
+            # Convert decision to JSON
+            decision_json = decision.model_dump_json(indent=2, exclude_none=True)
+
+            # Add two artifacts: formatted text and JSON
             await updater.add_artifact(
                 [Part(root=TextPart(text=result))],
-                name="wash_trade_decision",
+                name="wash_trade_decision_text",
+            )
+
+            await updater.add_artifact(
+                [Part(root=TextPart(text=decision_json))],
+                name="wash_trade_decision_json",
             )
 
             # Complete the task
