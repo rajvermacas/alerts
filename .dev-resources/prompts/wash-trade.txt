@@ -1,0 +1,191 @@
+Key Questions for You
+
+  1. Agent Architecture Pattern
+
+  Question: Should the Wash Trade Agent follow the exact same tool pattern as the Insider Trading Agent?
+
+  My observation: Wash trades require different data signals (account relationships, trade timing, counterparty analysis) vs
+  insider trading (news correlation, trader history). Some tools can be reused, others need replacement.
+  
+  - I like this approach.
+
+  ---
+  2. Tool Composition
+
+  Question: Which tools should be shared vs. wash-trade-specific?
+
+  | Tool          | Insider Trading | Wash Trade  | Notes                                    |
+  |---------------|-----------------|-------------|------------------------------------------|
+  | AlertReader   | ✓               | ✓ (reuse)   | Parse SMARTS XML - likely same format    |
+  | TraderHistory | ✓               | ✓ (modify)  | Need counterparty relationship analysis  |
+  | TraderProfile | ✓               | ✓ (reuse)   | Account ownership/relationships critical |
+  | MarketNews    | ✓               | ✗ (skip)    | Less relevant for wash trades            |
+  | MarketData    | ✓               | ✓ (reuse)   | Volume/price impact still useful         |
+  | PeerTrades    | ✓               | ✗ (replace) | Need CounterpartyAnalysis instead        |
+  | —             | —               | NEW         | AccountRelationships tool                |
+  | —             | —               | NEW         | TradeTiming tool (pattern detection)     |
+
+  Default: Create WashTradeAnalyzerAgent with 6 tools - 3 reused, 3 new.
+
+  ---
+  3. Account Relationship Data
+
+  Question: Do you have account relationship/beneficial ownership data available, or should I mock this for POC?
+
+  Default: Create mock data in test_data/account_relationships.csv with fields like:
+  - account_id, beneficial_owner_id, relationship_type, linked_accounts[]
+
+  ---
+  4. Orchestrator Integration
+
+  Question: Should the orchestrator route to Wash Trade Agent based on SMARTS alert type?
+
+  Default: Yes - extend orchestrator to detect alert type from XML and route:
+  - InsiderTrading → Insider Trading Agent (port 10001)
+  - WashTrade → Wash Trade Agent (port 10002)
+
+  ---
+  5. Few-Shot Examples Strategy
+
+  Question: Should wash trade few-shot examples be in a separate file or combined?
+
+  Default: Separate file test_data/wash_trade_few_shot_examples.json for cleaner separation.
+
+  ---
+  6. Decision Model
+
+  Question: Should AlertDecision Pydantic model be reused or should we create WashTradeDecision?
+
+  Default: Create a shared BaseAlertDecision with common fields, then extend:
+  BaseAlertDecision
+  ├── InsiderTradingDecision (has: market_context, news_correlation)
+  └── WashTradeDecision (has: relationship_network, timing_patterns)
+
+  ---
+  Questions to Consider for Quality/Experience
+
+  1. Cross-alert correlation: Should we detect cases where the SAME trader has both insider trading AND wash trade alerts? This
+  could indicate more serious manipulation. - No for now just focus on one alert at a time.
+  2. Relationship graph depth: How many degrees of separation should account relationships consider? (Direct → 1, Through
+  intermediary → 2, etc.) - keep it simple.
+  3. Timing thresholds: What time windows define "suspicious" trade pairing? (Same second? Within 1 minute? Same day?) - It is upto you how you design it. Follow industry practice.
+  4. Volume thresholds: Should the agent have guidance on what volume % constitutes meaningful wash activity? - follow industry guidelines.
+  5. Report format: Should wash trade HTML reports show a relationship network visualization? - yes
+
+  ---
+  Proposed High-Level Algorithm
+
+  WashTradeAnalyzerAgent:
+  1. AlertReader: Extract trade details from SMARTS XML
+  2. AccountRelationships: Query beneficial ownership, find linked accounts
+  3. TraderHistory: Get trading patterns for ALL related accounts
+  4. TradeTiming: Analyze temporal proximity of offsetting trades
+  5. CounterpartyAnalysis: Identify circular patterns (A→B→A or A→B→C→A)
+  6. MarketData: Assess volume impact and price manipulation evidence
+
+  LLM Reasoning:
+  - Compare to wash trade precedents (few-shot examples)
+  - Weigh relationship proximity, timing patterns, volume significance
+  - Determine: ESCALATE | CLOSE | NEEDS_HUMAN_REVIEW
+
+  ---
+  Your Input Needed
+
+  1. Which tool composition approach do you prefer? - provided.
+  2. Do you have real SMARTS alert XML samples for wash trades, or should I create mock ones? - creat mock ones. I don't have any data. I rely on you to create the solution as well as its data for testing.
+  3. Any specific regulatory requirements (e.g., FINRA wash trade rules) to encode in few-shot examples? - yes try to give good examples as to me it is the most critical part.
+
+=================================================
+
+---
+  Few Questions Before Finalizing
+
+  1. Tool Reuse Strategy
+
+  Question: For reused tools (AlertReader, TraderProfile, MarketData), should I:
+
+  - Option B: Create a shared tools/common/ directory and move reusable tools there
+
+  Default: Option B - promotes cleaner architecture and prevents circular imports.
+
+  ---
+  2. Wash Trade Alert XML Structure
+
+  Question: Should the wash trade alert XML follow the same schema as insider trading alerts but with different <AlertType> and
+  trade pairs, or do you expect a fundamentally different structure?
+
+  Default: Same schema, different content:
+  <Alert>
+    <AlertType>WashTrade</AlertType>
+    <Trade1>...</Trade1>  <!-- Buy side -->
+    <Trade2>...</Trade2>  <!-- Sell side (offsetting) -->
+    <TimeDelta>0.5s</TimeDelta>
+  </Alert>
+
+  ---
+  3. Directory Structure
+
+  Question: Where should the wash trade agent live?
+
+  - Option A: src/alerts/agents/wash_trade/ (new agents directory)
+  - Option B: src/alerts/wash_trade/ (parallel to existing code)
+  - Option C: Keep in same structure, just add files to tools/ and new wash_trade_agent.py
+
+  Default: Option A - cleanest separation, allows future agents easily.
+
+  This would mean refactoring insider trading into src/alerts/agents/insider_trading/ for consistency.
+
+  ---
+  4. Relationship Network Visualization
+
+  Question: For the HTML report's relationship network, should I:
+
+  - Option A: Simple text-based representation (ASCII/table)
+  - Option B: SVG-based graph (lightweight, no JS dependencies)
+  - Option C: Use a JS library like vis.js (interactive but adds complexity)
+
+  Default: Option B - professional look without JS complexity.
+
+  ---
+  5. Test Data Scenarios
+
+  Question: For mock test data, I plan to create 3 scenarios (like insider trading). Do these cover the key cases?
+
+  | Scenario                | Description                                                                                    |
+  Expected Outcome   |
+  |-------------------------|------------------------------------------------------------------------------------------------|-----
+  ---------------|
+  | wash_genuine.xml        | Clear wash trade: same beneficial owner, offsetting trades within seconds, no economic purpose |
+  ESCALATE           |
+  | wash_false_positive.xml | Legitimate market making: licensed market maker, proper disclosure, economic justification     |
+  CLOSE              |
+  | wash_ambiguous.xml      | Related but not same owner, 30-min gap, partial offset, possible hedging strategy              |
+  NEEDS_HUMAN_REVIEW |
+
+  Default: Yes, these three scenarios.
+
+  Additional question: Should I add a 4th scenario for "layered wash trade" (A→B→C→A pattern)?
+
+  ---
+  6. Regulatory Framework for Few-Shot Examples
+
+  I'll base the few-shot examples on these regulatory sources:
+
+  - FINRA Rule 5210 (Publication of Transactions)
+  - SEC Rule 10b-5 (Manipulative practices)
+  - NYSE Rule 5310 (Best Execution)
+  - Industry red flags: Pre-arranged trades, no change in beneficial ownership, artificial volume
+
+  Question: Any specific jurisdiction or additional regulations to emphasize?
+
+  Default: APAC-centric as primary, with general principles applicable globally.
+==============================
+
+
+  1. 4th layered scenario: Yes
+  2. APAC jurisdiction priority: Singapore
+  3. Refactoring scope: Option A (full)
+  4. Port 10002: Confirmed
+
+When you mentioned STEP 3: TraderHistory (modified) - did you mean that you will modify the same traderHistory which insider agent also uses? because that wouldn't be backward compatible.
+I believe you should create a new specialized wash trade trader history tool so that both the agents insider trading and wash trade should work without interrupting each other.
