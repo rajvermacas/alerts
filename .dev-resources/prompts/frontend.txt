@@ -1,0 +1,116 @@
+Currently there is no UI. Build a UI to have button to upload the xml alert which is then sent to the orchestrator agent.
+The html report which is then generated should also be seen as a result on the UI page itself.
+When the UI sends the request to the orchestrator agent there should be a loading.
+========================
+
+  ---
+  Clarifying Questions
+
+  1. Frontend Framework Choice
+
+  What frontend framework should we use?
+  - Default: Plain HTML/CSS/JS with HTMX - Minimal complexity, leverages your existing Tailwind CSS in reports
+
+  My recommendation: Given this is a POC and you already generate Tailwind-styled HTML reports, HTMX + vanilla JS keeps it lean.
+  Thoughts? - Yes sure default plan looks good
+
+  ---
+  2. Backend API Layer
+
+  Should we create a new FastAPI service or extend the existing A2A server?
+  Do not create a wrapper on orchestrator. Create a fastapi backend that will call the orchestrator api. These 2 be separates.
+
+  ---
+  3. File Upload Handling
+
+  How should we handle the uploaded XML?
+  - Default: Temporary file storage - Save to /tmp/ or configurable temp directory, process, then cleanup
+
+  ---
+  4. Report Display Strategy
+
+  How should the HTML report be displayed in the UI?
+  - Default: Embed via iframe - Your reports are self-contained with inline Tailwind CSS
+  - Alternative: Extract and inject into a div (more complex, potential CSS conflicts)
+
+  My take: Iframe is simpler and your reports already look professional. Any concerns?
+  do not use iframe. Use the underlying data from the report json and create a new page on the frontend which is shown after the alert processing is completed.
+
+  ---
+  5. Loading State UX
+
+  What loading experience do you want?
+  - Default: Spinner with status messages - Show "Analyzing alert...", "Running tools...", etc.
+
+  ---
+  Questions to Consider for Quality/Experience
+
+  1. Error Handling Display: How should we show errors to users? (e.g., invalid XML, agent timeout, LLM failure)
+    - Suggestion: Toast notifications with retry option
+  2. History/Session: Should users see previously analyzed alerts in the same session?
+    - Default: No history - single analysis at a time (lean approach)
+  3. Alert Preview: Should users see the raw XML content before submitting?
+    - Suggestion: Collapsible preview panel after upload
+  4. Download Options: Should users be able to download the report as standalone HTML/PDF?
+    - Your JSON and HTML are already saved to resources/reports/ - just expose download links? - yes expose downloadable links
+  5. Authentication: Is this internal-only or do you need auth?
+    - Default for POC: No auth, local network only
+=============================
+
+ Follow-up Questions
+
+  1. Report UI from JSON
+
+  Since you want to render the report from JSON rather than iframe, I need to understand scope:
+
+  How much of the existing HTML report design should the new UI replicate?
+  - Option A: Full feature parity - replicate the entire current HTML report design (split-screen, all sections, SVG network graph
+  for wash trade)
+  - Option B: Simplified view - key findings, determination, confidence scores, reasoning narrative only
+  - Default suggestion: Option A - reuse the same Tailwind structure/components but render dynamically
+
+  Note: The wash trade report has an SVG relationship network visualization. Should we include that in the dynamic UI?
+
+  Answer: The wash trade report doesn't use SVG relationship anymore. it uses Cytoscape.js. Yes use the Cytoscape.js graph in the dynamic UI. 
+
+  ---
+  2. Orchestrator Communication
+
+  You said FastAPI should call the Orchestrator A2A API. Currently the orchestrator runs on port 10000.
+
+  Should the FastAPI backend assume the orchestrator is already running, or should we document the startup sequence?
+  - Default: Document that user must start orchestrator servers first (insider trading: 10001, wash trade: 10002, orchestrator:
+  10000)
+
+  ---
+  3. Port & Project Structure
+
+  What port should the UI FastAPI service run on?
+  - Default: 8080
+
+  Where should the UI code live?
+  - Default: src/alerts/frontend/ directory with:
+  frontend/
+  ├── __init__.py
+  ├── app.py          # FastAPI application
+  ├── static/         # CSS, JS
+  └── templates/      # HTML templates (Jinja2)
+
+  ---
+  4. Alert Type Detection in UI
+
+  The orchestrator determines alert type (insider trading vs wash trade) from the XML.
+
+  Should the UI show different result layouts based on alert type?
+  - Default: Yes - Insider Trading shows trader baseline analysis, Wash Trade shows relationship network
+  - This aligns with your two different Pydantic models (InsiderTradingDecision vs WashTradeDecision)
+
+  Final Questions Before We Proceed
+
+  1. Confirm port 8080 for UI service? - Yes
+  2. Full feature parity with existing HTML reports (including SVG network graph)? Use Cytoscape.js graphs
+  3. Any additional fields you want in the UI that aren't in current reports? - no
+=========================
+
+Project Location    | src/alerts/frontend/ - wrong
+Project Location    | src/frontend
