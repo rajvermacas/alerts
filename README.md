@@ -456,3 +456,46 @@ pytest tests/test_tools.py -v
 - [ ] Internal communications tool
 - [ ] Async processing for higher volume
 - [ ] Web UI for compliance analysts
+
+## Execution commands
+---
+Option 2: Run Multi-Agent Orchestrator (A2A Protocol)
+
+  Uses orchestrator to route alerts to specialized agents:
+
+  Step 1: Start Specialized Agent Servers
+
+  Terminal 1 - Insider Trading Agent:
+  python -m alerts.a2a.insider_trading_server --port 10001
+
+  Terminal 2 - Wash Trade Agent:
+  python -m alerts.a2a.wash_trade_server --port 10002
+
+  Step 2: Start Orchestrator Server
+
+  Terminal 3 - Orchestrator:
+  python -m alerts.a2a.orchestrator_server --port 10000 \
+      --insider-trading-url http://localhost:10001 \
+      --wash-trade-url http://localhost:10002
+
+  Step 3: Send Alert to Orchestrator
+
+  Terminal 4 - Test Client:
+
+  For Insider Trading Alert:
+  python -m alerts.a2a.test_client \
+      --server-url http://localhost:10000 \
+      --alert test_data/alerts/alert_genuine.xml
+
+  For Wash Trade Alert:
+  python -m alerts.a2a.test_client \
+      --server-url http://localhost:10000 \
+      --alert test_data/alerts/wash_trade/wash_genuine.xml
+
+  With streaming mode:
+  python -m alerts.a2a.test_client \
+      --server-url http://localhost:10000 \
+      --alert test_data/alerts/wash_trade/wash_genuine.xml \
+      --streaming
+
+  ---

@@ -6,11 +6,12 @@ This module provides the CLI entry point for analyzing alerts.
 import argparse
 import logging
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
-from alerts.agent import AlertAnalyzerAgent
+from alerts.agents import InsiderTradingAnalyzerAgent, WashTradeAnalyzerAgent
 from alerts.config import ConfigurationError, get_config, setup_logging
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,61 @@ Examples:
     return parser.parse_args()
 
 
+def detect_alert_type(alert_path: Path) -> str:
+    """Detect the type of alert from the XML file.
+
+    Args:
+        alert_path: Path to the alert XML file
+
+    Returns:
+        "wash_trade" or "insider_trading"
+    """
+    # Wash trade indicators
+    WASH_TRADE_ALERT_TYPES = {
+        "WashTrade", "Wash Trade", "Self-Trade",
+        "Matched Orders", "Circular Trading", "Layered Wash Trade",
+    }
+    WASH_TRADE_RULES = {
+        "WT-001", "WT-002", "WASH_TRADE", "SELF_TRADE",
+        "MATCHED_ORDERS", "SMARTS-WT-001", "SMARTS-WT-002",
+    }
+
+    try:
+        tree = ET.parse(alert_path)
+        root = tree.getroot()
+
+        # Extract alert type and rule
+        alert_type_elem = root.find(".//AlertType")
+        alert_type = alert_type_elem.text.strip() if alert_type_elem is not None and alert_type_elem.text else ""
+
+        rule_elem = root.find(".//RuleViolated")
+        rule_violated = rule_elem.text.strip() if rule_elem is not None and rule_elem.text else ""
+
+        logger.debug(f"Alert XML: type='{alert_type}', rule='{rule_violated}'")
+
+        # Check for wash trade indicators
+        if alert_type in WASH_TRADE_ALERT_TYPES:
+            logger.info(f"Alert type '{alert_type}' matches wash trade types")
+            return "wash_trade"
+        if rule_violated in WASH_TRADE_RULES:
+            logger.info(f"Rule '{rule_violated}' matches wash trade rules")
+            return "wash_trade"
+
+        # Check keywords
+        alert_type_lower = alert_type.lower()
+        if any(kw in alert_type_lower for kw in ["wash", "self-trade", "matched order", "circular"]):
+            logger.info(f"Alert type '{alert_type}' contains wash trade keywords")
+            return "wash_trade"
+
+        # Default to insider trading
+        logger.info(f"Alert type '{alert_type}' classified as insider trading")
+        return "insider_trading"
+
+    except ET.ParseError as e:
+        logger.warning(f"Could not parse alert XML: {e}. Defaulting to insider trading")
+        return "insider_trading"
+
+
 def main() -> int:
     """Main entry point.
 
@@ -163,13 +219,24 @@ def main() -> int:
         logger.info("Initializing LLM")
         llm = create_llm(config)
 
-        # Create agent
-        logger.info("Creating analysis agent")
-        agent = AlertAnalyzerAgent(
-            llm=llm,
-            data_dir=config.data.data_dir,
-            output_dir=config.data.output_dir,
-        )
+        # Detect alert type and create appropriate agent
+        alert_type = detect_alert_type(alert_path)
+        logger.info(f"Detected alert type: {alert_type}")
+
+        if alert_type == "wash_trade":
+            logger.info("Creating WashTradeAnalyzerAgent")
+            agent = WashTradeAnalyzerAgent(
+                llm=llm,
+                data_dir=config.data.data_dir,
+                output_dir=config.data.output_dir,
+            )
+        else:
+            logger.info("Creating InsiderTradingAnalyzerAgent")
+            agent = InsiderTradingAnalyzerAgent(
+                llm=llm,
+                data_dir=config.data.data_dir,
+                output_dir=config.data.output_dir,
+            )
 
         # Run analysis
         logger.info("Starting alert analysis")
