@@ -1,0 +1,149 @@
+{
+  "examples": [
+    {
+      "id": "WS-001",
+      "title": "Classic Same-Owner Wash Trade",
+      "jurisdiction": "Singapore",
+      "regulation": "MAS SFA Section 197, 199",
+      "scenario": {
+        "accounts": "Family trust and holding company",
+        "beneficial_owner": "Same person (John Smith)",
+        "relationship": "Direct ownership - 100% control of both",
+        "trades": "Offsetting buy/sell of 10,000 shares at identical price",
+        "time_delta": "502 milliseconds",
+        "volume_impact": "45% of daily volume"
+      },
+      "determination": "ESCALATE",
+      "reasoning": "Clear violation of SFA s197 and s199. Same beneficial owner on both sides creates false appearance of trading activity. Sub-second execution (502ms) indicates pre-arranged trades - faster than human reaction time. No legitimate economic purpose as shares simply move between entities controlled by same person. High volume impact (45%) shows significant artificial volume creation. This is a textbook wash trade case.",
+      "key_factors": [
+        "Same beneficial owner confirmed",
+        "Sub-second execution (pre-arrangement)",
+        "No price improvement",
+        "High volume impact (45%)",
+        "No economic purpose identified"
+      ]
+    },
+    {
+      "id": "WS-002",
+      "title": "Licensed Market Maker Exemption",
+      "jurisdiction": "Singapore",
+      "regulation": "MAS SFA Section 199 Exemption",
+      "scenario": {
+        "accounts": "Market making book and hedge book",
+        "beneficial_owner": "Same licensed entity (Alpha Financial Services)",
+        "relationship": "Separate trading books with regulatory disclosure",
+        "trades": "Offsetting trades with price improvement",
+        "time_delta": "2.5 seconds",
+        "volume_impact": "8% of daily volume"
+      },
+      "determination": "CLOSE",
+      "reasoning": "Licensed market maker with proper regulatory disclosure. Trades between market making and hedge books are legitimate inventory management, which is the core function of a market maker. Price improvement of $0.05 demonstrates genuine market activity rather than artificial trades. Activity falls within the SFA Section 199 exemption for licensed market makers. The volume impact is within normal parameters for designated market maker activity.",
+      "key_factors": [
+        "Licensed market maker status confirmed",
+        "Proper regulatory disclosure in place",
+        "Separate trading books (market making vs hedge)",
+        "Price improvement exists ($0.05)",
+        "Legitimate economic purpose (inventory management)",
+        "Regulatory exemption applies"
+      ]
+    },
+    {
+      "id": "WS-003",
+      "title": "Family-Related Accounts Ambiguity",
+      "jurisdiction": "Australia",
+      "regulation": "ASIC Corporations Act s1041A",
+      "scenario": {
+        "accounts": "Husband's investment account and wife's family office",
+        "beneficial_owner": "Different but related (spousal relationship)",
+        "relationship": "2nd degree - separate beneficial owners in same household",
+        "trades": "Partial offset (5,000 of 8,000 shares), 30-minute gap",
+        "time_delta": "30 minutes",
+        "volume_impact": "15% of daily volume"
+      },
+      "determination": "NEEDS_HUMAN_REVIEW",
+      "reasoning": "Spousal relationship creates legitimate suspicion but is not definitive. Key factors create ambiguity: (1) Different beneficial owners despite household relationship, (2) 30-minute gap suggests possible independent decisions rather than coordination, (3) Partial offset only - not complete wash, (4) Price difference of $2 shows market movement between trades. Could be coordinated family trading to manipulate volume, OR could be independent investment decisions by spouses with aligned views. Requires investigation of communication records and explicit trading intent.",
+      "key_factors": [
+        "Related but different beneficial owners (spousal)",
+        "Significant time gap (30 minutes)",
+        "Partial offset only (5,000 of 8,000)",
+        "Price difference shows market activity ($2)",
+        "Intent unclear - could be independent or coordinated",
+        "Requires human judgment on communication records"
+      ]
+    },
+    {
+      "id": "WS-004",
+      "title": "Layered Circular Pattern",
+      "jurisdiction": "Singapore",
+      "regulation": "MAS SFA Section 197, 198, 199",
+      "scenario": {
+        "accounts": "Three corporate shells (Dragon, Phoenix, Tiger)",
+        "beneficial_owner": "Same controlling shareholder (Wei Zhang)",
+        "relationship": "Corporate structure designed to obscure common ownership",
+        "trades": "Circular pattern A->B->C->A, same quantity, same price",
+        "time_delta": "5 seconds between each leg, 10 seconds total cycle",
+        "volume_impact": "68% of daily volume"
+      },
+      "determination": "ESCALATE",
+      "reasoning": "Sophisticated wash trade using layered corporate structure. Same beneficial owner (Wei Zhang) controls all three entities - this is confirmed through ownership records. The circular trade pattern (A->B->C->A) where shares return to origin with no change in beneficial position is a classic wash trade structure. Same quantity and same price across all legs eliminates any argument for market activity. The 10-second total cycle time for a round trip indicates highly coordinated pre-arranged execution. The 68% volume impact represents egregious artificial volume creation. Use of multiple corporate shells suggests intent to deceive and evade detection. Multiple regulatory violations under SFA s197 (false trading), s198 (market manipulation), and s199 (wash trades).",
+      "key_factors": [
+        "Circular trade pattern confirmed (A->B->C->A)",
+        "Same ultimate beneficial owner for all accounts",
+        "Shares return to origin - zero net position change",
+        "Corporate structure appears designed for obfuscation",
+        "10-second cycle time indicates pre-arrangement",
+        "68% volume impact - severe artificial volume",
+        "Multiple SFA violations",
+        "Repeated pattern (5 times in 30 days)"
+      ]
+    },
+    {
+      "id": "WS-005",
+      "title": "Cross-Border Intermediary Pattern",
+      "jurisdiction": "Hong Kong",
+      "regulation": "SFC SFO Section 274",
+      "scenario": {
+        "accounts": "Two related accounts trading through unrelated intermediary",
+        "beneficial_owner": "Same owner for end accounts, different for intermediary",
+        "relationship": "A and C same owner, B is unrelated intermediary",
+        "trades": "A sells to B, B sells to C (A and C controlled by same owner)",
+        "time_delta": "45 seconds total",
+        "volume_impact": "22% of daily volume"
+      },
+      "determination": "ESCALATE",
+      "reasoning": "Intermediary wash trade pattern where unrelated party B is used to create appearance of arm's length transaction. Despite using an intermediary, the ultimate effect is same as direct wash trade - shares move from one account controlled by beneficial owner to another account controlled by same owner. The intermediary's involvement does not change the substance of the transaction. The 45-second completion time for a two-leg trade through intermediary still suggests coordination. Volume impact of 22% is significant. This pattern demonstrates intent to evade wash trade detection by routing through a third party.",
+      "key_factors": [
+        "Same beneficial owner at start and end of trade chain",
+        "Intermediary used to create false appearance of arm's length trade",
+        "Coordinated timing despite intermediary involvement",
+        "No legitimate economic purpose for the structure",
+        "Pattern suggests intent to evade detection",
+        "22% volume impact is significant"
+      ]
+    },
+    {
+      "id": "WS-006",
+      "title": "Legitimate Block Trade Rebalancing",
+      "jurisdiction": "Singapore",
+      "regulation": "MAS SFA - No Violation",
+      "scenario": {
+        "accounts": "Fund manager accounts during portfolio rebalancing",
+        "beneficial_owner": "Different underlying fund investors",
+        "relationship": "Same fund manager, different beneficial owners (fund unitholders)",
+        "trades": "Cross between funds at VWAP pricing",
+        "time_delta": "Executed at 4pm closing auction",
+        "volume_impact": "12% of daily volume"
+      },
+      "determination": "CLOSE",
+      "reasoning": "While the trades occur between accounts managed by the same fund manager, the beneficial owners are different (underlying fund unitholders). This is a legitimate cross trade for portfolio rebalancing, executed at fair value (VWAP). The trade was executed during the closing auction which provides price transparency. The fund manager has a fiduciary duty to both funds and is acting in the interest of all unitholders. This is an accepted market practice for fund rebalancing and does not constitute wash trading as there is genuine change in beneficial ownership.",
+      "key_factors": [
+        "Different beneficial owners (fund unitholders)",
+        "Legitimate economic purpose (portfolio rebalancing)",
+        "Fair value pricing (VWAP)",
+        "Executed during transparent auction period",
+        "Fiduciary relationship properly managed",
+        "Industry accepted practice for fund management"
+      ]
+    }
+  ]
+}

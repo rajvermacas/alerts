@@ -37,19 +37,24 @@ class OrchestratorAgentExecutor(AgentExecutor):
     def __init__(
         self,
         insider_trading_agent_url: str = "http://localhost:10001",
+        wash_trade_agent_url: str = "http://localhost:10002",
         data_dir: Path | None = None,
     ) -> None:
         """Initialize the executor.
 
         Args:
             insider_trading_agent_url: URL of the insider trading agent A2A server
+            wash_trade_agent_url: URL of the wash trade agent A2A server
             data_dir: Path to data directory (optional)
         """
         self.orchestrator = OrchestratorAgent(
             insider_trading_agent_url=insider_trading_agent_url,
+            wash_trade_agent_url=wash_trade_agent_url,
             data_dir=data_dir,
         )
         logger.info("OrchestratorAgentExecutor initialized")
+        logger.info(f"Insider Trading Agent URL: {insider_trading_agent_url}")
+        logger.info(f"Wash Trade Agent URL: {wash_trade_agent_url}")
 
     async def execute(
         self,
@@ -136,8 +141,9 @@ class OrchestratorAgentExecutor(AgentExecutor):
             # Route and analyze the alert
             result = await self.orchestrator.analyze_alert(alert_file)
 
-            # Format result
-            if result.get("routed_to") == "insider_trading_agent":
+            # Format result based on which agent handled the request
+            routed_to = result.get("routed_to")
+            if routed_to in ("insider_trading_agent", "wash_trade_agent"):
                 if result.get("agent_response", {}).get("status") == "success":
                     response_text = self._format_success_response(result)
                 else:
@@ -236,6 +242,12 @@ class OrchestratorAgentExecutor(AgentExecutor):
         Returns:
             Formatted string
         """
+        routed_to = result.get("routed_to", "unknown")
+        agent_display_name = {
+            "insider_trading_agent": "Insider Trading Agent",
+            "wash_trade_agent": "Wash Trade Agent",
+        }.get(routed_to, routed_to)
+
         lines = [
             "=" * 60,
             "ORCHESTRATOR RESULT",
@@ -244,7 +256,8 @@ class OrchestratorAgentExecutor(AgentExecutor):
             f"Alert ID: {result.get('alert_id', 'Unknown')}",
             f"Alert Type: {result.get('alert_type', 'Unknown')}",
             f"Rule Violated: {result.get('rule_violated', 'Unknown')}",
-            f"Routed To: Insider Trading Agent",
+            f"Category: {result.get('category', 'Unknown')}",
+            f"Routed To: {agent_display_name}",
             "",
             "--- Agent Response ---",
         ]
@@ -267,6 +280,12 @@ class OrchestratorAgentExecutor(AgentExecutor):
         Returns:
             Formatted string
         """
+        routed_to = result.get("routed_to", "unknown")
+        agent_display_name = {
+            "insider_trading_agent": "Insider Trading Agent",
+            "wash_trade_agent": "Wash Trade Agent",
+        }.get(routed_to, routed_to)
+
         lines = [
             "=" * 60,
             "ORCHESTRATOR ERROR",
@@ -274,7 +293,8 @@ class OrchestratorAgentExecutor(AgentExecutor):
             "",
             f"Alert ID: {result.get('alert_id', 'Unknown')}",
             f"Alert Type: {result.get('alert_type', 'Unknown')}",
-            f"Routed To: Insider Trading Agent",
+            f"Category: {result.get('category', 'Unknown')}",
+            f"Routed To: {agent_display_name}",
             "",
             "--- Error ---",
             result.get("agent_response", {}).get("error", "Unknown error"),

@@ -1,0 +1,15 @@
+account_id,beneficial_owner_id,beneficial_owner_name,relationship_type,linked_accounts,relationship_degree
+ACC-001,BO-123,John Smith,family_trust,"[""ACC-002"",""ACC-003""]",1
+ACC-002,BO-123,John Smith,corporate,"[""ACC-001"",""ACC-003""]",1
+ACC-003,BO-123,John Smith,direct,"[""ACC-001"",""ACC-002""]",1
+ACC-100,BO-500,Alpha Financial Services,market_maker,"[""ACC-101""]",1
+ACC-101,BO-500,Alpha Financial Services,hedge_book,"[""ACC-100""]",1
+ACC-200,BO-600,Michael Chen,direct,"[""ACC-201""]",2
+ACC-201,BO-601,Sarah Chen,spousal,"[""ACC-200""]",2
+ACC-300,BO-700,Wei Zhang,corporate,"[""ACC-301"",""ACC-302""]",1
+ACC-301,BO-700,Wei Zhang,corporate,"[""ACC-300"",""ACC-302""]",1
+ACC-302,BO-700,Wei Zhang,corporate,"[""ACC-300"",""ACC-301""]",1
+ACC-400,BO-800,Robert Lee,direct,"[]",1
+ACC-401,BO-801,James Wang,direct,"[]",1
+ACC-500,BO-900,Global Markets LLC,intermediary,"[""ACC-501""]",1
+ACC-501,BO-900,Global Markets LLC,nominee,"[""ACC-500""]",1

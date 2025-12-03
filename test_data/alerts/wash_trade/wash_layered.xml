@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SmartsAlert>
+    <AlertMetadata>
+        <AlertID>WT-2024-004</AlertID>
+        <AlertType>WashTrade</AlertType>
+        <RuleViolated>WT-002</RuleViolated>
+        <GeneratedTimestamp>2024-01-15T11:05:00Z</GeneratedTimestamp>
+        <Severity>CRITICAL</Severity>
+        <AnomalyScore>98</AnomalyScore>
+        <ConfidenceLevel>HIGH</ConfidenceLevel>
+        <PatternType>LayeredWashTrade</PatternType>
+    </AlertMetadata>
+
+    <FlaggedTrades>
+        <Trade sequence="1">
+            <AccountID>ACC-300</AccountID>
+            <AccountName>Dragon Holdings</AccountName>
+            <TradeDate>2024-01-15</TradeDate>
+            <TradeTime>11:00:00.000</TradeTime>
+            <Symbol>BABA</Symbol>
+            <Side>SELL</Side>
+            <Quantity>15000</Quantity>
+            <Price>85.00</Price>
+            <TotalValue>1275000.00</TotalValue>
+            <CounterpartyAccount>ACC-301</CounterpartyAccount>
+            <OrderID>ORD-LAY-001</OrderID>
+        </Trade>
+        <Trade sequence="2">
+            <AccountID>ACC-301</AccountID>
+            <AccountName>Phoenix Trading</AccountName>
+            <TradeDate>2024-01-15</TradeDate>
+            <TradeTime>11:00:05.000</TradeTime>
+            <Symbol>BABA</Symbol>
+            <Side>SELL</Side>
+            <Quantity>15000</Quantity>
+            <Price>85.00</Price>
+            <TotalValue>1275000.00</TotalValue>
+            <CounterpartyAccount>ACC-302</CounterpartyAccount>
+            <OrderID>ORD-LAY-002</OrderID>
+        </Trade>
+        <Trade sequence="3">
+            <AccountID>ACC-302</AccountID>
+            <AccountName>Tiger Investments</AccountName>
+            <TradeDate>2024-01-15</TradeDate>
+            <TradeTime>11:00:10.000</TradeTime>
+            <Symbol>BABA</Symbol>
+            <Side>SELL</Side>
+            <Quantity>15000</Quantity>
+            <Price>85.00</Price>
+            <TotalValue>1275000.00</TotalValue>
+            <CounterpartyAccount>ACC-300</CounterpartyAccount>
+            <OrderID>ORD-LAY-003</OrderID>
+        </Trade>
+    </FlaggedTrades>
+
+    <CircularPatternAnalysis>
+        <PatternDetected>true</PatternDetected>
+        <FlowPattern>ACC-300 -> ACC-301 -> ACC-302 -> ACC-300</FlowPattern>
+        <TotalCycleTime>10 seconds</TotalCycleTime>
+        <SharesReturnToOrigin>true</SharesReturnToOrigin>
+        <NetPositionChange>Zero</NetPositionChange>
+        <ArtificialVolumeCreated>45000 shares (3x actual holding)</ArtificialVolumeCreated>
+    </CircularPatternAnalysis>
+
+    <WashTradeIndicators>
+        <TimeDelta>5 seconds between each leg</TimeDelta>
+        <SameSymbol>true</SameSymbol>
+        <SameQuantity>true</SameQuantity>
+        <SamePrice>true</SamePrice>
+        <CircularPattern>true</CircularPattern>
+        <SharesReturnToOrigin>true</SharesReturnToOrigin>
+        <VolumeImpact>68.2%</VolumeImpact>
+        <DailyVolume>66000</DailyVolume>
+    </WashTradeIndicators>
+
+    <BeneficialOwnership>
+        <ControllingOwner>
+            <OwnerID>BO-700</OwnerID>
+            <OwnerName>Wei Zhang</OwnerName>
+            <ControlledAccounts>
+                <Account>ACC-300 (Dragon Holdings) - 100% ownership</Account>
+                <Account>ACC-301 (Phoenix Trading) - 100% ownership</Account>
+                <Account>ACC-302 (Tiger Investments) - 100% ownership</Account>
+            </ControlledAccounts>
+            <CorporateStructure>Layered shell companies in multiple jurisdictions</CorporateStructure>
+        </ControllingOwner>
+    </BeneficialOwnership>
+
+    <MarketContext>
+        <MarketPhase>regular_session</MarketPhase>
+        <LiquidityLevel>medium</LiquidityLevel>
+        <TimeOfDay>late_morning</TimeOfDay>
+        <VolatilityLevel>low</VolatilityLevel>
+    </MarketContext>
+
+    <RegulatoryFlags>
+        <Jurisdiction>Singapore</Jurisdiction>
+        <ApplicableRegulations>
+            <Regulation>MAS SFA Section 197 - False trading and market rigging</Regulation>
+            <Regulation>MAS SFA Section 198 - Market manipulation</Regulation>
+            <Regulation>MAS SFA Section 199 - Wash trades</Regulation>
+        </ApplicableRegulations>
+        <Aggravating>
+            <Factor>Sophisticated layered structure suggests intent to deceive</Factor>
+            <Factor>Use of multiple corporate shells to obscure ownership</Factor>
+            <Factor>Pattern repeated multiple times in recent history</Factor>
+        </Aggravating>
+    </RegulatoryFlags>
+
+    <HistoricalPatterns>
+        <PriorOccurrences>5 similar patterns in past 30 days</PriorOccurrences>
+        <EstimatedArtificialVolume>225000 shares total</EstimatedArtificialVolume>
+        <FirstDetection>2023-12-15</FirstDetection>
+        <PatternFrequency>Approximately once per week</PatternFrequency>
+    </HistoricalPatterns>
+
+    <InvestigationNotes>
+        <Note>Classic layered wash trade with circular A->B->C->A pattern</Note>
+        <Note>All three accounts controlled by same beneficial owner (Wei Zhang)</Note>
+        <Note>Corporate structure appears designed to obscure common ownership</Note>
+        <Note>Same quantity, same price across all three legs</Note>
+        <Note>10-second total cycle time indicates pre-arrangement</Note>
+        <Note>No economic purpose - shares return to starting position</Note>
+        <Note>Artificial volume creation of 68% of daily volume</Note>
+        <Note>Pattern detected 5 times in past 30 days - systematic behavior</Note>
+        <Note>Multiple regulatory violations under Singapore SFA</Note>
+    </InvestigationNotes>
+</SmartsAlert>

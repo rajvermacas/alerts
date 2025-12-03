@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SmartsAlert>
+    <AlertMetadata>
+        <AlertID>WT-2024-003</AlertID>
+        <AlertType>WashTrade</AlertType>
+        <RuleViolated>WT-001</RuleViolated>
+        <GeneratedTimestamp>2024-01-15T10:05:00Z</GeneratedTimestamp>
+        <Severity>MEDIUM</Severity>
+        <AnomalyScore>55</AnomalyScore>
+        <ConfidenceLevel>MEDIUM</ConfidenceLevel>
+    </AlertMetadata>
+
+    <FlaggedTrades>
+        <Trade sequence="1">
+            <AccountID>ACC-200</AccountID>
+            <AccountName>Chen Investments</AccountName>
+            <TradeDate>2024-01-15</TradeDate>
+            <TradeTime>09:30:00.000</TradeTime>
+            <Symbol>NVDA</Symbol>
+            <Side>BUY</Side>
+            <Quantity>8000</Quantity>
+            <Price>450.00</Price>
+            <TotalValue>3600000.00</TotalValue>
+            <CounterpartyAccount>MARKET</CounterpartyAccount>
+            <OrderID>ORD-AMB-001</OrderID>
+            <AccountHolder>Michael Chen</AccountHolder>
+        </Trade>
+        <Trade sequence="2">
+            <AccountID>ACC-201</AccountID>
+            <AccountName>Chen Family Office</AccountName>
+            <TradeDate>2024-01-15</TradeDate>
+            <TradeTime>10:00:00.000</TradeTime>
+            <Symbol>NVDA</Symbol>
+            <Side>SELL</Side>
+            <Quantity>5000</Quantity>
+            <Price>452.00</Price>
+            <TotalValue>2260000.00</TotalValue>
+            <CounterpartyAccount>MARKET</CounterpartyAccount>
+            <OrderID>ORD-AMB-002</OrderID>
+            <AccountHolder>Sarah Chen</AccountHolder>
+        </Trade>
+    </FlaggedTrades>
+
+    <WashTradeIndicators>
+        <TimeDelta>30 minutes</TimeDelta>
+        <SameSymbol>true</SameSymbol>
+        <SameQuantity>false</SameQuantity>
+        <QuantityOffset>partial (5000 of 8000)</QuantityOffset>
+        <SamePrice>false</SamePrice>
+        <PriceDifference>$2.00</PriceDifference>
+        <OffsettingTrades>partial</OffsettingTrades>
+        <VolumeImpact>15.8%</VolumeImpact>
+        <DailyVolume>82000</DailyVolume>
+    </WashTradeIndicators>
+
+    <RelationshipDetails>
+        <Relationship>Spousal</Relationship>
+        <Account1Holder>Michael Chen (Husband)</Account1Holder>
+        <Account2Holder>Sarah Chen (Wife)</Account2Holder>
+        <RelationshipDegree>2nd degree (different beneficial owners)</RelationshipDegree>
+        <SharedHousehold>true</SharedHousehold>
+        <JointFinancialPlanning>Possible but unconfirmed</JointFinancialPlanning>
+    </RelationshipDetails>
+
+    <MarketContext>
+        <MarketPhase>opening_session</MarketPhase>
+        <LiquidityLevel>high</LiquidityLevel>
+        <TimeOfDay>morning</TimeOfDay>
+        <VolatilityLevel>normal</VolatilityLevel>
+        <MarketNews>NVDA earnings announcement scheduled for next week</MarketNews>
+    </MarketContext>
+
+    <RegulatoryFlags>
+        <Jurisdiction>Australia</Jurisdiction>
+        <ApplicableRegulations>
+            <Regulation>ASIC Corporations Act s1041A - Requires Investigation</Regulation>
+        </ApplicableRegulations>
+    </RegulatoryFlags>
+
+    <InvestigationNotes>
+        <Note>Spousal relationship creates suspicion but accounts have different beneficial owners</Note>
+        <Note>30-minute gap between trades - not clearly coordinated</Note>
+        <Note>Partial offset only (5000 of 8000 shares)</Note>
+        <Note>Price difference of $2.00 shows market movement</Note>
+        <Note>Trades executed against market, not directly between accounts</Note>
+        <Note>Could be coordinated family trading or independent hedging decisions</Note>
+        <Note>Recommend human review of communication records and trading intent</Note>
+    </InvestigationNotes>
+</SmartsAlert>

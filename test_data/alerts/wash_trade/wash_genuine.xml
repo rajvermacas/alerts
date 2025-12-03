@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SmartsAlert>
+    <AlertMetadata>
+        <AlertID>WT-2024-001</AlertID>
+        <AlertType>WashTrade</AlertType>
+        <RuleViolated>WT-001</RuleViolated>
+        <GeneratedTimestamp>2024-01-15T14:35:00Z</GeneratedTimestamp>
+        <Severity>HIGH</Severity>
+        <AnomalyScore>95</AnomalyScore>
+        <ConfidenceLevel>HIGH</ConfidenceLevel>
+    </AlertMetadata>
+
+    <FlaggedTrades>
+        <Trade sequence="1">
+            <AccountID>ACC-001</AccountID>
+            <AccountName>Smith Family Trust</AccountName>
+            <TradeDate>2024-01-15</TradeDate>
+            <TradeTime>14:32:15.123</TradeTime>
+            <Symbol>AAPL</Symbol>
+            <Side>BUY</Side>
+            <Quantity>10000</Quantity>
+            <Price>150.00</Price>
+            <TotalValue>1500000.00</TotalValue>
+            <CounterpartyAccount>ACC-002</CounterpartyAccount>
+            <OrderID>ORD-001</OrderID>
+        </Trade>
+        <Trade sequence="2">
+            <AccountID>ACC-002</AccountID>
+            <AccountName>Smith Holdings Ltd</AccountName>
+            <TradeDate>2024-01-15</TradeDate>
+            <TradeTime>14:32:15.625</TradeTime>
+            <Symbol>AAPL</Symbol>
+            <Side>SELL</Side>
+            <Quantity>10000</Quantity>
+            <Price>150.00</Price>
+            <TotalValue>1500000.00</TotalValue>
+            <CounterpartyAccount>ACC-001</CounterpartyAccount>
+            <OrderID>ORD-002</OrderID>
+        </Trade>
+    </FlaggedTrades>
+
+    <WashTradeIndicators>
+        <TimeDelta>502ms</TimeDelta>
+        <SameSymbol>true</SameSymbol>
+        <SameQuantity>true</SameQuantity>
+        <SamePrice>true</SamePrice>
+        <OffsettingTrades>true</OffsettingTrades>
+        <VolumeImpact>45.2%</VolumeImpact>
+        <DailyVolume>22124</DailyVolume>
+    </WashTradeIndicators>
+
+    <MarketContext>
+        <MarketPhase>regular_session</MarketPhase>
+        <LiquidityLevel>low</LiquidityLevel>
+        <TimeOfDay>mid-afternoon</TimeOfDay>
+        <VolatilityLevel>normal</VolatilityLevel>
+    </MarketContext>
+
+    <RegulatoryFlags>
+        <Jurisdiction>Singapore</Jurisdiction>
+        <ApplicableRegulations>
+            <Regulation>MAS SFA Section 197</Regulation>
+            <Regulation>MAS SFA Section 199</Regulation>
+        </ApplicableRegulations>
+    </RegulatoryFlags>
+
+    <InvestigationNotes>
+        <Note>Sub-second execution between accounts suggests pre-arranged trading</Note>
+        <Note>Both accounts appear to be controlled by same beneficial owner</Note>
+        <Note>No apparent economic purpose for the trade structure</Note>
+        <Note>High volume impact (45%) suggests artificial volume creation</Note>
+    </InvestigationNotes>
+</SmartsAlert>

@@ -44,6 +44,7 @@ dev = [
 [project.scripts]
 alerts = "alerts.main:main"
 alerts-insider-trading-server = "alerts.a2a.insider_trading_server:main"
+alerts-wash-trade-server = "alerts.a2a.wash_trade_server:main"
 alerts-orchestrator-server = "alerts.a2a.orchestrator_server:main"
 
 [tool.setuptools.packages.find]

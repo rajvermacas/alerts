@@ -7,7 +7,10 @@ determine their type, and route them to specialized agents.
 import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-from alerts.a2a.orchestrator import OrchestratorAgent, AlertInfo
+from alerts.a2a.orchestrator import OrchestratorAgent, AlertInfo, AlertCategory
+
+# Configure pytest-asyncio to use auto mode
+pytestmark = pytest.mark.asyncio(loop_scope="function")
 
 
 class TestAlertParsing:
@@ -31,6 +34,7 @@ class TestAlertParsing:
         assert result.alert_id == "TEST-001"
         assert result.alert_type == "Insider Trading"
         assert result.rule_violated == "SMARTS-IT-001"
+        assert result.category == AlertCategory.INSIDER_TRADING
         assert result.is_insider_trading is True
         assert result.file_path == str(alert_xml)
 
@@ -50,7 +54,9 @@ class TestAlertParsing:
         assert result.alert_id == "MINIMAL-001"
         assert result.alert_type == ""
         assert result.rule_violated == ""
+        assert result.category == AlertCategory.UNSUPPORTED
         assert result.is_insider_trading is False
+        assert result.is_wash_trade is False
 
     def test_read_alert_missing_file(self):
         """Test handling of missing alert file."""
@@ -152,7 +158,6 @@ class TestAlertTypeDetection:
 class TestAlertRouting:
     """Test alert routing functionality."""
 
-    @pytest.mark.asyncio
     async def test_route_alert_insider_trading_success(self, tmp_path):
         """Test successful routing of insider trading alert."""
         # Create insider trading alert
@@ -183,7 +188,6 @@ class TestAlertRouting:
             assert result["agent_response"]["status"] == "success"
             mock_send.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_route_alert_unsupported_type(self, tmp_path):
         """Test routing of unsupported alert type."""
         # Create non-insider trading alert
@@ -204,7 +208,6 @@ class TestAlertRouting:
         assert result["routed_to"] is None
         assert "not currently supported" in result["message"]
 
-    @pytest.mark.asyncio
     async def test_route_alert_agent_communication_error(self, tmp_path):
         """Test handling of agent communication error."""
         # Create insider trading alert
@@ -232,7 +235,6 @@ class TestAlertRouting:
             assert result["agent_response"]["status"] == "error"
             assert "Connection refused" in result["agent_response"]["error"]
 
-    @pytest.mark.asyncio
     async def test_analyze_alert_string_path(self, tmp_path):
         """Test analyze_alert with string path input."""
         # Create alert
@@ -250,7 +252,6 @@ class TestAlertRouting:
         assert result["alert_id"] == "TEST-STR"
         assert result["routed_to"] is None
 
-    @pytest.mark.asyncio
     async def test_analyze_alert_path_object(self, tmp_path):
         """Test analyze_alert with Path object input."""
         # Create alert
@@ -272,14 +273,13 @@ class TestAlertRouting:
 class TestA2ACommunication:
     """Test A2A protocol communication."""
 
-    @pytest.mark.asyncio
     async def test_send_to_insider_trading_agent_success(self, tmp_path):
         """Test successful A2A communication."""
         alert_info = AlertInfo(
             alert_id="IT-TEST",
             alert_type="Insider Trading",
             rule_violated="SMARTS-IT-001",
-            is_insider_trading=True,
+            category=AlertCategory.INSIDER_TRADING,
             file_path=str(tmp_path / "test.xml")
         )
 
@@ -317,14 +317,13 @@ class TestA2ACommunication:
             mock_resolver.get_agent_card.assert_called_once()
             mock_a2a_client.send_message.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_send_to_insider_trading_agent_connection_error(self, tmp_path):
         """Test A2A communication connection error."""
         alert_info = AlertInfo(
             alert_id="IT-TEST",
             alert_type="Insider Trading",
             rule_violated="SMARTS-IT-001",
-            is_insider_trading=True,
+            category=AlertCategory.INSIDER_TRADING,
             file_path=str(tmp_path / "test.xml")
         )
 
@@ -350,14 +349,13 @@ class TestA2ACommunication:
             assert result["status"] == "error"
             assert "Failed to connect" in result["error"]
 
-    @pytest.mark.asyncio
     async def test_send_to_insider_trading_agent_message_error(self, tmp_path):
         """Test A2A communication message sending error."""
         alert_info = AlertInfo(
             alert_id="IT-TEST",
             alert_type="Insider Trading",
             rule_violated="SMARTS-IT-001",
-            is_insider_trading=True,
+            category=AlertCategory.INSIDER_TRADING,
             file_path=str(tmp_path / "test.xml")
         )
 
@@ -473,3 +471,284 @@ class TestOrchestratorConfiguration:
         result = orchestrator._get_text(root, ".//Field", "default_value")
 
         assert result == "default_value"
+
+
+class TestWashTradeDetection:
+    """Test wash trade alert type detection logic."""
+
+    @pytest.mark.parametrize("alert_type,expected", [
+        ("WashTrade", True),
+        ("Wash Trade", True),
+        ("Self-Trade", True),
+        ("Matched Orders", True),
+        ("Circular Trading", True),
+        ("Layered Wash Trade", True),
+        ("Insider Trading", False),
+        ("Market Manipulation", False),
+        ("Spoofing", False),
+        ("", False),
+    ])
+    def test_is_wash_trade_by_type(self, alert_type, expected):
+        """Test wash trade detection by type name."""
+        orchestrator = OrchestratorAgent()
+        result = orchestrator._is_wash_trade_alert(alert_type, "")
+        assert result == expected
+
+    @pytest.mark.parametrize("rule,expected", [
+        ("WT-001", True),
+        ("WT-002", True),
+        ("WASH_TRADE", True),
+        ("SELF_TRADE", True),
+        ("MATCHED_ORDERS", True),
+        ("SMARTS-WT-001", True),
+        ("SMARTS-WT-002", True),
+        ("SMARTS-IT-001", False),
+        ("SMARTS-MM-001", False),
+        ("OTHER-RULE", False),
+        ("", False),
+    ])
+    def test_is_wash_trade_by_rule(self, rule, expected):
+        """Test wash trade detection by rule code."""
+        orchestrator = OrchestratorAgent()
+        result = orchestrator._is_wash_trade_alert("", rule)
+        assert result == expected
+
+    @pytest.mark.parametrize("alert_type,expected", [
+        ("Potential wash trading detected", True),
+        ("Self-trade pattern observed", True),
+        ("Matched order violation", True),
+        ("Circular trade flow identified", True),
+        ("Market manipulation pattern", False),
+        ("Normal trading activity", False),
+        ("Insider trading suspected", False),
+    ])
+    def test_is_wash_trade_by_keyword(self, alert_type, expected):
+        """Test wash trade detection by keywords in description."""
+        orchestrator = OrchestratorAgent()
+        result = orchestrator._is_wash_trade_alert(alert_type, "")
+        assert result == expected
+
+
+class TestWashTradeRouting:
+    """Test wash trade alert routing functionality."""
+
+    async def test_route_alert_wash_trade_success(self, tmp_path):
+        """Test successful routing of wash trade alert."""
+        # Create wash trade alert
+        alert_xml = tmp_path / "wash_trade_alert.xml"
+        alert_xml.write_text("""<?xml version="1.0" encoding="UTF-8"?>
+<SMARTSAlert>
+    <AlertID>WT-001</AlertID>
+    <AlertType>WashTrade</AlertType>
+    <RuleViolated>SMARTS-WT-001</RuleViolated>
+</SMARTSAlert>
+""")
+
+        orchestrator = OrchestratorAgent()
+
+        # Mock the A2A communication
+        with patch.object(orchestrator, '_send_to_wash_trade_agent', new_callable=AsyncMock) as mock_send:
+            mock_send.return_value = {
+                "status": "success",
+                "response": {"determination": "ESCALATE"}
+            }
+
+            result = await orchestrator.route_alert(alert_xml)
+
+            assert result["alert_id"] == "WT-001"
+            assert result["alert_type"] == "WashTrade"
+            assert result["rule_violated"] == "SMARTS-WT-001"
+            assert result["routed_to"] == "wash_trade_agent"
+            assert result["category"] == "wash_trade"
+            assert result["agent_response"]["status"] == "success"
+            mock_send.assert_called_once()
+
+    async def test_route_alert_wash_trade_agent_error(self, tmp_path):
+        """Test handling of wash trade agent communication error."""
+        # Create wash trade alert
+        alert_xml = tmp_path / "wash_trade_alert.xml"
+        alert_xml.write_text("""<?xml version="1.0" encoding="UTF-8"?>
+<SMARTSAlert>
+    <AlertID>WT-002</AlertID>
+    <AlertType>Wash Trade</AlertType>
+    <RuleViolated>WT-001</RuleViolated>
+</SMARTSAlert>
+""")
+
+        orchestrator = OrchestratorAgent()
+
+        # Mock A2A communication failure
+        with patch.object(orchestrator, '_send_to_wash_trade_agent', new_callable=AsyncMock) as mock_send:
+            mock_send.return_value = {
+                "status": "error",
+                "error": "Connection refused"
+            }
+
+            result = await orchestrator.route_alert(alert_xml)
+
+            assert result["routed_to"] == "wash_trade_agent"
+            assert result["category"] == "wash_trade"
+            assert result["agent_response"]["status"] == "error"
+            assert "Connection refused" in result["agent_response"]["error"]
+
+    def test_read_wash_trade_alert(self, tmp_path):
+        """Test parsing wash trade alert XML."""
+        alert_xml = tmp_path / "wash_alert.xml"
+        alert_xml.write_text("""<?xml version="1.0" encoding="UTF-8"?>
+<SMARTSAlert>
+    <AlertID>WT-TEST</AlertID>
+    <AlertType>Self-Trade</AlertType>
+    <RuleViolated>SELF_TRADE</RuleViolated>
+</SMARTSAlert>
+""")
+
+        orchestrator = OrchestratorAgent()
+        result = orchestrator.read_alert(alert_xml)
+
+        assert result.alert_id == "WT-TEST"
+        assert result.alert_type == "Self-Trade"
+        assert result.category == AlertCategory.WASH_TRADE
+        assert result.is_wash_trade is True
+        assert result.is_insider_trading is False
+
+
+class TestWashTradeA2ACommunication:
+    """Test A2A protocol communication for wash trade agent."""
+
+    async def test_send_to_wash_trade_agent_success(self, tmp_path):
+        """Test successful A2A communication to wash trade agent."""
+        alert_info = AlertInfo(
+            alert_id="WT-TEST",
+            alert_type="WashTrade",
+            rule_violated="SMARTS-WT-001",
+            category=AlertCategory.WASH_TRADE,
+            file_path=str(tmp_path / "test.xml")
+        )
+
+        orchestrator = OrchestratorAgent()
+
+        # Mock httpx and A2A components
+        with patch('alerts.a2a.orchestrator.httpx.AsyncClient') as mock_client_class, \
+             patch('alerts.a2a.orchestrator.A2ACardResolver') as mock_resolver_class, \
+             patch('alerts.a2a.orchestrator.A2AClient') as mock_a2a_client_class:
+
+            # Setup mocks
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            mock_resolver = MagicMock()
+            mock_agent_card = MagicMock()
+            mock_agent_card.name = "Wash Trade Agent"
+            mock_resolver.get_agent_card = AsyncMock(return_value=mock_agent_card)
+            mock_resolver_class.return_value = mock_resolver
+
+            mock_a2a_client = MagicMock()
+            mock_response = MagicMock()
+            mock_response.model_dump.return_value = {"determination": "ESCALATE"}
+            mock_a2a_client.send_message = AsyncMock(return_value=mock_response)
+            mock_a2a_client_class.return_value = mock_a2a_client
+
+            # Execute
+            result = await orchestrator._send_to_wash_trade_agent(alert_info)
+
+            # Assert
+            assert result["status"] == "success"
+            assert "response" in result
+            mock_resolver.get_agent_card.assert_called_once()
+            mock_a2a_client.send_message.assert_called_once()
+
+    async def test_send_to_wash_trade_agent_connection_error(self, tmp_path):
+        """Test A2A communication connection error to wash trade agent."""
+        alert_info = AlertInfo(
+            alert_id="WT-TEST",
+            alert_type="WashTrade",
+            rule_violated="SMARTS-WT-001",
+            category=AlertCategory.WASH_TRADE,
+            file_path=str(tmp_path / "test.xml")
+        )
+
+        orchestrator = OrchestratorAgent()
+
+        # Mock connection failure
+        with patch('alerts.a2a.orchestrator.httpx.AsyncClient') as mock_client_class, \
+             patch('alerts.a2a.orchestrator.A2ACardResolver') as mock_resolver_class:
+
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            mock_resolver = MagicMock()
+            mock_resolver.get_agent_card = AsyncMock(side_effect=Exception("Connection refused"))
+            mock_resolver_class.return_value = mock_resolver
+
+            # Execute
+            result = await orchestrator._send_to_wash_trade_agent(alert_info)
+
+            # Assert
+            assert result["status"] == "error"
+            assert "Failed to connect" in result["error"]
+
+
+class TestAlertCategorization:
+    """Test the alert categorization logic."""
+
+    def test_categorize_wash_trade_over_insider(self):
+        """Test that wash trade is detected before insider trading when both match."""
+        orchestrator = OrchestratorAgent()
+
+        # This type could match both (if we had "wash insider" as a keyword)
+        # But wash trade should be checked first
+        result = orchestrator._categorize_alert("WashTrade", "")
+        assert result == AlertCategory.WASH_TRADE
+
+    def test_categorize_insider_trading(self):
+        """Test insider trading categorization."""
+        orchestrator = OrchestratorAgent()
+
+        result = orchestrator._categorize_alert("Insider Trading", "SMARTS-IT-001")
+        assert result == AlertCategory.INSIDER_TRADING
+
+    def test_categorize_unsupported(self):
+        """Test unsupported alert categorization."""
+        orchestrator = OrchestratorAgent()
+
+        result = orchestrator._categorize_alert("Market Manipulation", "SMARTS-MM-001")
+        assert result == AlertCategory.UNSUPPORTED
+
+    def test_alert_info_properties(self):
+        """Test AlertInfo computed properties."""
+        # Insider trading alert
+        insider_info = AlertInfo(
+            alert_id="IT-001",
+            alert_type="Insider Trading",
+            rule_violated="SMARTS-IT-001",
+            category=AlertCategory.INSIDER_TRADING,
+            file_path="/path/to/alert.xml"
+        )
+        assert insider_info.is_insider_trading is True
+        assert insider_info.is_wash_trade is False
+
+        # Wash trade alert
+        wash_info = AlertInfo(
+            alert_id="WT-001",
+            alert_type="WashTrade",
+            rule_violated="SMARTS-WT-001",
+            category=AlertCategory.WASH_TRADE,
+            file_path="/path/to/alert.xml"
+        )
+        assert wash_info.is_insider_trading is False
+        assert wash_info.is_wash_trade is True
+
+        # Unsupported alert
+        unsupported_info = AlertInfo(
+            alert_id="MM-001",
+            alert_type="Market Manipulation",
+            rule_violated="SMARTS-MM-001",
+            category=AlertCategory.UNSUPPORTED,
+            file_path="/path/to/alert.xml"
+        )
+        assert unsupported_info.is_insider_trading is False
+        assert unsupported_info.is_wash_trade is False

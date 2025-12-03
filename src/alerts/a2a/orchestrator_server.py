@@ -39,8 +39,13 @@ logger = logging.getLogger(__name__)
     default="http://localhost:10001",
     help="URL of the insider trading agent A2A server",
 )
+@click.option(
+    "--wash-trade-url",
+    default="http://localhost:10002",
+    help="URL of the wash trade agent A2A server",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
-def main(host: str, port: int, insider_trading_url: str, verbose: bool) -> None:
+def main(host: str, port: int, insider_trading_url: str, wash_trade_url: str, verbose: bool) -> None:
     """Start the Orchestrator Agent A2A server."""
     try:
         # Load configuration
@@ -55,6 +60,7 @@ def main(host: str, port: int, insider_trading_url: str, verbose: bool) -> None:
         logger.info("Starting Orchestrator Agent A2A Server")
         logger.info("=" * 60)
         logger.info(f"Insider Trading Agent URL: {insider_trading_url}")
+        logger.info(f"Wash Trade Agent URL: {wash_trade_url}")
 
         # Define agent skills
         route_skill = AgentSkill(
@@ -62,14 +68,16 @@ def main(host: str, port: int, insider_trading_url: str, verbose: bool) -> None:
             name="Route Alert to Specialized Agent",
             description=(
                 "Reads an alert file, determines its type, and routes it to "
-                "the appropriate specialized agent for analysis. Currently "
-                "supports routing insider trading alerts to the Insider Trading Agent."
+                "the appropriate specialized agent for analysis. Supports routing "
+                "insider trading alerts to the Insider Trading Agent and wash trade "
+                "alerts to the Wash Trade Agent."
             ),
-            tags=["routing", "orchestration", "alert analysis"],
+            tags=["routing", "orchestration", "alert analysis", "insider trading", "wash trade"],
             examples=[
                 "Analyze the alert at test_data/alerts/alert_genuine.xml",
                 "Route this alert: test_data/alerts/alert_false_positive.xml",
                 "Process alert_ambiguous.xml",
+                "Analyze wash trade alert: test_data/alerts/wash_trade/wash_genuine.xml",
             ],
         )
 
@@ -79,8 +87,8 @@ def main(host: str, port: int, insider_trading_url: str, verbose: bool) -> None:
             description=(
                 "An orchestrator agent that reads surveillance alerts and routes them "
                 "to specialized agents for analysis. It determines the alert type and "
-                "delegates to the appropriate agent (e.g., Insider Trading Agent) "
-                "using the A2A protocol for agent-to-agent communication."
+                "delegates to the appropriate agent (Insider Trading Agent or Wash Trade "
+                "Agent) using the A2A protocol for agent-to-agent communication."
             ),
             url=f"http://{host}:{port}/",
             version="1.0.0",
@@ -93,6 +101,7 @@ def main(host: str, port: int, insider_trading_url: str, verbose: bool) -> None:
         # Create executor
         executor = OrchestratorAgentExecutor(
             insider_trading_agent_url=insider_trading_url,
+            wash_trade_agent_url=wash_trade_url,
             data_dir=config.data.data_dir,
         )
 

@@ -11,30 +11,38 @@ Architecture:
     │  (Reads alerts, determines type, routes to specialized agents)  │
     └───────────────────────────┬─────────────────────────────────────┘
                                 │ A2A Protocol
-                                ▼
-    ┌─────────────────────────────────────────────────────────────────┐
-    │           Insider Trading Agent A2A Server (Port 10001)         │
-    │  (Existing AlertAnalyzerAgent exposed via A2A)                  │
-    └─────────────────────────────────────────────────────────────────┘
+                    ┌───────────┴───────────┐
+                    │                       │
+                    ▼                       ▼
+    ┌───────────────────────────┐   ┌───────────────────────────────┐
+    │   Insider Trading Agent   │   │     Wash Trade Agent          │
+    │      (Port 10001)         │   │       (Port 10002)            │
+    └───────────────────────────┘   └───────────────────────────────┘
 
 Usage:
     # Start the insider trading agent server (in terminal 1)
     python -m alerts.a2a.insider_trading_server --port 10001
 
-    # Start the orchestrator server (in terminal 2)
+    # Start the wash trade agent server (in terminal 2)
+    python -m alerts.a2a.wash_trade_server --port 10002
+
+    # Start the orchestrator server (in terminal 3)
     python -m alerts.a2a.orchestrator_server --port 10000
 
     # Or use the convenience scripts
     alerts-insider-trading-server
+    alerts-wash-trade-server
     alerts-orchestrator-server
 """
 
 from alerts.a2a.insider_trading_executor import InsiderTradingAgentExecutor
+from alerts.a2a.wash_trade_executor import WashTradeAgentExecutor
 from alerts.a2a.orchestrator import OrchestratorAgent
 from alerts.a2a.orchestrator_executor import OrchestratorAgentExecutor
 
 __all__ = [
     "InsiderTradingAgentExecutor",
+    "WashTradeAgentExecutor",
     "OrchestratorAgent",
     "OrchestratorAgentExecutor",
 ]

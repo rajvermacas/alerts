@@ -31,11 +31,13 @@ class TestInsiderTradingExecutor:
         assert executor.output_dir == output_dir
         assert executor._agent is None
 
-    def test_get_agent(self, tmp_path):
+    def test_get_agent(self, temp_test_data, tmp_path):
         """Test lazy agent creation."""
         mock_llm = MagicMock()
-        data_dir = tmp_path / "data"
+        # Use temp_test_data which includes few_shot_examples.json
+        data_dir = temp_test_data
         output_dir = tmp_path / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         executor = InsiderTradingAgentExecutor(mock_llm, data_dir, output_dir)
 

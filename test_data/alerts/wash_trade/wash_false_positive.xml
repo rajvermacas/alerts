@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SmartsAlert>
+    <AlertMetadata>
+        <AlertID>WT-2024-002</AlertID>
+        <AlertType>WashTrade</AlertType>
+        <RuleViolated>WT-001</RuleViolated>
+        <GeneratedTimestamp>2024-01-15T10:20:00Z</GeneratedTimestamp>
+        <Severity>MEDIUM</Severity>
+        <AnomalyScore>45</AnomalyScore>
+        <ConfidenceLevel>MEDIUM</ConfidenceLevel>
+    </AlertMetadata>
+
+    <FlaggedTrades>
+        <Trade sequence="1">
+            <AccountID>ACC-100</AccountID>
+            <AccountName>Alpha Market Makers Pty</AccountName>
+            <TradeDate>2024-01-15</TradeDate>
+            <TradeTime>10:15:00.000</TradeTime>
+            <Symbol>TSLA</Symbol>
+            <Side>BUY</Side>
+            <Quantity>5000</Quantity>
+            <Price>250.00</Price>
+            <TotalValue>1250000.00</TotalValue>
+            <CounterpartyAccount>ACC-101</CounterpartyAccount>
+            <OrderID>ORD-MM-001</OrderID>
+            <AccountType>MarketMaker</AccountType>
+            <TradingBookType>MarketMakingBook</TradingBookType>
+        </Trade>
+        <Trade sequence="2">
+            <AccountID>ACC-101</AccountID>
+            <AccountName>Alpha Hedge Book</AccountName>
+            <TradeDate>2024-01-15</TradeDate>
+            <TradeTime>10:15:02.500</TradeTime>
+            <Symbol>TSLA</Symbol>
+            <Side>SELL</Side>
+            <Quantity>5000</Quantity>
+            <Price>250.05</Price>
+            <TotalValue>1250250.00</TotalValue>
+            <CounterpartyAccount>ACC-100</CounterpartyAccount>
+            <OrderID>ORD-MM-002</OrderID>
+            <AccountType>MarketMaker</AccountType>
+            <TradingBookType>HedgeBook</TradingBookType>
+        </Trade>
+    </FlaggedTrades>
+
+    <WashTradeIndicators>
+        <TimeDelta>2.5s</TimeDelta>
+        <SameSymbol>true</SameSymbol>
+        <SameQuantity>true</SameQuantity>
+        <SamePrice>false</SamePrice>
+        <PriceImprovement>$0.05</PriceImprovement>
+        <OffsettingTrades>true</OffsettingTrades>
+        <VolumeImpact>8.3%</VolumeImpact>
+        <DailyVolume>60000</DailyVolume>
+    </WashTradeIndicators>
+
+    <MarketContext>
+        <MarketPhase>regular_session</MarketPhase>
+        <LiquidityLevel>high</LiquidityLevel>
+        <TimeOfDay>morning</TimeOfDay>
+        <VolatilityLevel>elevated</VolatilityLevel>
+    </MarketContext>
+
+    <MarketMakerDisclosure>
+        <LicenseNumber>MM-SG-2021-0042</LicenseNumber>
+        <Regulator>MAS</Regulator>
+        <DisclosureStatus>Current</DisclosureStatus>
+        <DesignatedSecurities>TSLA,AAPL,MSFT,GOOGL,NVDA</DesignatedSecurities>
+        <TradingBookSeparation>Yes</TradingBookSeparation>
+        <ExemptionCategory>SFA Section 199 Exemption - Licensed Market Maker</ExemptionCategory>
+    </MarketMakerDisclosure>
+
+    <RegulatoryFlags>
+        <Jurisdiction>Singapore</Jurisdiction>
+        <ApplicableRegulations>
+            <Regulation>MAS SFA Section 199 - Market Maker Exemption Applies</Regulation>
+        </ApplicableRegulations>
+    </RegulatoryFlags>
+
+    <InvestigationNotes>
+        <Note>Licensed market maker with proper disclosure</Note>
+        <Note>Trades between designated market making and hedge books</Note>
+        <Note>Price improvement of $0.05 indicates market activity, not wash</Note>
+        <Note>Activity consistent with legitimate inventory management</Note>
+        <Note>Exemption under SFA Section 199 applies to licensed market makers</Note>
+    </InvestigationNotes>
+</SmartsAlert>
