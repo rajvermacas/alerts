@@ -1,8 +1,8 @@
 """HTML report generator for Wash Trade alerts.
 
 This module generates professional HTML reports with Tailwind CSS
-for wash trade analysis. SVG relationship network visualization is
-delegated to the wash_trade_svg module.
+for wash trade analysis. Interactive relationship network visualization
+is powered by Cytoscape.js via the wash_trade_graph module.
 """
 
 import html
@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from alerts.models.wash_trade import WashTradeDecision
-from alerts.reports.wash_trade_svg import render_relationship_network_svg
+from alerts.reports.wash_trade_graph import render_relationship_network_graph
 
 logger = logging.getLogger(__name__)
 
@@ -231,7 +231,7 @@ class WashTradeHTMLReportGenerator:
     <div class="max-w-6xl mx-auto py-8 px-4">
         {self._render_header()}
         {self._render_determination_banner()}
-        {self._render_relationship_network_svg()}
+        {self._render_relationship_network()}
         {self._render_alert_section()}
         {self._render_timing_analysis_section()}
         {self._render_counterparty_analysis_section()}
@@ -348,12 +348,12 @@ class WashTradeHTMLReportGenerator:
             </div>
         </section>"""
 
-    def _render_relationship_network_svg(self) -> str:
-        """Render the SVG relationship network visualization.
+    def _render_relationship_network(self) -> str:
+        """Render the interactive Cytoscape.js relationship network.
 
-        Delegates to the wash_trade_svg module for SVG generation.
+        Delegates to the wash_trade_graph module for graph generation.
         """
-        return render_relationship_network_svg(
+        return render_relationship_network_graph(
             network=self.decision.relationship_network,
             escape_fn=self._escape
         )

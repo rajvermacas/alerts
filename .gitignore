@@ -91,3 +91,5 @@ resources/reports/*.jsonl
 # Agent logs
 agent.log
 resources/reports
+
+.dev-resources/images
