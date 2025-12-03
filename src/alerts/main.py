@@ -9,63 +9,11 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from langchain_openai import AzureChatOpenAI, ChatOpenAI
-
 from alerts.agents import InsiderTradingAnalyzerAgent, WashTradeAnalyzerAgent
 from alerts.config import ConfigurationError, get_config, setup_logging
+from alerts.llm_factory import create_llm
 
 logger = logging.getLogger(__name__)
-
-
-def create_llm(config):
-    """Create LLM instance based on configuration.
-
-    Args:
-        config: AppConfig instance
-
-    Returns:
-        LangChain LLM instance (AzureChatOpenAI, ChatOpenAI, or ChatOpenAI with OpenRouter)
-    """
-    logger.info(f"Creating LLM with provider: {config.llm.provider}")
-
-    if config.llm.is_azure():
-        logger.info(f"Using Azure OpenAI: {config.llm.azure_endpoint}")
-        return AzureChatOpenAI(
-            azure_deployment=config.llm.model,
-            azure_endpoint=config.llm.azure_endpoint,
-            api_version=config.llm.azure_api_version,
-            api_key=config.llm.api_key,
-            temperature=config.llm.temperature,
-            max_tokens=config.llm.max_tokens,
-        )
-    elif config.llm.provider == "openrouter":
-        logger.info(f"Using OpenRouter: {config.llm.model}")
-
-        # Build optional headers for site tracking
-        default_headers = {}
-        if config.llm.openrouter_site_url:
-            default_headers["HTTP-Referer"] = config.llm.openrouter_site_url
-            logger.debug(f"OpenRouter HTTP-Referer header set: {config.llm.openrouter_site_url}")
-        if config.llm.openrouter_site_name:
-            default_headers["X-Title"] = config.llm.openrouter_site_name
-            logger.debug(f"OpenRouter X-Title header set: {config.llm.openrouter_site_name}")
-
-        return ChatOpenAI(
-            model=config.llm.model,
-            api_key=config.llm.api_key,
-            base_url="https://openrouter.ai/api/v1",
-            default_headers=default_headers if default_headers else None,
-            temperature=config.llm.temperature,
-            max_tokens=config.llm.max_tokens,
-        )
-    else:
-        logger.info(f"Using OpenAI: {config.llm.model}")
-        return ChatOpenAI(
-            model=config.llm.model,
-            api_key=config.llm.api_key,
-            temperature=config.llm.temperature,
-            max_tokens=config.llm.max_tokens,
-        )
 
 
 def parse_args() -> argparse.Namespace:

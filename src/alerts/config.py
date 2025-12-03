@@ -30,7 +30,7 @@ class LLMConfig:
     """LLM provider configuration.
 
     Attributes:
-        provider: LLM provider type ("openai", "azure", or "openrouter")
+        provider: LLM provider type ("openai", "azure", "openrouter", or "gemini")
         model: Model name/deployment name
         temperature: Sampling temperature (0.0 for deterministic)
         max_tokens: Maximum tokens in response
@@ -41,7 +41,7 @@ class LLMConfig:
         openrouter_site_name: Optional site name for OpenRouter ranking (OpenRouter only)
     """
 
-    provider: Literal["openai", "azure", "openrouter"] = "openai"
+    provider: Literal["openai", "azure", "openrouter", "gemini"] = "openai"
     model: str = "gpt-4o"
     temperature: float = 0.0
     max_tokens: int = 4000
@@ -58,7 +58,8 @@ class LLMConfig:
         if not self.api_key:
             raise ConfigurationError(
                 f"API key required for provider '{self.provider}'. "
-                f"Set OPENAI_API_KEY, AZURE_OPENAI_API_KEY, or OPENROUTER_API_KEY environment variable."
+                f"Set OPENAI_API_KEY, AZURE_OPENAI_API_KEY, OPENROUTER_API_KEY, "
+                f"or GOOGLE_API_KEY environment variable."
             )
 
         if self.provider == "azure":
@@ -77,6 +78,8 @@ class LLMConfig:
                 logger.debug(f"OpenRouter site URL: {self.openrouter_site_url}")
             if self.openrouter_site_name:
                 logger.debug(f"OpenRouter site name: {self.openrouter_site_name}")
+        elif self.provider == "gemini":
+            logger.info(f"Google Gemini configured: model={self.model}")
         else:
             logger.info(f"OpenAI configured: model={self.model}")
 
@@ -87,6 +90,14 @@ class LLMConfig:
             True if provider is Azure, False otherwise
         """
         return self.provider == "azure"
+
+    def is_gemini(self) -> bool:
+        """Check if using Google Gemini provider.
+
+        Returns:
+            True if provider is Gemini, False otherwise
+        """
+        return self.provider == "gemini"
 
 
 @dataclass
@@ -203,9 +214,9 @@ class AppConfig:
 
         # Determine provider
         provider = os.getenv("LLM_PROVIDER", "openai").lower()
-        if provider not in ("openai", "azure", "openrouter"):
+        if provider not in ("openai", "azure", "openrouter", "gemini"):
             raise ConfigurationError(
-                f"Invalid LLM_PROVIDER '{provider}'. Must be 'openai', 'azure', or 'openrouter'."
+                f"Invalid LLM_PROVIDER '{provider}'. Must be 'openai', 'azure', 'openrouter', or 'gemini'."
             )
 
         # Get API key and model based on provider
@@ -215,6 +226,9 @@ class AppConfig:
         elif provider == "openrouter":
             api_key = os.getenv("OPENROUTER_API_KEY")
             model = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o")
+        elif provider == "gemini":
+            api_key = os.getenv("GOOGLE_API_KEY")
+            model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
         else:
             api_key = os.getenv("OPENAI_API_KEY")
             model = os.getenv("OPENAI_MODEL", "gpt-4o")

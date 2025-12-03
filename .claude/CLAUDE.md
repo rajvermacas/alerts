@@ -115,7 +115,8 @@ This creates a **two-tier LLM architecture**:
 src/
 ├── alerts/                      # Backend analysis engine
 │   ├── main.py                  # CLI entry point, LLM initialization
-│   ├── config.py                # Environment-based configuration (OpenAI/Azure/OpenRouter)
+│   ├── config.py                # Environment-based configuration (OpenAI/Azure/OpenRouter/Gemini)
+│   ├── llm_factory.py           # Centralized LLM creation factory
 │   ├── models/
 │   │   ├── base.py              # BaseAlertDecision
 │   │   ├── insider_trading.py   # InsiderTradingDecision
@@ -299,7 +300,7 @@ Loaded via each agent's `system_prompt.py:load_few_shot_examples()` and injected
 
 ### Configuration Management
 
-**Environment-based** configuration supporting OpenAI, Azure OpenAI, and OpenRouter:
+**Environment-based** configuration supporting OpenAI, Azure OpenAI, OpenRouter, and Google Gemini:
 
 ```python
 # config.py uses dataclasses with fail-fast validation
@@ -311,7 +312,7 @@ AppConfig
 
 Load with: `get_config()` (reads from `.env` file via `python-dotenv`)
 
-**Provider switching**: Set `LLM_PROVIDER=openai`, `LLM_PROVIDER=azure`, or `LLM_PROVIDER=openrouter` in `.env`
+**Provider switching**: Set `LLM_PROVIDER=openai`, `LLM_PROVIDER=azure`, `LLM_PROVIDER=openrouter`, or `LLM_PROVIDER=gemini` in `.env`
 
 ### Output Schema
 
@@ -371,7 +372,7 @@ All data sources are **local files** in `test_data/`:
 
 ### LLM Provider Support
 
-Code is **provider-agnostic**. Switch between three providers via configuration:
+Code is **provider-agnostic**. Switch between four providers via configuration:
 
 **OpenAI**:
 - Environment variables: `OPENAI_API_KEY` + `OPENAI_MODEL`
@@ -381,19 +382,32 @@ Code is **provider-agnostic**. Switch between three providers via configuration:
 - Environment variables: `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_DEPLOYMENT` + `AZURE_OPENAI_API_VERSION`
 - Models: Any deployed model in Azure
 
-**OpenRouter** (NEW):
+**OpenRouter**:
 - Environment variables: `OPENROUTER_API_KEY` + `OPENROUTER_MODEL`
 - Optional: `OPENROUTER_SITE_URL` + `OPENROUTER_SITE_NAME` (for site ranking)
 - Models: Any model in OpenRouter catalog (e.g., "openai/gpt-4o", "anthropic/claude-opus", "meta-llama/llama-3-8b")
 - Base URL: Automatically set to `https://openrouter.ai/api/v1`
 
-Implementation: `main.py:create_llm()` uses LangChain's `ChatOpenAI` or `AzureChatOpenAI`. OpenRouter also uses `ChatOpenAI` with OpenAI-compatible API.
+**Google Gemini**:
+- Environment variables: `GOOGLE_API_KEY` + `GEMINI_MODEL`
+- Models: Any Gemini model (e.g., "gemini-2.0-flash", "gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash")
+- Documentation: https://ai.google.dev/gemini-api/docs
+
+Implementation: `llm_factory.py:create_llm()` uses LangChain's `ChatOpenAI`, `AzureChatOpenAI`, or `ChatGoogleGenerativeAI`.
 
 **Example OpenRouter Usage**:
 ```bash
 export LLM_PROVIDER=openrouter
 export OPENROUTER_API_KEY=sk-or-...
 export OPENROUTER_MODEL=anthropic/claude-opus  # Or any other model
+python -m alerts.main
+```
+
+**Example Gemini Usage**:
+```bash
+export LLM_PROVIDER=gemini
+export GOOGLE_API_KEY=your-google-api-key
+export GEMINI_MODEL=gemini-2.0-flash  # Or any other Gemini model
 python -m alerts.main
 ```
 
@@ -604,6 +618,7 @@ Third-party loggers (httpx, openai) suppressed to WARNING level.
 | `reports/html_generator.py` | IT HTML report generation | Change IT report styling/layout |
 | `reports/wash_trade_report.py` | WT HTML report generation | Change WT report styling/SVG |
 | `config.py` | Environment config | Add config parameters |
+| `llm_factory.py` | LLM provider factory | Add new LLM providers |
 | `main.py` | Entry point | CLI arguments, output formatting |
 | `a2a/orchestrator.py` | Alert routing logic | Add new alert types or agents |
 | `a2a/event_mapper.py` | Event format conversion | Add new event types, modify event structure |

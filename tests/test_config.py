@@ -103,6 +103,46 @@ class TestLLMConfig:
                 api_key=None
             )
 
+    def test_gemini_config(self):
+        """Test Google Gemini configuration."""
+        config = LLMConfig(
+            provider="gemini",
+            model="gemini-2.0-flash",
+            api_key="test-gemini-key"
+        )
+
+        assert config.provider == "gemini"
+        assert config.model == "gemini-2.0-flash"
+        assert not config.is_azure()
+        assert config.is_gemini()
+
+    def test_gemini_config_different_models(self):
+        """Test Gemini configuration with different models."""
+        test_models = [
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-exp",
+            "gemini-1.5-pro",
+            "gemini-1.5-flash",
+        ]
+
+        for model in test_models:
+            config = LLMConfig(
+                provider="gemini",
+                model=model,
+                api_key="test-gemini-key"
+            )
+            assert config.model == model
+            assert config.is_gemini()
+
+    def test_gemini_missing_api_key_raises(self):
+        """Test that Gemini without API key raises error."""
+        with pytest.raises(ConfigurationError):
+            LLMConfig(
+                provider="gemini",
+                model="gemini-2.0-flash",
+                api_key=None
+            )
+
 
 class TestDataConfig:
     """Tests for DataConfig."""
@@ -205,12 +245,42 @@ class TestAppConfig:
         monkeypatch.setenv("LLM_PROVIDER", "openrouter")
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
         monkeypatch.setenv("OPENROUTER_MODEL", "openai/gpt-4o")
+        # Clear any existing site tracking env vars
+        monkeypatch.delenv("OPENROUTER_SITE_URL", raising=False)
+        monkeypatch.delenv("OPENROUTER_SITE_NAME", raising=False)
 
         config = AppConfig.from_env()
 
         assert config.llm.provider == "openrouter"
-        assert config.llm.openrouter_site_url is None
-        assert config.llm.openrouter_site_name is None
+        # Empty string from os.getenv is expected when env var is not set
+        assert not config.llm.openrouter_site_url
+        assert not config.llm.openrouter_site_name
+
+    def test_from_env_gemini(self, monkeypatch):
+        """Test loading Gemini config from environment."""
+        monkeypatch.setenv("LLM_PROVIDER", "gemini")
+        monkeypatch.setenv("GOOGLE_API_KEY", "test-gemini-key")
+        monkeypatch.setenv("GEMINI_MODEL", "gemini-1.5-pro")
+
+        config = AppConfig.from_env()
+
+        assert config.llm.provider == "gemini"
+        assert config.llm.api_key == "test-gemini-key"
+        assert config.llm.model == "gemini-1.5-pro"
+        assert config.llm.is_gemini()
+        assert not config.llm.is_azure()
+
+    def test_from_env_gemini_default_model(self, monkeypatch):
+        """Test Gemini config uses default model when not specified."""
+        monkeypatch.setenv("LLM_PROVIDER", "gemini")
+        monkeypatch.setenv("GOOGLE_API_KEY", "test-gemini-key")
+        # Clear any existing GEMINI_MODEL env var
+        monkeypatch.delenv("GEMINI_MODEL", raising=False)
+
+        config = AppConfig.from_env()
+
+        assert config.llm.provider == "gemini"
+        assert config.llm.model == "gemini-2.0-flash"
 
     def test_from_env_invalid_provider(self, monkeypatch):
         """Test invalid provider raises error."""
