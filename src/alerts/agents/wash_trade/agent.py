@@ -8,6 +8,7 @@ Supports both synchronous analyze() and async astream_analyze() for real-time st
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Literal, Optional
@@ -681,6 +682,10 @@ After collecting all evidence, provide your determination with detailed reasonin
             # Track node transitions for emitting agent events
             last_node = None
 
+            # Keep-alive tracking
+            last_keepalive_time = time.time()
+            KEEPALIVE_INTERVAL = 25  # seconds
+
             async for event in streaming_graph.astream_events(
                 {"messages": [initial_message]},
                 config={"recursion_limit": 50},
@@ -710,6 +715,28 @@ After collecting all evidence, provide your determination with detailed reasonin
                                 yield event_mapper.create_agent_thinking_event(
                                     "Generating final determination..."
                                 )
+
+                elif event_kind == "on_tool_start":
+                    # Map and yield tool start events
+                    mapped_event = event_mapper.map_langgraph_event(event, event_kind)
+                    if mapped_event:
+                        self.logger.debug(f"Yielding tool_start event: {event_name}")
+                        yield mapped_event
+
+                elif event_kind == "on_tool_end":
+                    # Map and yield tool end events
+                    mapped_event = event_mapper.map_langgraph_event(event, event_kind)
+                    if mapped_event:
+                        self.logger.debug(f"Yielding tool_end event: {event_name}")
+                        yield mapped_event
+
+                # Emit keep-alive if needed (prevent connection timeouts during long operations)
+                current_time = time.time()
+                if current_time - last_keepalive_time >= KEEPALIVE_INTERVAL:
+                    keepalive_event = event_mapper.create_keep_alive_event()
+                    self.logger.debug("Emitting keep-alive event")
+                    yield keepalive_event
+                    last_keepalive_time = current_time
 
                 elif event_kind == "on_chain_end":
                     if event_name == "respond":

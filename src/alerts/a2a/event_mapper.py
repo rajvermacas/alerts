@@ -266,6 +266,8 @@ class EventMapper:
         name = lg_event.get("name", "unknown")
         run_id = lg_event.get("run_id", "")
 
+        self.logger.debug(f"Mapping LangGraph event: {event_name} -> {mapped_type}, name={name}")
+
         # Build payload based on event type
         if event_name in ("on_chain_start", "on_chain_end"):
             payload = {
@@ -283,6 +285,7 @@ class EventMapper:
                 payload["input"] = str(tool_input)[:200]
             if tool_output:
                 payload["output_summary"] = str(tool_output)[:200]
+            self.logger.debug(f"Created tool event payload: {event_name}, tool={name}")
         elif event_name in ("on_chat_model_start", "on_chat_model_end"):
             payload = {
                 "model": name,
