@@ -80,7 +80,7 @@ This creates a **two-tier LLM architecture**:
 ```
 src/alerts/
 ├── main.py              # CLI entry point, LLM initialization
-├── config.py            # Environment-based configuration (OpenAI/Azure)
+├── config.py            # Environment-based configuration (OpenAI/Azure/OpenRouter)
 ├── agent.py             # LangGraph agent orchestration
 ├── models.py            # Pydantic models for structured output
 ├── tools/
@@ -91,6 +91,8 @@ src/alerts/
 │   ├── market_news.py
 │   ├── market_data.py
 │   └── peer_trades.py
+├── reports/
+│   └── html_generator.py  # HTML report generation with Tailwind CSS
 └── prompts/
     └── system_prompt.py # Agent system prompt + few-shot loader
 ```
@@ -185,7 +187,8 @@ Key fields:
 - `similar_precedent`: Which few-shot example this resembles
 
 **Output Files**:
-- `resources/reports/decision_{alert_id}.json` - Full decision
+- `resources/reports/decision_{alert_id}.json` - Full decision JSON
+- `resources/reports/decision_{alert_id}.html` - Professional HTML report with Tailwind CSS
 - `resources/reports/audit_log.jsonl` - Append-only audit trail
 
 ## Important Constraints
@@ -255,17 +258,40 @@ The system uses **pure LLM reasoning** - no weight-based scoring formulas. To ad
 3. **Last resort**: Modify agent graph in `agent.py:_build_graph()`
 
 ### Testing Strategy
-- Unit tests for tools, models, config
+- Unit tests for tools, models, config, HTML generation
 - Mock LLM responses for deterministic tests
 - Use `conftest.py` for shared fixtures
-- Test data generation scripts go in `scripts/` folder
+- Test data generation scripts go in `scripts/` folder (currently empty)
+- HTML report tests verify Tailwind CSS output and structure
+
+### HTML Report Generation
+
+The system generates professional HTML reports using Tailwind CSS:
+
+**Features**:
+- Split-screen layout: Original alert data (left) + AI analysis (right)
+- Color-coded determination badges (ESCALATE=red, CLOSE=green, NEEDS_HUMAN_REVIEW=yellow)
+- Confidence score visualization with progress bars
+- Expandable sections for detailed findings
+- Timeline view for trader baseline and market context
+- Professional styling suitable for compliance documentation
+
+**Implementation**: `reports/html_generator.py:HTMLReportGenerator`
+
+The HTML reports are generated automatically alongside JSON output and include:
+- Alert metadata and details
+- AI determination with confidence scores
+- Key findings and evidence
+- Trader baseline analysis
+- Market context with news timeline
+- Complete reasoning narrative
 
 ### Logging
 Extensive logging at INFO level by default:
 - Tool calls and processing times
 - Agent reasoning steps
 - Decision generation
-- Output file writes
+- Output file writes (JSON + HTML)
 
 Third-party loggers (httpx, openai) suppressed to WARNING level.
 
@@ -278,6 +304,7 @@ Third-party loggers (httpx, openai) suppressed to WARNING level.
 | `agent.py` | Graph definition | Add nodes, change workflow |
 | `models.py` | Output schema | Change decision structure |
 | `tools/base.py` | Tool infrastructure | Common tool functionality |
+| `reports/html_generator.py` | HTML report generation | Change report styling/layout |
 | `config.py` | Environment config | Add config parameters |
 | `main.py` | Entry point | CLI arguments, output formatting |
 
