@@ -8,7 +8,11 @@ OpenRouter, and Google Gemini providers.
 import logging
 from typing import Any, Union
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import (
+    ChatGoogleGenerativeAI,
+    HarmBlockThreshold,
+    HarmCategory,
+)
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
 from alerts.config import AppConfig
@@ -51,11 +55,24 @@ def create_llm(
         )
     elif config.llm.is_gemini():
         logger.info(f"Using Google Gemini: {config.llm.model}")
+        # Configure relaxed safety settings for compliance analysis content
+        # Default settings can block discussions of suspicious trading activity
+        # which triggers "No generations found in stream" errors
+        safety_settings = {
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+        }
+        logger.debug(
+            "Gemini safety settings configured: BLOCK_ONLY_HIGH for all categories"
+        )
         return ChatGoogleGenerativeAI(
             model=config.llm.model,
             google_api_key=config.llm.api_key,
             temperature=config.llm.temperature,
             max_output_tokens=config.llm.max_tokens,
+            safety_settings=safety_settings,
         )
     elif config.llm.provider == "openrouter":
         logger.info(f"Using OpenRouter: {config.llm.model}")
