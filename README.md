@@ -109,6 +109,74 @@ The analyzer produces:
 1. **Decision file**: `resources/reports/decision_{alert_id}.json`
 2. **Audit log**: `resources/reports/audit_log.jsonl` (appended)
 
+## Multi-Agent Orchestration (A2A Protocol)
+
+The system supports multi-agent orchestration using Google's Agent-to-Agent (A2A) protocol. An orchestrator agent routes alerts to specialized agents based on alert type.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 Orchestrator Agent (Port 10000)                 │
+│  Reads alerts, determines type, routes to specialized agents    │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ A2A Protocol (JSON-RPC over HTTP)
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│           Insider Trading Agent A2A Server (Port 10001)         │
+│  Analyzes insider trading alerts                                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Running Multi-Agent Setup
+
+**Terminal 1** - Start the Insider Trading Agent server:
+```bash
+python -m alerts.a2a.insider_trading_server --port 10001
+
+# Or using the console script:
+alerts-insider-trading-server --port 10001
+```
+
+**Terminal 2** - Start the Orchestrator server:
+```bash
+python -m alerts.a2a.orchestrator_server --port 10000
+
+# Or using the console script:
+alerts-orchestrator-server --port 10000 --insider-trading-url http://localhost:10001
+```
+
+**Terminal 3** - Test with the client:
+```bash
+python -m alerts.a2a.test_client \
+    --server-url http://localhost:10000 \
+    --alert test_data/alerts/alert_genuine.xml
+```
+
+### Agent Communication
+
+The orchestrator reads alert XML files and determines if they are insider trading alerts by checking:
+- Alert type (e.g., "Pre-Announcement Trading", "Insider Trading")
+- Rule code (e.g., "SMARTS-IT-001", "SMARTS-PAT-001")
+- Keywords in alert description
+
+If identified as insider trading, the alert is routed to the Insider Trading Agent via A2A protocol. The agent performs full analysis and returns an `AlertDecision`.
+
+### Configuration
+
+Server URLs can be configured via command-line options:
+```bash
+alerts-orchestrator-server --port 10000 --insider-trading-url http://remote-host:10001
+```
+
+For production deployments, consider setting environment variables:
+```bash
+# .env configuration (future enhancement)
+INSIDER_TRADING_AGENT_URL=http://localhost:10001
+ORCHESTRATOR_HOST=localhost
+ORCHESTRATOR_PORT=10000
+```
+
 ## Project Structure
 
 ```
@@ -131,8 +199,16 @@ alerts/
 │   │   ├── market_news.py
 │   │   ├── market_data.py
 │   │   └── peer_trades.py
-│   └── prompts/
-│       └── system_prompt.py # Agent system prompt
+│   ├── prompts/
+│   │   └── system_prompt.py # Agent system prompt
+│   └── a2a/                 # A2A protocol integration
+│       ├── __init__.py
+│       ├── insider_trading_executor.py  # A2A executor for insider trading agent
+│       ├── insider_trading_server.py    # A2A server entry point
+│       ├── orchestrator.py              # Orchestrator agent logic
+│       ├── orchestrator_executor.py     # A2A executor for orchestrator
+│       ├── orchestrator_server.py       # A2A server for orchestrator
+│       └── test_client.py               # Test client for A2A servers
 │
 ├── test_data/
 │   ├── alerts/
