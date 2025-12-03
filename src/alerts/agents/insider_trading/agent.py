@@ -2,19 +2,23 @@
 
 This module implements the insider trading analyzer agent that orchestrates
 tool calls and produces the final determination for insider trading alerts.
+
+Supports both synchronous analyze() and async astream_analyze() for real-time streaming.
 """
 
 import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, AsyncIterator, Dict, List, Literal, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import StructuredTool
 from langgraph.graph import END, MessagesState, StateGraph, START
 from langgraph.prebuilt import ToolNode
 from pydantic import BaseModel, Field
+
+from alerts.a2a.event_mapper import EventMapper, StreamEvent, create_stream_writer_for_mapper
 
 from alerts.models.insider_trading import (
     InsiderTradingDecision,
@@ -157,8 +161,11 @@ class InsiderTradingAnalyzerAgent:
             PeerTradesTool(self.llm, self.data_dir),
         ]
 
-    def _create_langchain_tools(self) -> list:
+    def _create_langchain_tools(self, config: Optional[Dict[str, Any]] = None) -> list:
         """Convert tool instances to LangChain tools with proper schemas.
+
+        Args:
+            config: Optional config dict to pass to tools (e.g., with stream_writer)
 
         Returns:
             List of LangChain tools
@@ -181,15 +188,15 @@ class InsiderTradingAnalyzerAgent:
             if not args_schema:
                 raise ValueError(f"No schema defined for tool: {tool_instance.name}")
 
-            # Create a wrapper function that captures the instance
-            def make_tool_func(instance):
+            # Create a wrapper function that captures the instance and config
+            def make_tool_func(instance, tool_config):
                 def tool_func(**kwargs) -> str:
-                    return instance(**kwargs)
+                    return instance(config=tool_config, **kwargs)
                 return tool_func
 
             # Create StructuredTool with explicit schema
             lc_tool = StructuredTool.from_function(
-                func=make_tool_func(tool_instance),
+                func=make_tool_func(tool_instance, config),
                 name=tool_instance.name,
                 description=tool_instance.description,
                 args_schema=args_schema,
@@ -414,6 +421,150 @@ After collecting all evidence, provide your determination with detailed reasonin
         except Exception as e:
             elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
             self.logger.error(f"Analysis failed after {elapsed:.2f}s: {e}", exc_info=True)
+            raise
+
+    async def astream_analyze(
+        self,
+        alert_file_path: Path,
+        task_id: str,
+    ) -> AsyncIterator[StreamEvent]:
+        """Analyze an alert with streaming events.
+
+        This async generator yields StreamEvent objects as the analysis progresses,
+        enabling real-time progress updates to the client.
+
+        Args:
+            alert_file_path: Path to the alert XML file
+            task_id: Task ID for event correlation
+
+        Yields:
+            StreamEvent objects for each progress update
+
+        Raises:
+            FileNotFoundError: If alert file doesn't exist
+            Exception: If analysis fails
+        """
+        start_time = datetime.now(timezone.utc)
+        event_mapper = EventMapper(task_id=task_id, agent_name="insider_trading")
+        collected_events: List[StreamEvent] = []
+
+        self.logger.info("=" * 60)
+        self.logger.info(f"Starting streaming analysis of alert: {alert_file_path}")
+        self.logger.info("=" * 60)
+
+        if not alert_file_path.exists():
+            error_event = event_mapper.create_error_event(
+                f"Alert file not found: {alert_file_path}",
+                stage="initialization",
+                fatal=True,
+            )
+            yield error_event
+            raise FileNotFoundError(f"Alert file not found: {alert_file_path}")
+
+        # Emit analysis started event
+        yield event_mapper.create_analysis_started_event(str(alert_file_path))
+
+        # Create stream writer for tools
+        stream_writer = create_stream_writer_for_mapper(event_mapper, collected_events)
+
+        # Create tools with streaming config
+        streaming_config = {"stream_writer": stream_writer}
+        streaming_tools = self._create_langchain_tools(config=streaming_config)
+
+        # Build a new graph with streaming tools
+        streaming_llm_with_tools = self.llm.bind_tools(streaming_tools)
+
+        # Create initial message
+        initial_message = HumanMessage(
+            content=f"""Please analyze the following SMARTS alert for potential insider trading.
+
+Alert file path: {alert_file_path}
+
+Start by reading the alert, then systematically gather evidence using all available tools.
+After collecting all evidence, provide your determination with detailed reasoning."""
+        )
+
+        try:
+            # Use astream_events for real-time streaming
+            self.logger.info("Starting astream_events iteration")
+
+            # Track node transitions for emitting agent events
+            last_node = None
+
+            async for event in self.graph.astream_events(
+                {"messages": [initial_message]},
+                config={"recursion_limit": 50},
+                version="v2",
+            ):
+                event_kind = event.get("event", "")
+                event_name = event.get("name", "")
+                event_data = event.get("data", {})
+
+                self.logger.debug(f"LangGraph event: {event_kind} - {event_name}")
+
+                # Yield any collected tool events first
+                while collected_events:
+                    tool_event = collected_events.pop(0)
+                    yield tool_event
+
+                # Map and emit relevant LangGraph events
+                if event_kind == "on_chain_start":
+                    if event_name in ("agent", "respond"):
+                        if event_name != last_node:
+                            last_node = event_name
+                            if event_name == "agent":
+                                yield event_mapper.create_agent_thinking_event(
+                                    "Deciding next action..."
+                                )
+                            elif event_name == "respond":
+                                yield event_mapper.create_agent_thinking_event(
+                                    "Generating final determination..."
+                                )
+
+                elif event_kind == "on_chain_end":
+                    if event_name == "respond":
+                        # Extract final result
+                        output = event_data.get("output", {})
+                        messages = output.get("messages", [])
+                        if messages:
+                            last_msg = messages[-1]
+                            if hasattr(last_msg, "content"):
+                                content = last_msg.content
+                                if isinstance(content, str) and content.startswith("{"):
+                                    try:
+                                        data = json.loads(content)
+                                        decision = InsiderTradingDecision(**data)
+
+                                        # Write outputs
+                                        self._write_decision(decision)
+                                        self._write_html_report(decision, alert_file_path)
+                                        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+                                        self._write_audit_log(decision, elapsed)
+
+                                        # Emit completion event
+                                        yield event_mapper.create_analysis_complete_event(
+                                            determination=decision.determination,
+                                            confidence=decision.genuine_alert_confidence,
+                                            summary=decision.key_findings[0] if decision.key_findings else "Analysis complete",
+                                        )
+
+                                        self.logger.info(
+                                            f"Streaming analysis completed in {elapsed:.2f}s: "
+                                            f"{decision.determination}"
+                                        )
+                                        return
+
+                                    except (json.JSONDecodeError, Exception) as e:
+                                        self.logger.error(f"Failed to parse decision: {e}")
+
+        except Exception as e:
+            elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+            self.logger.error(f"Streaming analysis failed after {elapsed:.2f}s: {e}", exc_info=True)
+            yield event_mapper.create_error_event(
+                str(e),
+                stage="analysis",
+                fatal=True,
+            )
             raise
 
     def _write_decision(self, decision: InsiderTradingDecision) -> Path:

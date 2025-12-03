@@ -3,6 +3,8 @@
 This module provides the web interface for uploading alert XML files
 and viewing analysis results. It communicates with the orchestrator
 agent via A2A protocol.
+
+Supports real-time streaming via SSE for progress updates.
 """
 
 import asyncio
@@ -11,7 +13,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 from uuid import uuid4
 
 import click
@@ -23,6 +25,7 @@ from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, Uplo
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sse_starlette import EventSourceResponse
 
 from frontend.task_manager import TaskManager
 
@@ -400,6 +403,207 @@ async def get_status(task_id: str) -> JSONResponse:
         })
 
     return JSONResponse({"status": task.status})
+
+
+@app.get("/api/stream/{task_id}")
+async def stream_events(task_id: str, request: Request):
+    """Stream real-time progress events for a task via SSE.
+
+    This endpoint connects to the orchestrator's streaming endpoint
+    and forwards events to the browser using Server-Sent Events.
+
+    Args:
+        task_id: ID of the task to stream
+        request: FastAPI request object
+
+    Returns:
+        EventSourceResponse with streaming events
+    """
+    logger.info(f"Starting SSE stream for task: {task_id}")
+
+    task = task_manager.get_task(task_id)
+    if task is None:
+        return EventSourceResponse(
+            _stream_error("Task not found"),
+            media_type="text/event-stream",
+        )
+
+    # Get the file path for this task
+    temp_file_path = TEMP_DIR / f"{task_id}.xml"
+    if not temp_file_path.exists():
+        return EventSourceResponse(
+            _stream_error("Alert file not found"),
+            media_type="text/event-stream",
+        )
+
+    async def event_generator():
+        """Generate SSE events by proxying from orchestrator."""
+        event_count = 0
+        last_keepalive = asyncio.get_event_loop().time()
+        keepalive_interval = 25  # seconds
+
+        try:
+            # Connect to orchestrator streaming endpoint
+            async with httpx.AsyncClient(timeout=600.0) as client:
+                # Build the streaming request
+                stream_request = {
+                    "jsonrpc": "2.0",
+                    "method": "message/stream",
+                    "params": {
+                        "message": {
+                            "role": "user",
+                            "parts": [
+                                {"type": "textPart", "text": str(temp_file_path)}
+                            ],
+                        }
+                    },
+                    "id": task_id,
+                }
+
+                logger.info(f"Connecting to orchestrator stream: {ORCHESTRATOR_URL}/message/stream")
+
+                async with client.stream(
+                    "POST",
+                    f"{ORCHESTRATOR_URL}/message/stream",
+                    json=stream_request,
+                    headers={"Accept": "text/event-stream"},
+                ) as response:
+                    if response.status_code != 200:
+                        logger.error(f"Orchestrator stream failed: {response.status_code}")
+                        yield {
+                            "data": json.dumps({
+                                "event_type": "error",
+                                "message": f"Orchestrator returned status {response.status_code}",
+                            }),
+                            "event": "error",
+                        }
+                        return
+
+                    # Process SSE stream from orchestrator
+                    async for line in response.aiter_lines():
+                        # Check client disconnect
+                        if await request.is_disconnected():
+                            logger.info(f"Client disconnected for task {task_id}")
+                            break
+
+                        # Check for keepalive
+                        current_time = asyncio.get_event_loop().time()
+                        if current_time - last_keepalive > keepalive_interval:
+                            yield {
+                                "data": json.dumps({
+                                    "event_type": "keep_alive",
+                                    "message": "Processing...",
+                                }),
+                                "event": "keep_alive",
+                            }
+                            last_keepalive = current_time
+
+                        # Parse SSE line
+                        if line.startswith("data:"):
+                            data_str = line[5:].strip()
+                            if data_str:
+                                try:
+                                    event_data = json.loads(data_str)
+                                    event_count += 1
+
+                                    # Extract event type from metadata
+                                    metadata = event_data.get("result", {}).get("metadata", {})
+                                    event_type = metadata.get("event_type", "update")
+                                    event_id = metadata.get("event_id", str(uuid4()))
+
+                                    # Forward the event
+                                    yield {
+                                        "data": data_str,
+                                        "event": event_type,
+                                        "id": event_id,
+                                        "retry": 5000,
+                                    }
+
+                                    # Check for final event
+                                    task_status = event_data.get("result", {}).get("taskStatusUpdateEvent", {})
+                                    if task_status.get("final", False):
+                                        logger.info(f"Final event received for task {task_id}")
+
+                                        # Extract decision from final event and update task
+                                        await _handle_final_event(task_id, event_data, temp_file_path)
+                                        break
+
+                                except json.JSONDecodeError:
+                                    logger.warning(f"Invalid JSON in SSE line: {data_str[:100]}")
+
+        except httpx.ConnectError as e:
+            logger.error(f"Failed to connect to orchestrator: {e}")
+            yield {
+                "data": json.dumps({
+                    "event_type": "error",
+                    "message": "Analysis service unavailable. Please ensure servers are running.",
+                }),
+                "event": "error",
+            }
+
+        except asyncio.CancelledError:
+            logger.info(f"Stream cancelled for task {task_id}")
+
+        except Exception as e:
+            logger.error(f"Stream error for task {task_id}: {e}", exc_info=True)
+            yield {
+                "data": json.dumps({
+                    "event_type": "error",
+                    "message": f"Stream error: {str(e)}",
+                }),
+                "event": "error",
+            }
+
+        finally:
+            logger.info(f"Stream ended for task {task_id}, {event_count} events sent")
+
+    return EventSourceResponse(
+        event_generator(),
+        media_type="text/event-stream",
+    )
+
+
+async def _stream_error(message: str):
+    """Generate an error event for streaming."""
+    yield {
+        "data": json.dumps({"event_type": "error", "message": message}),
+        "event": "error",
+    }
+
+
+async def _handle_final_event(task_id: str, event_data: Dict, temp_file_path: Path) -> None:
+    """Handle the final event and update task status.
+
+    Args:
+        task_id: Task ID
+        event_data: Final event data
+        temp_file_path: Path to temp alert file
+    """
+    try:
+        # Try to extract decision from metadata or result
+        metadata = event_data.get("result", {}).get("metadata", {})
+        payload = metadata.get("payload", {})
+
+        # Get determination from payload
+        determination = payload.get("determination", "UNKNOWN")
+        confidence = payload.get("confidence", 50)
+
+        # Update task
+        task_manager.update_task(
+            task_id=task_id,
+            status="complete",
+            alert_id=task_id[:8],
+            alert_type="insider_trading",  # Will be overwritten if we can determine
+            decision={"determination": determination, "confidence": confidence},
+        )
+
+        # Cleanup temp file
+        if temp_file_path.exists():
+            os.remove(temp_file_path)
+            logger.info(f"Cleaned up temp file: {temp_file_path}")
+
+    except Exception as e:
+        logger.error(f"Error handling final event: {e}")
 
 
 @app.get("/api/download/{task_id}/json")

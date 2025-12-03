@@ -2,11 +2,14 @@
 
 This module wraps the existing AlertAnalyzerAgent as an A2A-compatible
 executor, allowing it to be called via the A2A protocol.
+
+Supports both synchronous execute() and async execute_stream() for SSE streaming.
 """
 
+import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator, Dict
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
@@ -25,6 +28,7 @@ from a2a.utils.errors import ServerError
 
 from alerts.agent import AlertAnalyzerAgent
 from alerts.models import AlertDecision
+from alerts.a2a.event_mapper import StreamEvent
 
 logger = logging.getLogger(__name__)
 
@@ -318,3 +322,129 @@ class InsiderTradingAgentExecutor(AgentExecutor):
             ServerError: Cancellation is not supported
         """
         raise ServerError(error=UnsupportedOperationError())
+
+    async def execute_stream(
+        self,
+        task_id: str,
+        alert_path: str,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Execute analysis with streaming events.
+
+        This method streams progress events as the analysis progresses,
+        yielding A2A-formatted events that can be sent via SSE.
+
+        Args:
+            task_id: Task ID for event correlation
+            alert_path: Path to the alert XML file
+
+        Yields:
+            Dict containing A2A-formatted streaming events
+
+        Raises:
+            FileNotFoundError: If alert file doesn't exist
+            Exception: If analysis fails
+        """
+        logger.info(f"Starting streaming analysis for task {task_id}: {alert_path}")
+
+        # Resolve alert file path
+        alert_file = Path(alert_path)
+        if not alert_file.exists():
+            alert_file = self.data_dir / alert_path
+            if not alert_file.exists():
+                error_event = {
+                    "event_type": "error",
+                    "task_id": task_id,
+                    "agent": "insider_trading",
+                    "payload": {
+                        "message": f"Alert file not found: {alert_path}",
+                        "stage": "initialization",
+                    },
+                    "final": True,
+                }
+                yield self._wrap_event_for_a2a(error_event, task_id, "failed")
+                return
+
+        # Get or create agent
+        agent = self._get_agent()
+
+        # Stream events from agent
+        try:
+            async for event in agent.astream_analyze(alert_file, task_id):
+                # Convert StreamEvent to A2A format
+                a2a_event = event.to_a2a_format(
+                    task_state="completed" if event.final else "working"
+                )
+                yield a2a_event
+
+        except FileNotFoundError as e:
+            logger.error(f"File not found during streaming: {e}")
+            error_event = {
+                "event_type": "error",
+                "task_id": task_id,
+                "agent": "insider_trading",
+                "payload": {
+                    "message": str(e),
+                    "stage": "analysis",
+                },
+                "final": True,
+            }
+            yield self._wrap_event_for_a2a(error_event, task_id, "failed")
+
+        except Exception as e:
+            logger.error(f"Streaming analysis failed: {e}", exc_info=True)
+            error_event = {
+                "event_type": "error",
+                "task_id": task_id,
+                "agent": "insider_trading",
+                "payload": {
+                    "message": f"Analysis failed: {str(e)}",
+                    "stage": "analysis",
+                },
+                "final": True,
+            }
+            yield self._wrap_event_for_a2a(error_event, task_id, "failed")
+
+    def _wrap_event_for_a2a(
+        self,
+        event: Dict[str, Any],
+        task_id: str,
+        task_state: str,
+    ) -> Dict[str, Any]:
+        """Wrap a raw event dict in A2A format.
+
+        Args:
+            event: Raw event dictionary
+            task_id: Task ID
+            task_state: Current task state
+
+        Returns:
+            A2A-formatted event
+        """
+        return {
+            "jsonrpc": "2.0",
+            "result": {
+                "task": {
+                    "id": task_id,
+                    "state": task_state,
+                },
+                "taskStatusUpdateEvent": {
+                    "task": {
+                        "id": task_id,
+                        "state": task_state,
+                        "messages": [
+                            {
+                                "role": "agent",
+                                "parts": [
+                                    {
+                                        "type": "textPart",
+                                        "text": event.get("payload", {}).get("message", "Processing..."),
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                    "final": event.get("final", False),
+                },
+                "metadata": event,
+            },
+        }

@@ -177,3 +177,257 @@ input:focus {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+
+/* ============================================
+   Progress Timeline Styles
+   ============================================ */
+
+/* Timeline container */
+.timeline-container {
+    max-height: 400px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #CBD5E1 #F1F5F9;
+}
+
+.timeline-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.timeline-container::-webkit-scrollbar-track {
+    background: #F1F5F9;
+    border-radius: 3px;
+}
+
+.timeline-container::-webkit-scrollbar-thumb {
+    background: #CBD5E1;
+    border-radius: 3px;
+}
+
+.timeline-container::-webkit-scrollbar-thumb:hover {
+    background: #94A3B8;
+}
+
+/* Timeline items */
+.timeline-item {
+    position: relative;
+    padding-left: 0.5rem;
+    border-left: 2px solid #E5E7EB;
+    margin-left: 1rem;
+}
+
+.timeline-item:last-child {
+    border-left-color: transparent;
+}
+
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 0.75rem;
+    width: 10px;
+    height: 10px;
+    background: #E5E7EB;
+    border-radius: 50%;
+}
+
+.timeline-item.active::before {
+    background: #3B82F6;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+}
+
+.timeline-item.completed::before {
+    background: #10B981;
+}
+
+.timeline-item.error::before {
+    background: #EF4444;
+}
+
+/* Timeline icon animations */
+.timeline-icon {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.timeline-icon:hover {
+    transform: scale(1.1);
+}
+
+/* Animation for new timeline items */
+@keyframes fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fade-in {
+    animation: fade-in 0.3s ease forwards;
+}
+
+/* Slow spin for cog/processing icons */
+@keyframes spin-slow {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.animate-spin-slow {
+    animation: spin-slow 2s linear infinite;
+}
+
+/* Timeline elapsed time badge */
+.timeline-elapsed {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.05em;
+}
+
+/* Progress ring for overall status */
+.progress-ring {
+    transform: rotate(-90deg);
+    transform-origin: center;
+}
+
+.progress-ring-circle {
+    transition: stroke-dashoffset 0.35s ease;
+    stroke-linecap: round;
+}
+
+/* Connection status indicator */
+.connection-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: #6B7280;
+}
+
+.connection-status.connected .status-dot {
+    background-color: #10B981;
+}
+
+.connection-status.connecting .status-dot {
+    background-color: #F59E0B;
+    animation: pulse 1s infinite;
+}
+
+.connection-status.disconnected .status-dot {
+    background-color: #EF4444;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    transition: background-color 0.2s ease;
+}
+
+/* Tool badges in timeline */
+.tool-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.625rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.tool-badge.alert-reader {
+    background-color: #DBEAFE;
+    color: #1E40AF;
+}
+
+.tool-badge.trader-history {
+    background-color: #FEF3C7;
+    color: #92400E;
+}
+
+.tool-badge.market-data {
+    background-color: #D1FAE5;
+    color: #065F46;
+}
+
+.tool-badge.peer-trades {
+    background-color: #EDE9FE;
+    color: #5B21B6;
+}
+
+.tool-badge.account-relationships {
+    background-color: #FCE7F3;
+    color: #9D174D;
+}
+
+/* Timeline header */
+.timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid #E5E7EB;
+    background-color: #F9FAFB;
+    border-radius: 0.5rem 0.5rem 0 0;
+}
+
+.timeline-header h3 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+/* Timeline footer with stats */
+.timeline-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid #E5E7EB;
+    background-color: #F9FAFB;
+    border-radius: 0 0 0.5rem 0.5rem;
+    font-size: 0.75rem;
+    color: #6B7280;
+}
+
+/* Event type colors */
+.event-analysis-started {
+    border-left-color: #3B82F6;
+}
+
+.event-tool-started {
+    border-left-color: #8B5CF6;
+}
+
+.event-tool-completed {
+    border-left-color: #10B981;
+}
+
+.event-analysis-complete {
+    border-left-color: #059669;
+}
+
+.event-error {
+    border-left-color: #EF4444;
+}
+
+/* Dark mode support (if needed in future) */
+@media (prefers-color-scheme: dark) {
+    .timeline-container {
+        scrollbar-color: #475569 #1E293B;
+    }
+
+    .timeline-container::-webkit-scrollbar-track {
+        background: #1E293B;
+    }
+
+    .timeline-container::-webkit-scrollbar-thumb {
+        background: #475569;
+    }
+}

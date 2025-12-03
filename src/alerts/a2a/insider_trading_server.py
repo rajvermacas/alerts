@@ -3,12 +3,17 @@
 This module provides the A2A server entry point for the insider trading
 alert analyzer, exposing it as an A2A-compatible agent.
 
+Supports both standard A2A message/stream endpoint for SSE streaming.
+
 Usage:
     python -m alerts.a2a.insider_trading_server --host 0.0.0.0 --port 10001
 """
 
+import asyncio
+import json
 import logging
 import sys
+import uuid
 from pathlib import Path
 
 import click
@@ -19,6 +24,9 @@ from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from dotenv import load_dotenv
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
+from sse_starlette import EventSourceResponse
+from starlette.requests import Request
+from starlette.routing import Route
 
 from alerts.a2a.insider_trading_executor import InsiderTradingAgentExecutor
 from alerts.config import ConfigurationError, get_config, setup_logging
@@ -27,6 +35,138 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Global executor reference for streaming endpoint
+_executor: InsiderTradingAgentExecutor | None = None
+
+# Keep-alive interval in seconds
+KEEPALIVE_INTERVAL = 25
+
+
+async def message_stream_endpoint(request: Request):
+    """Handle SSE streaming for A2A message/stream requests.
+
+    This endpoint receives A2A message requests and streams progress events
+    back to the client using Server-Sent Events.
+
+    Request body should be JSON-RPC 2.0 format:
+    {
+        "jsonrpc": "2.0",
+        "method": "message/stream",
+        "params": {
+            "message": {
+                "role": "user",
+                "parts": [{"type": "textPart", "text": "path/to/alert.xml"}]
+            }
+        },
+        "id": "request-id"
+    }
+    """
+    global _executor
+
+    if _executor is None:
+        return EventSourceResponse(
+            _error_generator("Executor not initialized"),
+            media_type="text/event-stream",
+        )
+
+    try:
+        body = await request.json()
+    except Exception as e:
+        logger.error(f"Invalid JSON in request: {e}")
+        return EventSourceResponse(
+            _error_generator(f"Invalid JSON: {e}"),
+            media_type="text/event-stream",
+        )
+
+    # Extract alert path from request
+    params = body.get("params", {})
+    message = params.get("message", {})
+    parts = message.get("parts", [])
+
+    alert_path = None
+    for part in parts:
+        if part.get("type") == "textPart":
+            alert_path = part.get("text", "").strip()
+            break
+
+    if not alert_path:
+        return EventSourceResponse(
+            _error_generator("No alert path provided in message"),
+            media_type="text/event-stream",
+        )
+
+    # Generate task ID
+    task_id = str(uuid.uuid4())
+    request_id = body.get("id", task_id)
+
+    logger.info(f"Starting streaming analysis for task {task_id}: {alert_path}")
+
+    async def event_generator():
+        """Generate SSE events from executor streaming."""
+        last_event_time = asyncio.get_event_loop().time()
+
+        try:
+            async for event in _executor.execute_stream(task_id, alert_path):
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    logger.info(f"Client disconnected for task {task_id}")
+                    break
+
+                # Yield event as SSE
+                yield {
+                    "data": json.dumps(event),
+                    "event": event.get("result", {}).get("metadata", {}).get("event_type", "update"),
+                    "id": event.get("result", {}).get("metadata", {}).get("event_id", str(uuid.uuid4())),
+                    "retry": 5000,
+                }
+
+                last_event_time = asyncio.get_event_loop().time()
+
+                # Check for final event
+                if event.get("result", {}).get("taskStatusUpdateEvent", {}).get("final", False):
+                    logger.info(f"Final event sent for task {task_id}")
+                    break
+
+                # Small delay to prevent overwhelming client
+                await asyncio.sleep(0.05)
+
+        except asyncio.CancelledError:
+            logger.info(f"Stream cancelled for task {task_id}")
+        except Exception as e:
+            logger.error(f"Stream error for task {task_id}: {e}", exc_info=True)
+            yield {
+                "data": json.dumps({
+                    "jsonrpc": "2.0",
+                    "result": {
+                        "task": {"id": task_id, "state": "failed"},
+                        "taskStatusUpdateEvent": {
+                            "task": {"id": task_id, "state": "failed"},
+                            "final": True,
+                        },
+                    },
+                }),
+                "event": "error",
+            }
+
+    return EventSourceResponse(
+        event_generator(),
+        media_type="text/event-stream",
+    )
+
+
+async def _error_generator(error_message: str):
+    """Generate an error event."""
+    yield {
+        "data": json.dumps({
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32603,
+                "message": error_message,
+            },
+        }),
+        "event": "error",
+    }
 
 
 def create_llm(config):
@@ -134,11 +274,13 @@ def main(host: str, port: int, verbose: bool) -> None:
         )
 
         # Create executor
+        global _executor
         executor = InsiderTradingAgentExecutor(
             llm=llm,
             data_dir=config.data.data_dir,
             output_dir=config.data.output_dir,
         )
+        _executor = executor
 
         # Create request handler
         request_handler = DefaultRequestHandler(
@@ -152,11 +294,20 @@ def main(host: str, port: int, verbose: bool) -> None:
             http_handler=request_handler,
         )
 
+        # Build the app and add streaming route
+        app = server.build()
+
+        # Add the streaming endpoint
+        app.routes.append(
+            Route("/message/stream", message_stream_endpoint, methods=["POST"])
+        )
+
         logger.info(f"Server starting at http://{host}:{port}")
         logger.info(f"Agent card available at http://{host}:{port}/.well-known/agent.json")
+        logger.info(f"Streaming endpoint: POST http://{host}:{port}/message/stream")
 
         # Run server
-        uvicorn.run(server.build(), host=host, port=port)
+        uvicorn.run(app, host=host, port=port)
 
     except ConfigurationError as e:
         logger.error(f"Configuration error: {e}")

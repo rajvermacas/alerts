@@ -146,26 +146,28 @@ src/
 │   │   ├── html_generator.py    # Insider trading HTML report
 │   │   └── wash_trade_report.py # Wash trade HTML with SVG network
 │   └── a2a/                     # A2A (Agent-to-Agent) protocol integration
-│       ├── insider_trading_executor.py
-│       ├── insider_trading_server.py
-│       ├── wash_trade_executor.py
-│       ├── wash_trade_server.py
+│       ├── event_mapper.py      # LangGraph → A2A event format conversion
+│       ├── insider_trading_executor.py  # execute() + execute_stream()
+│       ├── insider_trading_server.py    # /message/stream SSE endpoint
+│       ├── wash_trade_executor.py       # execute() + execute_stream()
+│       ├── wash_trade_server.py         # /message/stream SSE endpoint
 │       ├── orchestrator.py      # Routes alerts to specialized agents
-│       ├── orchestrator_executor.py
-│       ├── orchestrator_server.py
+│       ├── orchestrator_executor.py     # Proxies streaming from agents
+│       ├── orchestrator_server.py       # /message/stream SSE endpoint
 │       └── test_client.py
 │
-└── frontend/                    # Web UI (FastAPI + HTMX)
-    ├── app.py                   # FastAPI routes, A2A client integration
+└── frontend/                    # Web UI (FastAPI + Tailwind CSS)
+    ├── app.py                   # FastAPI routes, A2A client, SSE proxy
     ├── task_manager.py          # In-memory task tracking
     ├── templates/
     │   ├── base.html            # Base template with Tailwind CSS
-    │   └── upload.html          # Upload page with all UI states
+    │   └── upload.html          # Upload page with timeline UI
     └── static/
-        ├── css/styles.css       # Custom styles (animations, accessibility)
+        ├── css/styles.css       # Custom styles (animations, timeline)
         └── js/
             ├── upload.js        # File upload and drag-drop handling
-            ├── polling.js       # Status polling (2s interval)
+            ├── progress-timeline.js  # SSE streaming timeline visualization
+            ├── streaming.js     # EventSource integration (fail-fast)
             └── results.js       # Results rendering + Cytoscape.js graph
 ```
 
@@ -436,30 +438,58 @@ The system uses **pure LLM reasoning** - no weight-based scoring formulas. To ad
 
 ### Web UI Frontend
 
-The system includes a web interface for uploading alerts and viewing results:
+The system includes a web interface for uploading alerts and viewing results with **real-time streaming progress**:
 
 **Architecture:**
 ```
 Browser (http://localhost:8080)
     │
     ├── POST /api/analyze (multipart XML upload)
-    ├── GET /api/status/{task_id} (2s polling)
+    ├── GET /api/stream/{task_id} (SSE real-time streaming)
+    ├── GET /api/status/{task_id} (polling fallback)
     └── GET /api/download/{task_id}/{json|html}
     │
     ▼
 FastAPI Frontend Service (Port 8080)
     │
-    └── A2A Protocol (JSON-RPC over HTTP)
+    └── POST /message/stream (A2A SSE streaming)
     │
     ▼
 Orchestrator Agent (Port 10000)
+    │
+    └── POST /message/stream (proxies to specialized agents)
+    │
     ├── Insider Trading Agent (Port 10001)
+    │   └── POST /message/stream (SSE from LangGraph)
+    │
     └── Wash Trade Agent (Port 10002)
+        └── POST /message/stream (SSE from LangGraph)
 ```
 
-**Key Components:**
-- `frontend/app.py`: FastAPI routes, A2A client, response parsing
+**Real-Time Streaming Architecture:**
+
+The system uses Server-Sent Events (SSE) to stream progress updates in real-time over 5-10 minute analysis tasks:
+
+1. **Browser → Frontend**: Uses `EventSource` API to connect to `/api/stream/{task_id}`
+2. **Frontend → Orchestrator**: Proxies SSE stream via `httpx.stream()` to `/message/stream`
+3. **Orchestrator → Agents**: Routes stream request to appropriate agent's `/message/stream`
+4. **Agent → LangGraph**: Uses `graph.astream_events()` to get tool-level progress
+5. **Tool Events**: Each tool emits `tool_started`, `tool_progress`, `tool_completed` events
+
+**Event Types:**
+- `analysis_started`: Analysis begins, alert type detected
+- `routing`: Orchestrator routing to specialized agent
+- `tool_started`: Tool execution begins (with tool name)
+- `tool_progress`: Tool processing insight (optional)
+- `tool_completed`: Tool finished with insight summary
+- `analysis_complete`: Final decision with determination
+- `error`: Error occurred at any stage
+
+**Key Frontend Components:**
+- `frontend/app.py`: FastAPI routes, A2A client, SSE proxy endpoint
 - `frontend/task_manager.py`: In-memory task tracking (POC - no persistence)
+- `frontend/static/js/progress-timeline.js`: ProgressTimeline class for SSE visualization
+- `frontend/static/js/streaming.js`: EventSource integration (fail-fast, no polling fallback)
 - `frontend/static/js/results.js`: Dynamic rendering + Cytoscape.js graph for wash trade
 
 **A2A Response Parsing Challenge:**
@@ -469,6 +499,56 @@ The orchestrator wraps agent responses, creating nested JSON-RPC structures. The
 3. Finding artifacts ending in `_json` (e.g., `alert_decision_json`)
 
 Debug files are saved to `resources/debug/a2a_response_*.json` for investigation.
+
+### Real-Time Event Streaming
+
+The streaming system provides real-time visibility into the multi-agent analysis pipeline:
+
+**Event Format (A2A TaskStatusUpdateEvent):**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "task": {"id": "task-uuid", "state": "working"},
+    "taskStatusUpdateEvent": {
+      "task": {"id": "task-uuid", "state": "working"},
+      "final": false
+    },
+    "metadata": {
+      "event_id": "event-uuid",
+      "event_type": "tool_completed",
+      "agent": "insider_trading",
+      "tool_name": "trader_history",
+      "payload": {
+        "message": "Trader shows unusual volume deviation",
+        "stage": "data_gathering"
+      }
+    }
+  }
+}
+```
+
+**Stream Writer Pattern:**
+Tools emit events via optional `stream_writer` callback:
+```python
+# In BaseTool.__call__()
+self._emit_event(stream_writer, "tool_started", {"stage": "loading_data"})
+# ... do work ...
+self._emit_event(stream_writer, "tool_completed", {"insight": summary})
+```
+
+**LangGraph Integration:**
+Agents use `graph.astream_events()` to capture internal LangGraph events:
+```python
+async for event in self.graph.astream_events(input, version="v2"):
+    # Map LangGraph events to A2A format
+    yield event_mapper.map_tool_event(event)
+```
+
+**Reconnection Support:**
+- SSE events include `id` field for reconnection
+- `EventBuffer` class (event_mapper.py) stores recent events
+- Client can reconnect with `Last-Event-ID` header
 
 ### HTML Report Generation
 
@@ -526,10 +606,14 @@ Third-party loggers (httpx, openai) suppressed to WARNING level.
 | `config.py` | Environment config | Add config parameters |
 | `main.py` | Entry point | CLI arguments, output formatting |
 | `a2a/orchestrator.py` | Alert routing logic | Add new alert types or agents |
-| `a2a/insider_trading_executor.py` | IT A2A executor | Modify how IT alerts are processed |
-| `a2a/wash_trade_executor.py` | WT A2A executor | Modify how WT alerts are processed |
-| `a2a/*_server.py` | A2A servers | Change server configuration |
-| `frontend/app.py` | Web UI backend | Add API endpoints, A2A integration |
+| `a2a/event_mapper.py` | Event format conversion | Add new event types, modify event structure |
+| `a2a/insider_trading_executor.py` | IT A2A executor + streaming | Modify IT alert processing or streaming |
+| `a2a/wash_trade_executor.py` | WT A2A executor + streaming | Modify WT alert processing or streaming |
+| `a2a/orchestrator_executor.py` | Orchestrator + stream proxy | Modify routing or streaming behavior |
+| `a2a/*_server.py` | A2A servers + SSE endpoints | Change server/streaming configuration |
+| `frontend/app.py` | Web UI backend + SSE proxy | Add API endpoints, modify streaming |
+| `frontend/static/js/progress-timeline.js` | SSE timeline visualization | Modify progress UI, event handling |
+| `frontend/static/js/streaming.js` | EventSource integration | Modify streaming behavior (fail-fast) |
 | `frontend/static/js/results.js` | Results rendering | Add UI sections, modify Cytoscape graph |
 | `frontend/task_manager.py` | Task tracking | Modify task lifecycle |
 

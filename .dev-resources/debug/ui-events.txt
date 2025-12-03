@@ -1,0 +1,81 @@
+id: 1ea1bb41-f564-4fe2-a8b8-3f2b688f5e08
+event: analysis_started
+data: {"jsonrpc": "2.0", "result": {"task": {"id": "0874f60e827845d4bc80dcf812fe6e13", "state": "working"}, "taskStatusUpdateEvent": {"task": {"id": "0874f60e827845d4bc80dcf812fe6e13", "state": "working", "messages": [{"role": "agent", "parts": [{"type": "textPart", "text": "Reading alert to determine type..."}]}]}, "final": false}, "metadata": {"event_id": "1ea1bb41-f564-4fe2-a8b8-3f2b688f5e08", "event_type": "analysis_started", "agent": "orchestrator", "payload": {"message": "Reading alert to determine type...", "stage": "analysis_started"}}}}
+retry: 5000
+
+id: c30176b7-830b-4149-8931-667303075b37
+event: routing
+data: {"jsonrpc": "2.0", "result": {"task": {"id": "0874f60e827845d4bc80dcf812fe6e13", "state": "working"}, "taskStatusUpdateEvent": {"task": {"id": "0874f60e827845d4bc80dcf812fe6e13", "state": "working", "messages": [{"role": "agent", "parts": [{"type": "textPart", "text": "Alert type: Pre-Announcement Trading. Routing to specialized agent..."}]}]}, "final": false}, "metadata": {"event_id": "c30176b7-830b-4149-8931-667303075b37", "event_type": "routing", "agent": "orchestrator", "payload": {"message": "Alert type: Pre-Announcement Trading. Routing to specialized agent...", "stage": "routing", "alert_type": "Pre-Announcement Trading", "category": "insider_trading"}}}}
+retry: 5000
+
+id: e4836be0-ea0c-416c-86aa-03e025be6e55
+event: agent_handoff
+data: {"jsonrpc": "2.0", "result": {"task": {"id": "0874f60e827845d4bc80dcf812fe6e13", "state": "working"}, "taskStatusUpdateEvent": {"task": {"id": "0874f60e827845d4bc80dcf812fe6e13", "state": "working", "messages": [{"role": "agent", "parts": [{"type": "textPart", "text": "Handing off to Insider Trading Agent..."}]}]}, "final": false}, "metadata": {"event_id": "e4836be0-ea0c-416c-86aa-03e025be6e55", "event_type": "agent_handoff", "agent": "orchestrator", "payload": {"message": "Handing off to Insider Trading Agent...", "stage": "agent_handoff", "agent": "insider_trading"}}}}
+retry: 5000
+
+: ping - 2025-12-03 18:32:28.767956+00:00
+
+: ping - 2025-12-03 18:32:42.889811+00:00
+
+event: keep_alive
+data: {"event_type": "keep_alive", "message": "Processing..."}
+
+: ping - 2025-12-03 18:32:57.891394+00:00
+
+: ping - 2025-12-03 18:33:12.012136+00:00
+
+event: keep_alive
+data: {"event_type": "keep_alive", "message": "Processing..."}
+
+: ping - 2025-12-03 18:33:27.013870+00:00
+
+: ping - 2025-12-03 18:33:41.207080+00:00
+
+event: keep_alive
+data: {"event_type": "keep_alive", "message": "Processing..."}
+
+: ping - 2025-12-03 18:33:56.208976+00:00
+
+: ping - 2025-12-03 18:34:10.341755+00:00
+
+event: keep_alive
+data: {"event_type": "keep_alive", "message": "Processing..."}
+
+: ping - 2025-12-03 18:34:25.343580+00:00
+
+: ping - 2025-12-03 18:34:39.441165+00:00
+
+event: keep_alive
+data: {"event_type": "keep_alive", "message": "Processing..."}
+
+: ping - 2025-12-03 18:34:54.445394+00:00
+
+: ping - 2025-12-03 18:35:08.586407+00:00
+
+event: keep_alive
+data: {"event_type": "keep_alive", "message": "Processing..."}
+
+id: da560189-f1d6-4c14-a379-1abe290d6c37
+event: analysis_started
+data: {"jsonrpc": "2.0", "result": {"task": {"id": "4e6b7847-16b1-426a-92fd-af28aae6895a", "state": "working"}, "taskStatusUpdateEvent": {"task": {"id": "4e6b7847-16b1-426a-92fd-af28aae6895a", "state": "working", "messages": [{"role": "agent", "parts": [{"type": "textPart", "text": "Starting analysis of alert: /tmp/alerts_frontend/0874f60e827845d4bc80dcf812fe6e13.xml"}]}]}, "final": false}, "metadata": {"event_id": "da560189-f1d6-4c14-a379-1abe290d6c37", "event_type": "analysis_started", "agent": "insider_trading", "timestamp": "2025-12-03T18:35:13.215455+00:00", "payload": {"message": "Starting analysis of alert: /tmp/alerts_frontend/0874f60e827845d4bc80dcf812fe6e13.xml", "alert_file": "/tmp/alerts_frontend/0874f60e827845d4bc80dcf812fe6e13.xml"}, "orchestrated": true, "source_agent": "insider_trading"}}}
+retry: 5000
+
+id: 2665a9c6-e9f1-4ec1-a7a5-be452e9f8c91
+event: agent_thinking
+data: {"jsonrpc": "2.0", "result": {"task": {"id": "4e6b7847-16b1-426a-92fd-af28aae6895a", "state": "working"}, "taskStatusUpdateEvent": {"task": {"id": "4e6b7847-16b1-426a-92fd-af28aae6895a", "state": "working", "messages": [{"role": "agent", "parts": [{"type": "textPart", "text": "Agent is analyzing: Deciding next action..."}]}]}, "final": false}, "metadata": {"event_id": "2665a9c6-e9f1-4ec1-a7a5-be452e9f8c91", "event_type": "agent_thinking", "agent": "insider_trading", "timestamp": "2025-12-03T18:35:13.326126+00:00", "payload": {"message": "Agent is analyzing: Deciding next action...", "context": "Deciding next action..."}, "orchestrated": true, "source_agent": "insider_trading"}}}
+retry: 5000
+
+: ping - 2025-12-03 18:35:23.588076+00:00
+
+id: 9d537cec-42a2-48e6-a2f3-b6db9db54b62
+event: agent_thinking
+data: {"jsonrpc": "2.0", "result": {"task": {"id": "4e6b7847-16b1-426a-92fd-af28aae6895a", "state": "working"}, "taskStatusUpdateEvent": {"task": {"id": "4e6b7847-16b1-426a-92fd-af28aae6895a", "state": "working", "messages": [{"role": "agent", "parts": [{"type": "textPart", "text": "Agent is analyzing: Generating final determination..."}]}]}, "final": false}, "metadata": {"event_id": "9d537cec-42a2-48e6-a2f3-b6db9db54b62", "event_type": "agent_thinking", "agent": "insider_trading", "timestamp": "2025-12-03T18:35:29.471625+00:00", "payload": {"message": "Agent is analyzing: Generating final determination...", "context": "Generating final determination..."}, "orchestrated": true, "source_agent": "insider_trading"}}}
+retry: 5000
+
+: ping - 2025-12-03 18:35:37.656199+00:00
+
+event: keep_alive
+data: {"event_type": "keep_alive", "message": "Processing..."}
+
+: ping - 2025-12-03 18:35:52.657710+00:00
+
