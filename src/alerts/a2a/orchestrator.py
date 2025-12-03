@@ -73,29 +73,8 @@ class OrchestratorAgent:
         """
         self.insider_trading_agent_url = insider_trading_agent_url
         self.data_dir = data_dir or Path("test_data")
-        self._client: A2AClient | None = None
         logger.info(f"OrchestratorAgent initialized")
         logger.info(f"Insider trading agent URL: {insider_trading_agent_url}")
-
-    async def _get_client(self) -> A2AClient:
-        """Get or create the A2A client for the insider trading agent.
-
-        Returns:
-            A2AClient instance
-        """
-        if self._client is None:
-            async with httpx.AsyncClient() as httpx_client:
-                resolver = A2ACardResolver(
-                    httpx_client=httpx_client,
-                    base_url=self.insider_trading_agent_url,
-                )
-                agent_card = await resolver.get_agent_card()
-                logger.info(f"Retrieved agent card: {agent_card.name}")
-                self._client = A2AClient(
-                    httpx_client=httpx.AsyncClient(),
-                    agent_card=agent_card,
-                )
-        return self._client
 
     def read_alert(self, alert_path: Path) -> AlertInfo:
         """Read and parse an alert XML file to determine its type.

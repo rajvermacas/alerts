@@ -180,7 +180,23 @@ class OrchestratorAgentExecutor(AgentExecutor):
         Returns:
             True if request is invalid, False if valid
         """
-        return False
+        # Validate message structure
+        if not context.message:
+            logger.warning("Request missing message")
+            return True  # Invalid
+
+        # Validate message has parts
+        if not hasattr(context.message, "parts") or not context.message.parts:
+            logger.warning("Request message missing parts")
+            return True  # Invalid
+
+        # Validate has text content
+        user_input = context.get_user_input()
+        if not user_input or not user_input.strip():
+            logger.warning("Request has empty user input")
+            return True  # Invalid
+
+        return False  # Valid
 
     def _extract_alert_path(self, user_input: str) -> str | None:
         """Extract alert file path from user input.
