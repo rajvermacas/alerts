@@ -13,15 +13,13 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 from uuid import uuid4
 
 import click
 import httpx
 import uvicorn
-from a2a.client import A2ACardResolver, A2AClient
-from a2a.types import MessageSendParams, SendMessageRequest
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -85,13 +83,14 @@ async def index(request: Request):
 
 @app.post("/api/analyze")
 async def analyze(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
 ) -> JSONResponse:
-    """Accept XML file upload and start analysis.
+    """Accept XML file upload and create task for streaming analysis.
+
+    This endpoint only saves the file and creates a task. The actual analysis
+    is triggered when the client connects to the SSE streaming endpoint.
 
     Args:
-        background_tasks: FastAPI background tasks handler
         file: Uploaded XML file
 
     Returns:
@@ -128,242 +127,12 @@ async def analyze(
             detail="Failed to save uploaded file",
         )
 
-    # Create task
+    # Create task (status: processing)
+    # Analysis will be triggered by SSE streaming endpoint
     task_manager.create_task(task_id)
-
-    # Start background analysis
-    background_tasks.add_task(
-        run_analysis,
-        task_id=task_id,
-        file_path=temp_file_path,
-    )
+    logger.info(f"Task {task_id} created, waiting for SSE stream connection")
 
     return JSONResponse({"task_id": task_id})
-
-
-async def run_analysis(task_id: str, file_path: Path) -> None:
-    """Run alert analysis in background.
-
-    This function sends the alert to the orchestrator via A2A protocol
-    and updates the task status when complete.
-
-    Args:
-        task_id: ID of the task to update
-        file_path: Path to the uploaded XML file
-    """
-    logger.info(f"Starting analysis for task {task_id}")
-
-    try:
-        # Send to orchestrator via A2A
-        result = await send_to_orchestrator(str(file_path))
-
-        if result.get("status") == "error":
-            logger.error(f"Analysis failed: {result.get('error')}")
-            task_manager.update_task(
-                task_id=task_id,
-                status="error",
-                error=result.get("error", "Unknown error"),
-            )
-            return
-
-        # Extract decision from response
-        response = result.get("response", {})
-        decision = extract_decision_from_response(response)
-
-        if decision is None:
-            logger.error("Failed to extract decision from response")
-            task_manager.update_task(
-                task_id=task_id,
-                status="error",
-                error="Failed to extract decision from agent response",
-            )
-            return
-
-        # Determine alert type from decision
-        alert_type = decision.get("alert_type", "unknown").lower()
-        alert_id = decision.get("alert_id", task_id[:8])
-
-        # Update task with success
-        task_manager.update_task(
-            task_id=task_id,
-            status="complete",
-            alert_id=alert_id,
-            alert_type=alert_type,
-            decision=decision,
-        )
-        logger.info(f"Analysis complete for task {task_id}: {alert_type}")
-
-    except Exception as e:
-        logger.error(f"Analysis error for task {task_id}: {e}")
-        task_manager.update_task(
-            task_id=task_id,
-            status="error",
-            error=str(e),
-        )
-
-    finally:
-        # Cleanup temp file
-        try:
-            if file_path.exists():
-                os.remove(file_path)
-                logger.info(f"Cleaned up temp file: {file_path}")
-        except Exception as e:
-            logger.warning(f"Failed to cleanup temp file: {e}")
-
-
-async def send_to_orchestrator(alert_path: str) -> Dict[str, Any]:
-    """Send alert to orchestrator via A2A protocol.
-
-    Args:
-        alert_path: Path to the alert XML file
-
-    Returns:
-        Dictionary with response or error
-    """
-    logger.info(f"Sending alert to orchestrator: {alert_path}")
-
-    async with httpx.AsyncClient(timeout=300.0) as httpx_client:
-        # Get agent card
-        resolver = A2ACardResolver(
-            httpx_client=httpx_client,
-            base_url=ORCHESTRATOR_URL,
-        )
-
-        try:
-            agent_card = await resolver.get_agent_card()
-            logger.info(f"Connected to orchestrator: {agent_card.name}")
-        except Exception as e:
-            logger.error(f"Failed to connect to orchestrator: {e}")
-            return {
-                "status": "error",
-                "error": f"Analysis service unavailable. Please ensure servers are running. Error: {str(e)}",
-            }
-
-        # Create client
-        client = A2AClient(httpx_client=httpx_client, agent_card=agent_card)
-
-        # Create message
-        message_payload = {
-            "message": {
-                "role": "user",
-                "parts": [
-                    {
-                        "kind": "text",
-                        "text": f"Analyze the alert at: {alert_path}",
-                    }
-                ],
-                "messageId": uuid4().hex,
-            },
-        }
-
-        request = SendMessageRequest(
-            id=str(uuid4()),
-            params=MessageSendParams(**message_payload),
-        )
-
-        try:
-            response = await client.send_message(request)
-            response_data = response.model_dump(mode="json", exclude_none=True)
-            logger.info("Received response from orchestrator")
-            return {
-                "status": "success",
-                "response": response_data,
-            }
-        except Exception as e:
-            logger.error(f"Failed to communicate with orchestrator: {e}")
-            return {
-                "status": "error",
-                "error": f"Analysis timed out or failed. Please try again. Error: {str(e)}",
-            }
-
-
-def extract_decision_from_response(response: Dict[str, Any]) -> Dict[str, Any] | None:
-    """Extract decision JSON from A2A response using DataPart artifacts.
-
-    This function extracts structured JSON data from DataPart artifacts.
-    Fail-fast: If DataPart extraction fails, return None immediately.
-
-    Args:
-        response: Raw A2A response dictionary
-
-    Returns:
-        Decision dictionary or None if not found
-
-    Raises:
-        ValueError: If response structure is invalid
-    """
-    logger.info("=" * 60)
-    logger.info("EXTRACTING DECISION FROM RESPONSE (DataPart only)")
-    logger.info("=" * 60)
-    logger.info(f"Response keys: {response.keys() if response else 'None'}")
-
-    # Save full response to debug file
-    debug_dir = Path("resources/debug")
-    debug_dir.mkdir(parents=True, exist_ok=True)
-    debug_file = debug_dir / f"a2a_response_{uuid4().hex[:8]}.json"
-    try:
-        with open(debug_file, "w") as f:
-            json.dump(response, f, indent=2)
-        logger.info(f"Full response saved to: {debug_file}")
-    except Exception as e:
-        logger.warning(f"Failed to save debug response: {e}")
-
-    # Extract from DataPart (fail-fast if not found)
-    decision = _extract_from_datapart(response)
-    if decision:
-        logger.info("Successfully extracted decision from DataPart")
-        return decision
-
-    logger.error("Failed to extract decision from DataPart - no fallback, failing fast")
-    return None
-
-
-def _extract_from_datapart(response: Dict[str, Any]) -> Dict[str, Any] | None:
-    """Extract decision from DataPart artifacts (new approach).
-
-    Args:
-        response: Raw A2A response dictionary
-
-    Returns:
-        Decision dictionary or None if not found
-    """
-    try:
-        result = response.get("result", {})
-        artifacts = result.get("artifacts", [])
-
-        # Look for orchestrator_result_json artifact with DataPart
-        for artifact in artifacts:
-            if artifact.get("name") == "orchestrator_result_json":
-                logger.info("Found orchestrator_result_json artifact")
-                parts = artifact.get("parts", [])
-                for part in parts:
-                    if part.get("kind") == "data":
-                        logger.info("Found DataPart in orchestrator_result_json")
-                        # Direct access to structured JSON
-                        data = part.get("data", {})
-
-                        # Extract from nested agent response
-                        nested_result = data.get("result", {})
-                        nested_artifacts = nested_result.get("artifacts", [])
-                        logger.info(f"Found {len(nested_artifacts)} nested artifacts")
-
-                        # Look for *_decision_json artifact with DataPart
-                        for nested_artifact in nested_artifacts:
-                            artifact_name = nested_artifact.get("name", "")
-                            logger.info(f"Checking nested artifact: {artifact_name}")
-                            if artifact_name.endswith("_json"):
-                                nested_parts = nested_artifact.get("parts", [])
-                                for nested_part in nested_parts:
-                                    if nested_part.get("kind") == "data":
-                                        decision = nested_part.get("data", {})
-                                        if isinstance(decision, dict) and "determination" in decision:
-                                            logger.info(f"Found determination in DataPart: {artifact_name}")
-                                            return decision
-
-        return None
-    except Exception as e:
-        logger.error(f"Error in DataPart extraction: {e}", exc_info=True)
-        return None
 
 
 @app.get("/api/status/{task_id}")
@@ -574,36 +343,75 @@ async def _stream_error(message: str):
 async def _handle_final_event(task_id: str, event_data: Dict, temp_file_path: Path) -> None:
     """Handle the final event and update task status.
 
+    Extracts the complete decision from the streaming response and updates
+    the task manager. Also handles temp file cleanup.
+
     Args:
         task_id: Task ID
-        event_data: Final event data
+        event_data: Final event data from SSE stream
         temp_file_path: Path to temp alert file
     """
+    logger.info(f"Handling final event for task {task_id}")
+    logger.info(f"Final event keys: {event_data.keys() if event_data else 'None'}")
+
     try:
-        # Try to extract decision from metadata or result
-        metadata = event_data.get("result", {}).get("metadata", {})
+        # Extract from nested A2A response structure
+        result = event_data.get("result", {})
+        metadata = result.get("metadata", {})
         payload = metadata.get("payload", {})
 
-        # Get determination from payload
-        determination = payload.get("determination", "UNKNOWN")
-        confidence = payload.get("confidence", 50)
+        logger.info(f"Payload keys: {payload.keys() if payload else 'None'}")
 
-        # Update task
+        # Extract full decision from payload - required field
+        decision = payload.get("decision")
+
+        if not decision:
+            raise ValueError(f"Missing 'decision' in payload. Payload keys: {list(payload.keys())}")
+
+        if "determination" not in decision:
+            raise ValueError(f"Missing 'determination' in decision. Decision keys: {list(decision.keys())}")
+
+        logger.info(f"Found full decision in payload: {decision.get('determination')}")
+
+        # Extract alert info from decision - required fields
+        alert_type = decision.get("alert_type")
+        alert_id = decision.get("alert_id")
+
+        if not alert_type:
+            raise ValueError(f"Missing 'alert_type' in decision. Decision keys: {list(decision.keys())}")
+
+        if not alert_id:
+            raise ValueError(f"Missing 'alert_id' in decision. Decision keys: {list(decision.keys())}")
+
+        logger.info(f"Extracted - alert_type: {alert_type}, alert_id: {alert_id}")
+        logger.info(f"Decision determination: {decision['determination']}")
+
+        # Update task with full decision
         task_manager.update_task(
             task_id=task_id,
             status="complete",
-            alert_id=task_id[:8],
-            alert_type="insider_trading",  # Will be overwritten if we can determine
-            decision={"determination": determination, "confidence": confidence},
+            alert_id=alert_id,
+            alert_type=alert_type.lower(),
+            decision=decision,
         )
-
-        # Cleanup temp file
-        if temp_file_path.exists():
-            os.remove(temp_file_path)
-            logger.info(f"Cleaned up temp file: {temp_file_path}")
+        logger.info(f"Task {task_id} completed: {decision['determination']}")
 
     except Exception as e:
-        logger.error(f"Error handling final event: {e}")
+        logger.error(f"Error handling final event: {e}", exc_info=True)
+        task_manager.update_task(
+            task_id=task_id,
+            status="error",
+            error=f"Failed to process final event: {e}",
+        )
+
+    finally:
+        # Cleanup temp file
+        if temp_file_path.exists():
+            try:
+                os.remove(temp_file_path)
+                logger.info(f"Cleaned up temp file: {temp_file_path}")
+            except Exception as e:
+                logger.warning(f"Failed to cleanup temp file: {e}")
 
 
 @app.get("/api/download/{task_id}/json")

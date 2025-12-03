@@ -326,6 +326,7 @@ class EventMapper:
         determination: str,
         confidence: int,
         summary: str,
+        decision: Optional[Dict[str, Any]] = None,
     ) -> StreamEvent:
         """Create an event for when analysis completes.
 
@@ -333,18 +334,24 @@ class EventMapper:
             determination: Final determination (ESCALATE, CLOSE, NEEDS_HUMAN_REVIEW)
             confidence: Confidence percentage
             summary: Brief summary of findings
+            decision: Optional full decision object for downstream consumers
 
         Returns:
             StreamEvent indicating analysis complete (final=True)
         """
+        payload = {
+            "message": f"Analysis complete. Determination: {determination}",
+            "determination": determination,
+            "confidence": confidence,
+            "summary": summary,
+        }
+        if decision is not None:
+            payload["decision"] = decision
+            self.logger.info(f"Including full decision in analysis_complete event")
+
         return self.create_event(
             event_type="analysis_complete",
-            payload={
-                "message": f"Analysis complete. Determination: {determination}",
-                "determination": determination,
-                "confidence": confidence,
-                "summary": summary,
-            },
+            payload=payload,
             final=True,
         )
 

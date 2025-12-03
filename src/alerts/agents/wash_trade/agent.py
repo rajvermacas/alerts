@@ -276,6 +276,67 @@ class WashTradeAnalyzerAgent:
 
         return builder.compile()
 
+    def _build_streaming_graph(self, streaming_tools: list, streaming_llm_with_tools: Any) -> Any:
+        """Build a LangGraph workflow with streaming-enabled tools.
+
+        This method creates a new graph instance that uses tools configured
+        with a stream_writer callback, enabling real-time event emission
+        during tool execution.
+
+        Args:
+            streaming_tools: List of LangChain tools with stream_writer config
+            streaming_llm_with_tools: LLM instance bound to streaming tools
+
+        Returns:
+            Compiled StateGraph with streaming tools
+        """
+        self.logger.debug("Building streaming LangGraph workflow")
+
+        builder = StateGraph(MessagesState)
+
+        # Create a streaming agent node that uses the streaming LLM
+        def streaming_agent_node(state: MessagesState) -> dict:
+            """Agent node using streaming-enabled LLM with tools."""
+            self.logger.info(f"Streaming agent node: processing {len(state['messages'])} messages")
+
+            # Build system prompt with few-shot examples
+            examples_text = None
+            if self.few_shot_examples:
+                examples_text = self.few_shot_examples.get_examples_text()
+
+            system_prompt = get_wash_trade_system_prompt(examples_text)
+            messages = [SystemMessage(content=system_prompt)] + state["messages"]
+
+            # Invoke streaming LLM with tools
+            response = streaming_llm_with_tools.invoke(messages)
+
+            # Log tool calls if any
+            if hasattr(response, 'tool_calls') and response.tool_calls:
+                tool_names = [tc.get("name", "unknown") for tc in response.tool_calls]
+                self.logger.info(f"Streaming agent requesting tools: {tool_names}")
+
+            return {"messages": [response]}
+
+        # Add nodes - use streaming tools in ToolNode
+        builder.add_node("agent", streaming_agent_node)
+        builder.add_node("tools", ToolNode(streaming_tools))
+        builder.add_node("respond", self._respond_node)
+
+        # Add edges (same as non-streaming graph)
+        builder.add_edge(START, "agent")
+        builder.add_conditional_edges(
+            "agent",
+            self._should_continue,
+            {
+                "tools": "tools",
+                "respond": "respond",
+            }
+        )
+        builder.add_edge("tools", "agent")
+        builder.add_edge("respond", END)
+
+        return builder.compile()
+
     def _agent_node(self, state: MessagesState) -> dict:
         """Main agent node that decides what to do.
 
@@ -592,6 +653,10 @@ After collecting all evidence, provide your determination with detailed reasonin
         # Build a new graph with streaming tools
         streaming_llm_with_tools = self.llm.bind_tools(streaming_tools)
 
+        # Build streaming graph that uses the streaming tools
+        streaming_graph = self._build_streaming_graph(streaming_tools, streaming_llm_with_tools)
+        self.logger.info("Built streaming graph with stream_writer-enabled tools")
+
         # Create initial message
         initial_message = HumanMessage(
             content=f"""Please analyze the following SMARTS alert for potential wash trading.
@@ -616,7 +681,7 @@ After collecting all evidence, provide your determination with detailed reasonin
             # Track node transitions for emitting agent events
             last_node = None
 
-            async for event in self.graph.astream_events(
+            async for event in streaming_graph.astream_events(
                 {"messages": [initial_message]},
                 config={"recursion_limit": 50},
                 version="v2",
@@ -666,11 +731,13 @@ After collecting all evidence, provide your determination with detailed reasonin
                                         elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
                                         self._write_audit_log(decision, elapsed)
 
-                                        # Emit completion event
+                                        # Emit completion event with full decision
+                                        decision_dict = decision.model_dump(mode="json", exclude_none=True)
                                         yield event_mapper.create_analysis_complete_event(
                                             determination=decision.determination,
                                             confidence=decision.genuine_alert_confidence,
                                             summary=decision.key_findings[0] if decision.key_findings else "Analysis complete",
+                                            decision=decision_dict,
                                         )
 
                                         self.logger.info(

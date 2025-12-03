@@ -167,9 +167,15 @@ class BaseTool(ABC):
         start_time = datetime.now(timezone.utc)
 
         # Extract stream_writer from config if provided
+        # Also check kwargs for config (LangChain may pass it there via StructuredTool)
         stream_writer: Optional[StreamWriter] = None
-        if config is not None:
-            stream_writer = config.get("stream_writer")
+        effective_config = config
+
+        if effective_config is None and "config" in kwargs:
+            effective_config = kwargs.pop("config")
+
+        if effective_config is not None:
+            stream_writer = effective_config.get("stream_writer")
 
         self.logger.info(f"Tool invocation #{self.call_count}: {kwargs}")
 
