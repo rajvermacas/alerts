@@ -61,8 +61,8 @@ class ReadAlertArgs(BaseModel):
 
 class QueryAccountRelationshipsArgs(BaseModel):
     """Arguments for the account_relationships tool."""
-    account_id: str = Field(
-        description="Account ID to look up beneficial ownership and relationships for"
+    account_ids: str = Field(
+        description="Comma-separated list of account IDs to look up beneficial ownership and relationships for (e.g., 'ACC-001,ACC-002')"
     )
 
 

@@ -64,17 +64,18 @@ class AccountRelationshipsTool(BaseTool, DataLoadingMixin):
         """Validate input parameters.
 
         Args:
-            **kwargs: Must include 'account_id'
+            **kwargs: Must include 'account_ids' (comma-separated list or single ID)
 
         Returns:
             Error message if invalid, None if valid
         """
-        if "account_id" not in kwargs:
-            return "account_id is required"
+        # Support both 'account_ids' (new) and 'account_id' (legacy) for backward compatibility
+        account_ids = kwargs.get("account_ids") or kwargs.get("account_id")
+        if not account_ids:
+            return "account_ids is required"
 
-        account_id = kwargs.get("account_id")
-        if not account_id or not isinstance(account_id, str):
-            return "account_id must be a non-empty string"
+        if not isinstance(account_ids, str):
+            return "account_ids must be a non-empty string"
 
         return None
 
@@ -82,16 +83,19 @@ class AccountRelationshipsTool(BaseTool, DataLoadingMixin):
         """Load account relationship data from CSV.
 
         Args:
-            **kwargs: Must include 'account_id'
+            **kwargs: Must include 'account_ids' (comma-separated list or single ID)
 
         Returns:
-            Filtered CSV content for the account and its related accounts
+            Filtered CSV content for the accounts and their related accounts
 
         Raises:
             FileNotFoundError: If CSV file doesn't exist
         """
-        account_id = kwargs.get("account_id")
-        self.logger.info(f"Loading relationship data for account: {account_id}")
+        # Support both 'account_ids' (new) and 'account_id' (legacy) for backward compatibility
+        account_ids_str = kwargs.get("account_ids") or kwargs.get("account_id")
+        # Parse comma-separated list of account IDs
+        requested_account_ids = [aid.strip() for aid in account_ids_str.split(",")]
+        self.logger.info(f"Loading relationship data for accounts: {requested_account_ids}")
 
         # Load full CSV
         csv_content = self.load_csv_as_string(self.csv_path)
@@ -109,8 +113,8 @@ class AccountRelationshipsTool(BaseTool, DataLoadingMixin):
             self.logger.error(f"Required column not found: {e}")
             raise ValueError(f"Invalid CSV format: {e}")
 
-        # Find the primary account and collect all related account IDs
-        related_account_ids = {account_id}
+        # Find all requested accounts and collect all related account IDs
+        related_account_ids = set(requested_account_ids)
         relevant_rows = [header]
 
         for line in lines[1:]:
@@ -120,7 +124,7 @@ class AccountRelationshipsTool(BaseTool, DataLoadingMixin):
 
             row_account_id = parts[account_idx]
 
-            if row_account_id == account_id:
+            if row_account_id in requested_account_ids:
                 relevant_rows.append(line)
                 # Parse linked accounts (JSON array format)
                 try:
@@ -152,17 +156,20 @@ class AccountRelationshipsTool(BaseTool, DataLoadingMixin):
 
         Args:
             raw_data: Filtered CSV content with relationship data
-            **kwargs: Must include 'account_id'
+            **kwargs: Must include 'account_ids' (comma-separated list or single ID)
 
         Returns:
             Prompt for LLM interpretation
         """
-        account_id = kwargs.get("account_id")
+        # Support both 'account_ids' (new) and 'account_id' (legacy) for backward compatibility
+        account_ids_str = kwargs.get("account_ids") or kwargs.get("account_id")
+        account_ids = [aid.strip() for aid in account_ids_str.split(",")]
+        accounts_display = ", ".join(account_ids)
 
         prompt = f"""You are analyzing account relationship data for potential wash trade detection.
 
 ## Task
-Analyze the relationship data for account {account_id} and its linked accounts.
+Analyze the relationship data for accounts {accounts_display} and their linked accounts.
 Identify beneficial ownership patterns that could indicate wash trading risk.
 
 ## Account Relationship Data
@@ -206,16 +213,16 @@ def create_account_relationships_tool(llm: Any, data_dir: str) -> dict:
     """
     tool = AccountRelationshipsTool(llm, data_dir)
 
-    def account_relationships_func(account_id: str) -> str:
+    def account_relationships_func(account_ids: str) -> str:
         """Query beneficial ownership and find linked accounts.
 
         Args:
-            account_id: Account ID to look up relationships for
+            account_ids: Comma-separated list of account IDs to look up relationships for
 
         Returns:
             Analysis of beneficial ownership and related accounts
         """
-        return tool(account_id=account_id)
+        return tool(account_ids=account_ids)
 
     return {
         "func": account_relationships_func,

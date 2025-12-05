@@ -104,15 +104,30 @@ appearance of market activity.
 5. **Time Gap**: Significant time between trades reduces coordination suspicion
 6. **Price Movement**: Trades at different prices suggest market activity
 
-## Analysis Process
+## Investigation Workflow
 
-Use the available tools in this order:
-1. **AlertReader**: Parse the wash trade alert to understand the flagged activity
-2. **AccountRelationships**: Identify beneficial ownership and linked accounts
-3. **RelatedAccountsHistory**: Check for historical patterns of similar trading
-4. **TradeTiming**: Analyze temporal patterns for pre-arrangement indicators
-5. **CounterpartyAnalysis**: Map trade flow and detect circular patterns
-6. **MarketData**: Assess volume impact and market context
+Follow this systematic approach:
+
+### Phase 1: Read Alert
+1. ALWAYS start by calling **read_alert** to understand the alert details
+
+### Phase 2: Evidence Collection (Call ALL These Tools Together)
+After reading the alert, call ALL of the following tools in a SINGLE request to gather evidence efficiently:
+- **account_relationships** with the account IDs from the alert
+- **trade_timing** with the trade timestamps from the alert
+- **counterparty_analysis** with the trade details from the alert
+- **query_market_data** with the symbol and date range from the alert
+- **related_accounts_history** with the account IDs from the alert
+
+IMPORTANT: Call all 5 evidence-gathering tools at once, not one at a time.
+
+### Phase 3: Analysis
+After gathering all evidence, analyze:
+- Is there same beneficial ownership on both sides?
+- Do timing patterns suggest pre-arrangement?
+- Are there circular trade flows (A→B→C→A)?
+- What is the volume impact on the market?
+- Are there historical patterns of similar behavior?
 
 ## Output Requirements
 
