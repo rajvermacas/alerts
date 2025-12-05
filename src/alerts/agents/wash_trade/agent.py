@@ -394,132 +394,84 @@ class WashTradeAnalyzerAgent:
 
         Returns:
             Updated state with final response
+
+        Raises:
+            Exception: If structured decision generation fails (fail-fast)
         """
         self.logger.info("Respond node: generating structured decision")
 
-        try:
-            # Create LLM with structured output
-            llm_structured = self.llm.with_structured_output(WashTradeDecision)
+        # Create LLM with structured output
+        llm_structured = self.llm.with_structured_output(WashTradeDecision)
 
-            # Build final decision prompt
-            decision_prompt = get_wash_trade_final_decision_prompt()
+        # Build final decision prompt
+        decision_prompt = get_wash_trade_final_decision_prompt()
 
-            # Add decision prompt to conversation
-            messages = state["messages"] + [
-                HumanMessage(content=decision_prompt)
-            ]
+        # Add decision prompt to conversation
+        messages = state["messages"] + [
+            HumanMessage(content=decision_prompt)
+        ]
 
-            # Get structured response
-            decision = llm_structured.invoke(messages)
+        # Get structured response
+        decision = llm_structured.invoke(messages)
 
-            self.logger.info(
-                f"Decision generated: {decision.determination} "
-                f"(genuine: {decision.genuine_alert_confidence}%, "
-                f"false_positive: {decision.false_positive_confidence}%)"
+        # Fail-fast: If decision is None, log debug info and raise
+        if decision is None:
+            self._log_failed_response(state, messages, None, "LLM returned None decision")
+            raise ValueError(
+                "LLM returned None for structured decision. "
+                "Check resources/debug/ for response details."
             )
 
-            # Return as JSON message
-            return {
-                "messages": [AIMessage(content=decision.model_dump_json(indent=2))]
-            }
+        self.logger.info(
+            f"Decision generated: {decision.determination} "
+            f"(genuine: {decision.genuine_alert_confidence}%, "
+            f"false_positive: {decision.false_positive_confidence}%)"
+        )
 
-        except Exception as e:
-            self.logger.error(f"Failed to generate structured decision: {e}", exc_info=True)
+        # Return as JSON message
+        return {
+            "messages": [AIMessage(content=decision.model_dump_json(indent=2))]
+        }
 
-            # Create fallback decision
-            fallback = self._create_fallback_decision(str(e))
-
-            return {
-                "messages": [AIMessage(content=fallback.model_dump_json(indent=2))]
-            }
-
-    def _create_fallback_decision(self, error_message: str) -> WashTradeDecision:
-        """Create a fallback decision when analysis fails.
+    def _log_failed_response(
+        self,
+        state: MessagesState,
+        messages: List[Any],
+        raw_response: Any,
+        error_reason: str,
+    ) -> None:
+        """Log failed LLM response to debug file for investigation.
 
         Args:
-            error_message: Error message to include
-
-        Returns:
-            WashTradeDecision with fallback values
+            state: Current graph state
+            messages: Messages sent to LLM
+            raw_response: Raw response from LLM (may be None)
+            error_reason: Description of why the response failed
         """
-        return WashTradeDecision(
-            alert_id="UNKNOWN",
-            determination="NEEDS_HUMAN_REVIEW",
-            genuine_alert_confidence=50,
-            false_positive_confidence=50,
-            key_findings=["Error occurred during analysis"],
-            favorable_indicators=["Unable to determine"],
-            risk_mitigating_factors=["Unable to determine"],
-            relationship_network=RelationshipNetwork(
-                nodes=[
-                    RelationshipNode(
-                        account_id="UNKNOWN",
-                        beneficial_owner_id="UNKNOWN",
-                        beneficial_owner_name="Unknown",
-                        relationship_type="direct",
-                        is_flagged=True,
-                    )
-                ],
-                edges=[
-                    RelationshipEdge(
-                        from_account="UNKNOWN",
-                        to_account="UNKNOWN",
-                        edge_type="trade",
-                        is_suspicious=True,
-                    )
-                ],
-                pattern_type="NO_PATTERN",
-                pattern_confidence=0,
-                pattern_description="Analysis failed - unable to determine pattern",
-            ),
-            timing_patterns=TimingPattern(
-                time_delta_ms=0,
-                time_delta_description="Unknown",
-                market_phase="unknown",
-                liquidity_assessment="medium",
-                is_pre_arranged=False,
-                pre_arrangement_confidence=0,
-                timing_analysis="Analysis failed - unable to assess timing",
-            ),
-            counterparty_pattern=CounterpartyPattern(
-                trade_flow=[
-                    TradeFlow(
-                        sequence_number=1,
-                        account_id="UNKNOWN",
-                        side="BUY",
-                        quantity=0,
-                        price=0.0,
-                        timestamp="Unknown",
-                    ),
-                    TradeFlow(
-                        sequence_number=2,
-                        account_id="UNKNOWN",
-                        side="SELL",
-                        quantity=0,
-                        price=0.0,
-                        timestamp="Unknown",
-                    ),
-                ],
-                is_circular=False,
-                is_offsetting=False,
-                same_beneficial_owner=False,
-                economic_purpose_identified=False,
-            ),
-            historical_patterns=HistoricalPatternSummary(
-                pattern_count=0,
-                time_window_days=30,
-                average_frequency="Unknown",
-                pattern_trend="new",
-                historical_analysis="Analysis failed - unable to assess history",
-            ),
-            volume_impact_percentage=0.0,
-            beneficial_ownership_match=False,
-            economic_purpose_identified=False,
-            regulatory_flags=[],
-            reasoning_narrative=f"Analysis failed with error: {error_message}. Manual review required.",
-            similar_precedent="Unable to determine due to error",
-            recommended_action="REQUEST_MORE_DATA",
-            data_gaps=["Complete re-analysis required"],
+        debug_dir = Path("resources/debug")
+        debug_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        debug_file = debug_dir / f"wash_trade_failed_response_{timestamp}.json"
+
+        debug_data = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error_reason": error_reason,
+            "raw_response": str(raw_response) if raw_response else None,
+            "messages_count": len(messages),
+            "state_messages_count": len(state.get("messages", [])),
+            "last_messages": [
+                {
+                    "type": type(msg).__name__,
+                    "content": msg.content[:2000] if hasattr(msg, "content") else str(msg)[:2000],
+                }
+                for msg in messages[-5:]
+            ],
+        }
+
+        debug_file.write_text(json.dumps(debug_data, indent=2, default=str))
+        self.logger.error(
+            f"Failed response logged to {debug_file.absolute()}. Reason: {error_reason}"
         )
 
     def analyze(self, alert_file_path: Path) -> WashTradeDecision:
