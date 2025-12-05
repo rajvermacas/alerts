@@ -115,7 +115,7 @@ function handleStreamingComplete(result) {
     // Extract decision data
     const decision = result.decision || result.raw?.result?.metadata?.payload?.decision;
     const determination = result.determination || decision?.determination;
-    const alertType = result.alertType || result.raw?.result?.metadata?.payload?.alert_type || 'unknown';
+    const alertType = result.alertType || decision?.alert_type || result.raw?.result?.metadata?.payload?.alert_type || 'unknown';
 
     if (decision) {
         console.log('[Streaming] Rendering results');
