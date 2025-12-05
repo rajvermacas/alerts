@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-from alerts.tools.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool, DataLoadingMixin
 
 logger = logging.getLogger(__name__)
 

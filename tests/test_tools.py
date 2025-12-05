@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from alerts.tools.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool, DataLoadingMixin
 from alerts.tools.alert_reader import AlertReaderTool
 from alerts.tools.trader_history import TraderHistoryTool
 from alerts.tools.trader_profile import TraderProfileTool

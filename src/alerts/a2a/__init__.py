@@ -35,14 +35,26 @@ Usage:
     alerts-orchestrator-server
 """
 
-from alerts.a2a.insider_trading_executor import InsiderTradingAgentExecutor
-from alerts.a2a.wash_trade_executor import WashTradeAgentExecutor
-from alerts.a2a.orchestrator import OrchestratorAgent
-from alerts.a2a.orchestrator_executor import OrchestratorAgentExecutor
-
 __all__ = [
     "InsiderTradingAgentExecutor",
     "WashTradeAgentExecutor",
     "OrchestratorAgent",
     "OrchestratorAgentExecutor",
 ]
+
+
+def __getattr__(name: str):
+    """Lazy import to avoid circular imports."""
+    if name == "InsiderTradingAgentExecutor":
+        from alerts.a2a.insider_trading_executor import InsiderTradingAgentExecutor
+        return InsiderTradingAgentExecutor
+    elif name == "WashTradeAgentExecutor":
+        from alerts.a2a.wash_trade_executor import WashTradeAgentExecutor
+        return WashTradeAgentExecutor
+    elif name == "OrchestratorAgent":
+        from alerts.a2a.orchestrator import OrchestratorAgent
+        return OrchestratorAgent
+    elif name == "OrchestratorAgentExecutor":
+        from alerts.a2a.orchestrator_executor import OrchestratorAgentExecutor
+        return OrchestratorAgentExecutor
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

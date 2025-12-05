@@ -3,14 +3,22 @@
 This module provides the base class for all tools, implementing
 common functionality like logging, statistics tracking, and LLM
 interpretation of raw data.
+
+Supports optional streaming of progress events via stream_writer callback.
 """
 
 import logging
+import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+# Type alias for stream writer callback
+StreamWriter = Callable[[Dict[str, Any]], None]
+
+__all__ = ["BaseTool", "DataLoadingMixin", "StreamWriter"]
 
 
 class BaseTool(ABC):
@@ -108,17 +116,48 @@ class BaseTool(ABC):
         """
         return None
 
-    def __call__(self, **kwargs: Any) -> str:
+    def _emit_event(
+        self,
+        stream_writer: Optional[StreamWriter],
+        event_type: str,
+        payload: Dict[str, Any],
+    ) -> None:
+        """Emit a streaming event if stream_writer is available.
+
+        Args:
+            stream_writer: Optional callback to write events
+            event_type: Type of event (tool_started, tool_progress, tool_completed, error)
+            payload: Event payload data
+        """
+        if stream_writer is None:
+            return
+
+        event = {
+            "event_id": str(uuid.uuid4()),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event_type": event_type,
+            "tool_name": self.name,
+            "payload": payload,
+        }
+        self.logger.debug(f"Emitting event: {event_type} for tool {self.name}")
+        try:
+            stream_writer(event)
+        except Exception as e:
+            self.logger.warning(f"Failed to emit event: {e}")
+            # Don't raise - streaming failure shouldn't break tool execution
+
+    def __call__(self, config: Optional[Dict[str, Any]] = None, **kwargs: Any) -> str:
         """Execute the tool.
 
         This method:
         1. Validates input
-        2. Loads raw data
+        2. Loads raw data (emits tool_started event)
         3. Builds interpretation prompt
-        4. Calls LLM for interpretation
-        5. Returns insights
+        4. Calls LLM for interpretation (emits tool_progress event)
+        5. Returns insights (emits tool_completed event)
 
         Args:
+            config: Optional configuration dict containing 'stream_writer' callback
             **kwargs: Tool-specific parameters
 
         Returns:
@@ -127,6 +166,17 @@ class BaseTool(ABC):
         self.call_count += 1
         start_time = datetime.now(timezone.utc)
 
+        # Extract stream_writer from config if provided
+        # Also check kwargs for config (LangChain may pass it there via StructuredTool)
+        stream_writer: Optional[StreamWriter] = None
+        effective_config = config
+
+        if effective_config is None and "config" in kwargs:
+            effective_config = kwargs.pop("config")
+
+        if effective_config is not None:
+            stream_writer = effective_config.get("stream_writer")
+
         self.logger.info(f"Tool invocation #{self.call_count}: {kwargs}")
 
         try:
@@ -134,16 +184,40 @@ class BaseTool(ABC):
             error = self._validate_input(**kwargs)
             if error:
                 self.logger.warning(f"Input validation failed: {error}")
+                self._emit_event(stream_writer, "error", {
+                    "message": f"Input validation failed: {error}",
+                    "stage": "validation",
+                })
                 return f"Error: {error}"
+
+            # Emit tool_started event
+            self._emit_event(stream_writer, "tool_started", {
+                "message": f"Starting {self.name}...",
+                "parameters": {k: str(v)[:100] for k, v in kwargs.items()},
+            })
 
             # Load raw data
             self.logger.debug("Loading raw data")
             raw_data = self._load_data(**kwargs)
             self.logger.debug(f"Raw data loaded: {len(raw_data)} chars")
 
+            # Emit progress event after data loading
+            self._emit_event(stream_writer, "tool_progress", {
+                "message": f"Loaded {len(raw_data)} characters of data, analyzing...",
+                "stage": "data_loaded",
+                "data_size": len(raw_data),
+            })
+
             # Build interpretation prompt
             prompt = self._build_interpretation_prompt(raw_data, **kwargs)
             self.logger.debug(f"Interpretation prompt built: {len(prompt)} chars")
+
+            # Emit progress event before LLM call
+            self._emit_event(stream_writer, "tool_progress", {
+                "message": "Interpreting data with LLM...",
+                "stage": "llm_interpreting",
+                "prompt_size": len(prompt),
+            })
 
             # Interpret with LLM
             insights = self._interpret_with_llm(prompt)
@@ -156,11 +230,26 @@ class BaseTool(ABC):
                 f"Tool completed in {elapsed:.2f}s, returned {len(insights)} chars"
             )
 
+            # Emit tool_completed event with summary
+            # Extract first 200 chars as summary for the event
+            summary = insights[:200] + "..." if len(insights) > 200 else insights
+            self._emit_event(stream_writer, "tool_completed", {
+                "message": f"Completed {self.name} analysis",
+                "duration_seconds": round(elapsed, 2),
+                "insights_size": len(insights),
+                "summary": summary,
+            })
+
             return insights
 
         except FileNotFoundError as e:
             elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
             self.logger.error(f"Data source not found: {e}")
+            self._emit_event(stream_writer, "error", {
+                "message": f"Data source not found: {e}",
+                "stage": "data_loading",
+                "duration_seconds": round(elapsed, 2),
+            })
             raise  # Fail-fast as per architecture
 
         except Exception as e:
@@ -169,6 +258,11 @@ class BaseTool(ABC):
                 f"Tool execution failed after {elapsed:.2f}s: {e}",
                 exc_info=True
             )
+            self._emit_event(stream_writer, "error", {
+                "message": f"Tool execution failed: {e}",
+                "stage": "execution",
+                "duration_seconds": round(elapsed, 2),
+            })
             raise  # Fail-fast as per architecture
 
     def get_stats(self) -> dict:

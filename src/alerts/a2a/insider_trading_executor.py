@@ -26,8 +26,8 @@ from a2a.types import (
 from a2a.utils import new_agent_text_message, new_task
 from a2a.utils.errors import ServerError
 
-from alerts.agent import AlertAnalyzerAgent
-from alerts.models import AlertDecision
+from alerts.agents.insider_trading.agent import InsiderTradingAnalyzerAgent as AlertAnalyzerAgent
+from alerts.models.insider_trading import InsiderTradingDecision as AlertDecision
 from alerts.a2a.event_mapper import StreamEvent
 
 logger = logging.getLogger(__name__)
