@@ -530,6 +530,29 @@ input:focus {
     max-height: 280px;
     width: 100%;
     background-color: #F9FAFB;
+    cursor: grab;
+    position: relative;
+}
+
+.dag-container:active {
+    cursor: grabbing;
+}
+
+/* DAG interaction hint */
+.dag-container::after {
+    content: 'Drag nodes to move • Scroll to zoom • Drag background to pan';
+    position: absolute;
+    bottom: 4px;
+    right: 8px;
+    font-size: 0.625rem;
+    color: #9CA3AF;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.dag-container:hover::after {
+    opacity: 1;
 }
 
 /* Responsive DAG height adjustments */
@@ -636,5 +659,111 @@ input:focus {
 @media print {
     #dag-section {
         display: none !important;
+    }
+}
+
+/* ============================================
+   DAG Maximize/Fullscreen Styles
+   ============================================ */
+
+/* Fullscreen overlay */
+.dag-maximize-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    animation: dag-overlay-fade-in 0.2s ease-out;
+}
+
+@keyframes dag-overlay-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* Maximize header */
+.dag-maximize-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: white;
+    padding: 12px 16px;
+    border-radius: 8px 8px 0 0;
+    border-bottom: 1px solid #E5E7EB;
+}
+
+/* Close/minimize button */
+.dag-minimize-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    color: #6B7280;
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.dag-minimize-btn:hover {
+    background-color: #F3F4F6;
+    color: #374151;
+}
+
+.dag-minimize-btn:active {
+    background-color: #E5E7EB;
+}
+
+/* Maximize content area */
+.dag-maximize-content {
+    flex: 1;
+    background-color: #F9FAFB;
+    cursor: grab;
+    min-height: 300px;
+}
+
+.dag-maximize-content:active {
+    cursor: grabbing;
+}
+
+/* Maximize legend */
+.dag-maximize-legend {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 24px;
+    background-color: white;
+    padding: 12px 16px;
+    border-radius: 0 0 8px 8px;
+    border-top: 1px solid #E5E7EB;
+    font-size: 0.75rem;
+    color: #4B5563;
+}
+
+/* Mobile responsive maximize */
+@media (max-width: 640px) {
+    .dag-maximize-overlay {
+        padding: 10px;
+    }
+
+    .dag-maximize-legend {
+        gap: 12px;
+        font-size: 0.625rem;
+        padding: 8px 12px;
+    }
+
+    .dag-maximize-header {
+        padding: 8px 12px;
     }
 }

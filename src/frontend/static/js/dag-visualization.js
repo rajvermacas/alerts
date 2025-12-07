@@ -42,8 +42,11 @@ class DAGVisualization {
         this.toolNodes = new Set();
         this.currentAgent = null;
         this.isInitialized = false;
+        this.isMaximized = false;
+        this.maximizeOverlay = null;
 
         this._initializeGraph();
+        this._initializeMaximizeButton();
     }
 
     /**
@@ -94,10 +97,13 @@ class DAGVisualization {
             elements: { nodes, edges },
             style: this._getStyles(),
             layout: this._getLayoutConfig(),
-            userZoomingEnabled: false,
-            userPanningEnabled: false,
+            userZoomingEnabled: true,
+            userPanningEnabled: true,
             boxSelectionEnabled: false,
-            autoungrabify: true
+            autoungrabify: false,
+            wheelSensitivity: 0.1,
+            minZoom: 0.5,
+            maxZoom: 3
         });
 
         // Initialize all main nodes to pending
@@ -112,6 +118,150 @@ class DAGVisualization {
 
         this.isInitialized = true;
         console.log('[DAG] Graph initialized successfully');
+    }
+
+    /**
+     * Initialize the maximize button functionality.
+     */
+    _initializeMaximizeButton() {
+        const maximizeBtn = document.getElementById('dag-maximize-btn');
+        if (maximizeBtn) {
+            maximizeBtn.addEventListener('click', () => this.toggleMaximize());
+        }
+
+        // Handle escape key to close maximized view
+        this._handleEscapeKey = (e) => {
+            if (e.key === 'Escape' && this.isMaximized) {
+                this.toggleMaximize();
+            }
+        };
+        document.addEventListener('keydown', this._handleEscapeKey);
+
+        // Initialize reset layout button
+        const resetBtn = document.getElementById('dag-reset-btn');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', () => this.resetLayout());
+        }
+    }
+
+    /**
+     * Reset the layout to the original dagre positions.
+     */
+    resetLayout() {
+        console.log('[DAG] Resetting layout...');
+        this._relayout();
+        this.cy.fit(undefined, 30);
+        console.log('[DAG] Layout reset complete');
+    }
+
+    /**
+     * Toggle maximized/fullscreen view of the DAG.
+     */
+    toggleMaximize() {
+        if (this.isMaximized) {
+            this._minimizeGraph();
+        } else {
+            this._maximizeGraph();
+        }
+    }
+
+    /**
+     * Maximize the graph to fullscreen overlay.
+     */
+    _maximizeGraph() {
+        console.log('[DAG] Maximizing graph...');
+
+        // Create fullscreen overlay
+        this.maximizeOverlay = document.createElement('div');
+        this.maximizeOverlay.id = 'dag-maximize-overlay';
+        this.maximizeOverlay.className = 'dag-maximize-overlay';
+        this.maximizeOverlay.innerHTML = `
+            <div class="dag-maximize-header">
+                <span class="text-sm font-medium text-gray-700">Execution Flow</span>
+                <button id="dag-minimize-btn" class="dag-minimize-btn" title="Close (Esc)">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div id="dag-maximize-container" class="dag-maximize-content"></div>
+            <div class="dag-maximize-legend">
+                <div class="flex items-center gap-1.5">
+                    <span class="w-3 h-3 rounded-full bg-gray-300 border border-gray-400"></span>
+                    <span>Pending</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <span class="w-3 h-3 rounded-full bg-blue-500 border border-blue-600"></span>
+                    <span>Active</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <span class="w-3 h-3 rounded-full bg-green-500 border border-green-600"></span>
+                    <span>Completed</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <span class="w-3 h-3 rounded-full bg-red-500 border border-red-600"></span>
+                    <span>Error</span>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(this.maximizeOverlay);
+
+        // Prevent body scroll
+        document.body.style.overflow = 'hidden';
+
+        // Get the new container
+        const newContainer = document.getElementById('dag-maximize-container');
+
+        // Move cytoscape to new container
+        this.cy.mount(newContainer);
+
+        // Re-run layout and fit
+        this.cy.resize();
+        this._relayout();
+        this.cy.fit(undefined, 50);
+
+        // Add close button handler
+        const minimizeBtn = document.getElementById('dag-minimize-btn');
+        if (minimizeBtn) {
+            minimizeBtn.addEventListener('click', () => this.toggleMaximize());
+        }
+
+        // Click outside to close
+        this.maximizeOverlay.addEventListener('click', (e) => {
+            if (e.target === this.maximizeOverlay) {
+                this.toggleMaximize();
+            }
+        });
+
+        this.isMaximized = true;
+        console.log('[DAG] Graph maximized');
+    }
+
+    /**
+     * Minimize the graph back to original container.
+     */
+    _minimizeGraph() {
+        console.log('[DAG] Minimizing graph...');
+
+        if (!this.maximizeOverlay) return;
+
+        // Move cytoscape back to original container
+        this.cy.mount(this.container);
+
+        // Remove overlay
+        this.maximizeOverlay.remove();
+        this.maximizeOverlay = null;
+
+        // Restore body scroll
+        document.body.style.overflow = '';
+
+        // Re-run layout and fit
+        this.cy.resize();
+        this._relayout();
+
+        this.isMaximized = false;
+        console.log('[DAG] Graph minimized');
     }
 
     /**
@@ -138,137 +288,46 @@ class DAGVisualization {
     _getStyles() {
         return [
             // Base node style
-            {
-                selector: 'node',
-                style: {
-                    'background-color': '#E5E7EB',
-                    'label': 'data(label)',
-                    'text-valign': 'bottom',
-                    'text-halign': 'center',
-                    'font-size': '11px',
-                    'font-weight': '500',
-                    'text-margin-y': '6px',
-                    'color': '#374151',
-                    'border-width': '2px',
-                    'border-color': '#D1D5DB',
-                    'transition-property': 'background-color, border-color, border-width, width, height',
-                    'transition-duration': '0.3s'
-                }
-            },
+            { selector: 'node', style: {
+                'background-color': '#E5E7EB', 'label': 'data(label)', 'text-valign': 'bottom',
+                'text-halign': 'center', 'font-size': '11px', 'font-weight': '500',
+                'text-margin-y': '6px', 'color': '#374151', 'border-width': '2px',
+                'border-color': '#D1D5DB', 'transition-property': 'background-color, border-color, border-width',
+                'transition-duration': '0.3s'
+            }},
             // Main node style
-            {
-                selector: 'node.main-node',
-                style: {
-                    'width': '45px',
-                    'height': '45px',
-                    'shape': 'ellipse',
-                    'font-size': '11px',
-                    'font-weight': '600'
-                }
-            },
+            { selector: 'node.main-node', style: {
+                'width': '45px', 'height': '45px', 'shape': 'ellipse', 'font-weight': '600'
+            }},
             // Tool node style
-            {
-                selector: 'node.tool-node',
-                style: {
-                    'width': '32px',
-                    'height': '32px',
-                    'shape': 'round-rectangle',
-                    'font-size': '9px',
-                    'font-weight': '400',
-                    'text-margin-y': '5px'
-                }
-            },
-            // Pending state
-            {
-                selector: 'node.pending',
-                style: {
-                    'background-color': '#E5E7EB',
-                    'border-color': '#D1D5DB',
-                    'opacity': 0.6
-                }
-            },
-            // Active state
-            {
-                selector: 'node.active',
-                style: {
-                    'background-color': '#3B82F6',
-                    'border-color': '#1D4ED8',
-                    'border-width': '3px',
-                    'opacity': 1
-                }
-            },
-            // Completed state
-            {
-                selector: 'node.completed',
-                style: {
-                    'background-color': '#10B981',
-                    'border-color': '#059669',
-                    'opacity': 1
-                }
-            },
-            // Error state
-            {
-                selector: 'node.error',
-                style: {
-                    'background-color': '#EF4444',
-                    'border-color': '#DC2626',
-                    'opacity': 1
-                }
-            },
+            { selector: 'node.tool-node', style: {
+                'width': '32px', 'height': '32px', 'shape': 'round-rectangle',
+                'font-size': '9px', 'font-weight': '400', 'text-margin-y': '5px'
+            }},
+            // Node states
+            { selector: 'node.pending', style: { 'background-color': '#E5E7EB', 'border-color': '#D1D5DB', 'opacity': 0.6 }},
+            { selector: 'node.active', style: { 'background-color': '#3B82F6', 'border-color': '#1D4ED8', 'border-width': '3px', 'opacity': 1 }},
+            { selector: 'node.completed', style: { 'background-color': '#10B981', 'border-color': '#059669', 'opacity': 1 }},
+            { selector: 'node.error', style: { 'background-color': '#EF4444', 'border-color': '#DC2626', 'opacity': 1 }},
+            // Interactive states
+            { selector: 'node:grabbed', style: {
+                'border-width': '4px', 'border-color': '#6366F1', 'shadow-blur': '10',
+                'shadow-color': '#6366F1', 'shadow-opacity': 0.5
+            }},
+            { selector: 'node:active', style: { 'overlay-opacity': 0.1, 'overlay-color': '#3B82F6' }},
             // Base edge style
-            {
-                selector: 'edge',
-                style: {
-                    'width': 2,
-                    'line-color': '#D1D5DB',
-                    'target-arrow-color': '#D1D5DB',
-                    'target-arrow-shape': 'triangle',
-                    'arrow-scale': 0.8,
-                    'curve-style': 'bezier',
-                    'opacity': 0.6,
-                    'transition-property': 'line-color, target-arrow-color, opacity, width',
-                    'transition-duration': '0.3s'
-                }
-            },
-            // Main edge style (with labels)
-            {
-                selector: 'edge.main-edge',
-                style: {
-                    'label': 'data(label)',
-                    'font-size': '9px',
-                    'color': '#6B7280',
-                    'text-margin-y': '-8px',
-                    'text-rotation': 'autorotate'
-                }
-            },
-            // Tool edge style (no labels)
-            {
-                selector: 'edge.tool-edge',
-                style: {
-                    'width': 1.5,
-                    'line-style': 'dashed',
-                    'arrow-scale': 0.6
-                }
-            },
-            // Active edge
-            {
-                selector: 'edge.active',
-                style: {
-                    'line-color': '#3B82F6',
-                    'target-arrow-color': '#3B82F6',
-                    'opacity': 1,
-                    'width': 2.5
-                }
-            },
-            // Completed edge
-            {
-                selector: 'edge.completed',
-                style: {
-                    'line-color': '#10B981',
-                    'target-arrow-color': '#10B981',
-                    'opacity': 1
-                }
-            }
+            { selector: 'edge', style: {
+                'width': 2, 'line-color': '#D1D5DB', 'target-arrow-color': '#D1D5DB',
+                'target-arrow-shape': 'triangle', 'arrow-scale': 0.8, 'curve-style': 'bezier',
+                'opacity': 0.6, 'transition-property': 'line-color, target-arrow-color, opacity',
+                'transition-duration': '0.3s'
+            }},
+            // Edge types
+            { selector: 'edge.main-edge', style: { 'label': 'data(label)', 'font-size': '9px', 'color': '#6B7280', 'text-margin-y': '-8px', 'text-rotation': 'autorotate' }},
+            { selector: 'edge.tool-edge', style: { 'width': 1.5, 'line-style': 'dashed', 'arrow-scale': 0.6 }},
+            // Edge states
+            { selector: 'edge.active', style: { 'line-color': '#3B82F6', 'target-arrow-color': '#3B82F6', 'opacity': 1, 'width': 2.5 }},
+            { selector: 'edge.completed', style: { 'line-color': '#10B981', 'target-arrow-color': '#10B981', 'opacity': 1 }}
         ];
     }
 
@@ -601,6 +660,17 @@ class DAGVisualization {
      */
     destroy() {
         console.log('[DAG] Destroying visualization...');
+
+        // Close maximized view if open
+        if (this.isMaximized) {
+            this._minimizeGraph();
+        }
+
+        // Remove escape key listener
+        if (this._handleEscapeKey) {
+            document.removeEventListener('keydown', this._handleEscapeKey);
+        }
+
         if (this.cy) {
             this.cy.destroy();
             this.cy = null;
