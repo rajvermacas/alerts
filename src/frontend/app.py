@@ -40,7 +40,11 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 # Configuration
 ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:10000")
-REPORTS_DIR = Path("resources/reports")
+
+# Find project root (contains pyproject.toml or src directory)
+# Navigate up from frontend module: src/frontend/app.py -> src/frontend -> src -> project_root
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+REPORTS_DIR = PROJECT_ROOT / "resources" / "reports"
 TEMP_DIR = Path(tempfile.gettempdir()) / "alerts_frontend"
 
 # Ensure directories exist
@@ -438,24 +442,31 @@ async def download_json(task_id: str) -> FileResponse:
 
     # Check if file exists in reports directory
     alert_id = task.alert_id or task_id[:8]
-    json_path = REPORTS_DIR / f"decision_{alert_id}.json"
+
+    # Determine file prefix based on alert type
+    if task.alert_type == "wash_trade":
+        file_prefix = "wash_trade_decision"
+    else:
+        file_prefix = "decision"
+
+    json_path = REPORTS_DIR / f"{file_prefix}_{alert_id}.json"
 
     if json_path.exists():
         return FileResponse(
             path=json_path,
             media_type="application/json",
-            filename=f"decision_{alert_id}.json",
+            filename=f"{file_prefix}_{alert_id}.json",
         )
 
     # If not found, create temporary file from task decision
-    temp_json_path = TEMP_DIR / f"decision_{task_id}.json"
+    temp_json_path = TEMP_DIR / f"{file_prefix}_{task_id}.json"
     with open(temp_json_path, "w") as f:
         json.dump(task.decision, f, indent=2)
 
     return FileResponse(
         path=temp_json_path,
         media_type="application/json",
-        filename=f"decision_{alert_id}.json",
+        filename=f"{file_prefix}_{alert_id}.json",
     )
 
 
@@ -483,18 +494,27 @@ async def download_html(task_id: str) -> FileResponse:
 
     # Check if file exists in reports directory
     alert_id = task.alert_id or task_id[:8]
-    html_path = REPORTS_DIR / f"decision_{alert_id}.html"
+
+    # Determine file prefix based on alert type
+    logger.info(f"HTML download - alert_type: '{task.alert_type}', alert_id: '{alert_id}'")
+    if task.alert_type == "wash_trade":
+        file_prefix = "wash_trade_decision"
+    else:
+        file_prefix = "decision"
+
+    html_path = REPORTS_DIR / f"{file_prefix}_{alert_id}.html"
+    logger.info(f"Looking for HTML file: {html_path} (exists: {html_path.exists()})")
 
     if html_path.exists():
         return FileResponse(
             path=html_path,
             media_type="text/html",
-            filename=f"decision_{alert_id}.html",
+            filename=f"{file_prefix}_{alert_id}.html",
         )
 
     raise HTTPException(
         status_code=404,
-        detail="HTML report not found. The report may not have been generated.",
+        detail=f"HTML report not found at {html_path}. alert_type={task.alert_type}",
     )
 
 
