@@ -70,73 +70,80 @@ appearance of market activity.
 
 ## Regulatory Framework (APAC Focus)
 
-### Singapore - Monetary Authority of Singapore (MAS)
-- **SFA Section 197**: False trading and market rigging - creating false/misleading appearance
-- **SFA Section 198**: Market manipulation - transactions to affect market price
-- **SFA Section 199**: Wash trades specifically - matching orders without change in beneficial ownership
+| Jurisdiction | Regulation | Key Provision |
+|--------------|------------|---------------|
+| Singapore | MAS SFA Section 197 | False trading and market rigging |
+| Singapore | MAS SFA Section 199 | Wash trades - no change in beneficial ownership |
+| Hong Kong | SFC SFO Section 274 | Market misconduct - false trading |
+| Australia | Corporations Act s1041A | Market manipulation provisions |
+| Japan | FIEA Article 159 | Wash trading prohibition |
 
-### Hong Kong - Securities and Futures Commission (SFC)
-- **SFO Section 274**: Market misconduct - false trading
+## Available Tools
 
-### Australia - ASIC
-- **Corporations Act s1041A**: Market manipulation provisions
-
-### Japan - FSA
-- **FIEA Article 159**: Wash trading prohibition
+| Tool | Purpose | Required Inputs |
+|------|---------|-----------------|
+| **read_alert** | Parse SMARTS wash trade alert XML | alert_file_path |
+| **account_relationships** | Query beneficial ownership | account_ids (comma-separated) |
+| **related_accounts_history** | Historical patterns across accounts | account_ids, symbol (optional), time_window |
+| **trade_timing** | Analyze temporal patterns | trade1_timestamp, trade2_timestamp, symbol, trade_quantity |
+| **counterparty_analysis** | Detect circular trade flows | trades (JSON array) |
+| **query_market_data** | Price/volume context | symbol, start_date, end_date |
 
 ## Wash Trade Detection Criteria
 
 ### Red Flags (Strong Indicators)
-1. **Same Beneficial Owner**: Both sides of trade controlled by same person/entity
-2. **Sub-second Execution**: Trades within milliseconds suggest pre-arrangement
-3. **No Change in Beneficial Ownership**: Shares return to same ultimate owner
-4. **Artificial Volume**: High percentage of daily volume from related accounts
-5. **No Price Improvement**: Trades at identical prices
-6. **Circular Patterns**: A->B->C->A trade flows
-7. **Low-liquidity Timing**: Trades during quiet periods to maximize volume impact
-8. **Historical Patterns**: Repeated similar behavior over time
+- Same beneficial owner on both sides
+- Sub-second execution (faster than human reaction)
+- No change in beneficial ownership
+- High percentage of daily volume from related accounts
+- Identical prices with no improvement
+- Circular patterns (A->B->C->A)
 
-### Mitigating Factors (May Reduce Suspicion)
-1. **Licensed Market Maker**: Disclosed market making activity is exempt
-2. **Separate Trading Books**: Different business purposes (hedge book vs principal)
-3. **Economic Purpose**: Legitimate reason for the trade structure
-4. **Different Beneficial Owners**: Truly separate ownership despite relationship
-5. **Time Gap**: Significant time between trades reduces coordination suspicion
-6. **Price Movement**: Trades at different prices suggest market activity
+### Mitigating Factors
+- Licensed market maker with proper disclosure
+- Separate trading books with different purposes
+- Legitimate economic purpose documented
+- Truly separate beneficial owners despite relationship
+- Significant time gap between trades
 
 ## Investigation Workflow
 
-Follow this systematic approach:
+**CRITICAL: Follow this two-phase approach to minimize round trips.**
 
-### Phase 1: Read Alert
-1. ALWAYS start by calling **read_alert** to understand the alert details
+### Phase 1: Read Alert (Single Tool Call)
+First, call **read_alert** to understand the alert. Extract:
+- Account IDs involved (e.g., ACC-001, ACC-002)
+- Trade timestamps (e.g., 14:32:15.123, 14:32:15.625)
+- Trade details (symbol, quantity, price, side)
+- Trade date
 
-### Phase 2: Evidence Collection (Call ALL These Tools Together)
-After reading the alert, call ALL of the following tools in a SINGLE request to gather evidence efficiently:
-- **account_relationships** with the account IDs from the alert
-- **trade_timing** with the trade timestamps from the alert
-- **counterparty_analysis** with the trade details from the alert
-- **query_market_data** with the symbol and date range from the alert
-- **related_accounts_history** with the account IDs from the alert
+### Phase 2: Gather All Evidence (BATCH ALL 5 TOOLS IN ONE REQUEST)
+After reading the alert, you MUST call ALL 5 remaining tools together in a single response.
 
-IMPORTANT: Call all 5 evidence-gathering tools at once, not one at a time.
+**Call all of these simultaneously:**
+- account_relationships(account_ids="ACC-001,ACC-002")
+- related_accounts_history(account_ids="ACC-001,ACC-002", symbol="...", time_window="30d")
+- trade_timing(trade1_timestamp="...", trade2_timestamp="...", symbol="...", trade_quantity="...")
+- counterparty_analysis(trades='[{{"account_id": "...", "side": "BUY", ...}}, ...]')
+- query_market_data(symbol="...", start_date="...", end_date="...")
 
-### Phase 3: Analysis
-After gathering all evidence, analyze:
+**DO NOT call these tools one at a time.** Batch them all in one response to improve efficiency.
+
+### Phase 3: Analysis and Determination
+After receiving all tool results, analyze:
 - Is there same beneficial ownership on both sides?
 - Do timing patterns suggest pre-arrangement?
-- Are there circular trade flows (A→B→C→A)?
+- Are there circular trade flows (A->B->C->A)?
 - What is the volume impact on the market?
 - Are there historical patterns of similar behavior?
+{examples_section}
+## Decision Framework
 
-## Output Requirements
-
-After gathering evidence from all tools, provide:
-1. **Determination**: ESCALATE (genuine violation), CLOSE (false positive), or NEEDS_HUMAN_REVIEW
-2. **Confidence Scores**: 0-100 for both genuine_alert and false_positive
-3. **Pattern Classification**: DIRECT_WASH, LAYERED_WASH, INTERMEDIARY_WASH, or NO_PATTERN
-4. **Regulatory Flags**: Which regulations may be violated
-5. **Reasoning Narrative**: 2-4 paragraph explanation of your decision
+| Determination | When to Use | Typical Confidence |
+|---------------|-------------|-------------------|
+| **ESCALATE** | Same beneficial owner, sub-second execution, no legitimate purpose | genuine >= 70 |
+| **CLOSE** | Different beneficial owners, market maker exemption, clear economic purpose | false_positive >= 70 |
+| **NEEDS_HUMAN_REVIEW** | Related but not same owners, mixed indicators, unclear intent | Neither >= 70 |
 
 ## Critical Reminders
 
@@ -144,19 +151,7 @@ After gathering evidence from all tools, provide:
 - Sub-second execution between related accounts is almost always suspicious
 - Market makers have exemptions but must be properly disclosed
 - Consider the totality of evidence - no single factor is determinative
-- When in doubt, recommend NEEDS_HUMAN_REVIEW
-{examples_section}
-## Tools Available
-
-You have access to:
-- read_alert: Parse SMARTS alert XML
-- account_relationships: Query beneficial ownership
-- related_accounts_history: Check trade patterns across related accounts
-- trade_timing: Analyze temporal patterns
-- counterparty_analysis: Detect circular trade flows
-- market_data: Get price/volume context
-
-Begin your analysis by reading the alert, then systematically gather evidence using each tool."""
+- When in doubt, recommend NEEDS_HUMAN_REVIEW"""
 
 
 def get_wash_trade_final_decision_prompt() -> str:

@@ -501,19 +501,20 @@ class WashTradeAnalyzerAgent:
 
         # Create initial message with alert file path
         initial_message = HumanMessage(
-            content=f"""Please analyze the following SMARTS alert for potential wash trading.
+            content=f"""Analyze the following SMARTS alert for potential wash trading.
 
 Alert file path: {alert_file_path}
 
-Start by reading the alert, then systematically gather evidence using all available tools:
-1. First, read the alert to understand the flagged trades
-2. Check account relationships to find beneficial ownership
-3. Query related accounts history for trading patterns
-4. Analyze trade timing for pre-arrangement indicators
-5. Perform counterparty analysis to detect circular patterns
-6. Check market data for context
+**Workflow:**
+1. First, call read_alert to parse the alert and extract account_ids, timestamps, trade details
+2. Then, call ALL 5 remaining tools together in a single response:
+   - account_relationships
+   - related_accounts_history
+   - trade_timing
+   - counterparty_analysis
+   - query_market_data
 
-After collecting all evidence, provide your determination with detailed reasoning."""
+After gathering all evidence, provide your determination with detailed reasoning."""
         )
 
         # Run the graph
@@ -612,19 +613,20 @@ After collecting all evidence, provide your determination with detailed reasonin
 
         # Create initial message
         initial_message = HumanMessage(
-            content=f"""Please analyze the following SMARTS alert for potential wash trading.
+            content=f"""Analyze the following SMARTS alert for potential wash trading.
 
 Alert file path: {alert_file_path}
 
-Start by reading the alert, then systematically gather evidence using all available tools:
-1. First, read the alert to understand the flagged trades
-2. Check account relationships to find beneficial ownership
-3. Query related accounts history for trading patterns
-4. Analyze trade timing for pre-arrangement indicators
-5. Perform counterparty analysis to detect circular patterns
-6. Check market data for context
+**Workflow:**
+1. First, call read_alert to parse the alert and extract account_ids, timestamps, trade details
+2. Then, call ALL 5 remaining tools together in a single response:
+   - account_relationships
+   - related_accounts_history
+   - trade_timing
+   - counterparty_analysis
+   - query_market_data
 
-After collecting all evidence, provide your determination with detailed reasoning."""
+After gathering all evidence, provide your determination with detailed reasoning."""
         )
 
         try:

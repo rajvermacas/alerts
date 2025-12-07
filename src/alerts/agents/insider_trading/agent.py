@@ -452,12 +452,20 @@ class InsiderTradingAnalyzerAgent:
 
         # Create initial message with alert file path
         initial_message = HumanMessage(
-            content=f"""Please analyze the following SMARTS alert for potential insider trading.
+            content=f"""Analyze the following SMARTS alert for potential insider trading.
 
 Alert file path: {alert_file_path}
 
-Start by reading the alert, then systematically gather evidence using all available tools.
-After collecting all evidence, provide your determination with detailed reasoning."""
+**Workflow:**
+1. First, call read_alert to parse the alert and extract trader_id, symbol, trade_date
+2. Then, call ALL 5 remaining tools together in a single response:
+   - query_trader_history
+   - query_trader_profile
+   - query_market_news
+   - query_market_data
+   - query_peer_trades
+
+After gathering all evidence, provide your determination with detailed reasoning."""
         )
 
         # Run the graph
@@ -556,12 +564,20 @@ After collecting all evidence, provide your determination with detailed reasonin
 
         # Create initial message
         initial_message = HumanMessage(
-            content=f"""Please analyze the following SMARTS alert for potential insider trading.
+            content=f"""Analyze the following SMARTS alert for potential insider trading.
 
 Alert file path: {alert_file_path}
 
-Start by reading the alert, then systematically gather evidence using all available tools.
-After collecting all evidence, provide your determination with detailed reasoning."""
+**Workflow:**
+1. First, call read_alert to parse the alert and extract trader_id, symbol, trade_date
+2. Then, call ALL 5 remaining tools together in a single response:
+   - query_trader_history
+   - query_trader_profile
+   - query_market_news
+   - query_market_data
+   - query_peer_trades
+
+After gathering all evidence, provide your determination with detailed reasoning."""
         )
 
         try:
