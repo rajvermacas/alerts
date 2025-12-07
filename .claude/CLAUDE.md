@@ -102,8 +102,9 @@ python -m frontend.app --port 8080
 
 **Multi-Agent Architecture** with orchestrator routing to specialized agents:
 - **Orchestrator Agent**: Routes alerts to appropriate specialized agent
-- **Insider Trading Agent**: 3 common tools + 3 IT-specific tools (6 total)
-- **Wash Trade Agent**: 3 common tools + 4 WT-specific tools (7 total)
+- **Insider Trading Agent**: 3 common tools + 3 IT-specific tools = 6 total
+- **Wash Trade Agent**: 3 common tools + 4 WT-specific tools = 7 total
+- **Common Tools**: 3 shared tools used by all agents (alert_reader, trader_profile, market_data)
 
 Each tool:
 1. Reads from a data source (CSV/XML/TXT files in POC)
@@ -133,12 +134,18 @@ src/alerts/
 ├── prompts/                     # [Backward-compat shim → agents.insider_trading.prompts]
 │   └── system_prompt.py
 ├── tools/
-│   ├── base.py                  # BaseTool class with LLM interpretation + streaming
+│   ├── base.py                  # [LEGACY] BaseTool - use common/base.py instead
 │   ├── common/                  # 3 shared tools (used by ALL agents)
+│   │   ├── base.py              # BaseTool class with LLM interpretation + streaming
 │   │   ├── alert_reader.py      # AlertReaderTool - parses alert XML
 │   │   ├── trader_profile.py    # TraderProfileTool - role/access level
 │   │   └── market_data.py       # MarketDataTool - price/volume data
-│   └── [legacy files]           # Old implementations (use common/ instead)
+│   ├── alert_reader.py          # [LEGACY] Use common/alert_reader.py
+│   ├── trader_profile.py        # [LEGACY] Use common/trader_profile.py
+│   ├── market_data.py           # [LEGACY] Use common/market_data.py
+│   ├── market_news.py           # [LEGACY] Now in agents/insider_trading/tools/
+│   ├── trader_history.py        # [LEGACY] Now in agents/insider_trading/tools/
+│   └── peer_trades.py           # [LEGACY] Now in agents/insider_trading/tools/
 ├── agents/
 │   ├── insider_trading/
 │   │   ├── agent.py             # InsiderTradingAnalyzerAgent
@@ -187,7 +194,8 @@ src/frontend/
         ├── upload.js            # Drag-drop file upload
         ├── progress-timeline.js # SSE timeline visualization
         ├── streaming.js         # EventSource integration (fail-fast)
-        └── results.js           # Results + Cytoscape.js network graph
+        ├── results.js           # Results + Cytoscape.js network graph
+        └── dag-visualization.js # Real-time execution flow DAG with Cytoscape
 ```
 
 #### Supporting Directories
@@ -206,7 +214,9 @@ resources/
 ├── debug/                       # Debug dumps (A2A responses)
 └── research/                    # Reference documentation (LangGraph, A2A)
 scripts/                         # Utility scripts
-logs/                            # Runtime logs
+├── start_all_servers.sh         # Start all A2A servers + frontend (background)
+└── test_frontend_api.sh         # Test frontend API endpoints
+logs/                            # Runtime logs (from start_all_servers.sh)
 ```
 
 ### A2A (Agent-to-Agent) Protocol Integration
@@ -542,6 +552,7 @@ The system uses Server-Sent Events (SSE) to stream progress updates in real-time
 **Event Types:**
 - `analysis_started`: Analysis begins, alert type detected
 - `routing`: Orchestrator routing to specialized agent
+- `evaluation_started`: Agent begins evaluation phase (after tool gathering)
 - `tool_started`: Tool execution begins (with tool name)
 - `tool_progress`: Tool processing insight (optional)
 - `tool_completed`: Tool finished with insight summary
@@ -554,6 +565,7 @@ The system uses Server-Sent Events (SSE) to stream progress updates in real-time
 - `frontend/static/js/progress-timeline.js`: ProgressTimeline class for SSE visualization
 - `frontend/static/js/streaming.js`: EventSource integration (fail-fast, no polling fallback)
 - `frontend/static/js/results.js`: Dynamic rendering + Cytoscape.js graph for wash trade
+- `frontend/static/js/dag-visualization.js`: Real-time execution flow DAG with Cytoscape (User → Orchestrator → Agent → Tools → Output)
 
 **A2A Response Parsing Challenge:**
 The orchestrator wraps agent responses, creating nested JSON-RPC structures. The `extract_decision_from_response()` function handles this by:

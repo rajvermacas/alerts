@@ -20,9 +20,10 @@ The POC system automates the initial analysis of surveillance alerts by:
 - **Fully Agentic**: Pure LLM reasoning without deterministic scoring
 - **Multi-Agent Architecture**: Specialized agents for different alert types (insider trading, wash trade)
 - **A2A Protocol**: Google's Agent-to-Agent protocol for inter-agent communication
-- **10 Specialized Tools**: 6 shared tools + 4 wash-trade-specific tools, each calling LLM internally
+- **10 Specialized Tools**: 3 common tools + 3 IT-specific + 4 WT-specific, each calling LLM internally
 - **Few-Shot Learning**: Examples stored in external JSON for easy tuning
 - **Structured Output**: Pydantic models ensure consistent, parseable decisions
+- **Real-Time Execution DAG**: Live visualization of multi-agent workflow (User → Orchestrator → Agent → Tools → Output)
 - **Relationship Network Visualization**: SVG network graphs for wash trade analysis
 - **Audit Trail**: All decisions logged for compliance tracking
 - **Fail-Fast**: No graceful degradation; errors crash loudly for debugging
@@ -69,7 +70,7 @@ cp .env.example .env
 Edit `.env` file:
 
 ```bash
-# LLM Provider: "openai" or "azure"
+# LLM Provider: "openai", "azure", "openrouter", or "gemini"
 LLM_PROVIDER=openai
 
 # OpenAI Configuration
@@ -81,6 +82,16 @@ AZURE_OPENAI_API_KEY=
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_OPENAI_DEPLOYMENT=gpt-4o
 AZURE_OPENAI_API_VERSION=2024-02-15-preview
+
+# OpenRouter Configuration (if using OpenRouter)
+OPENROUTER_API_KEY=
+OPENROUTER_MODEL=openai/gpt-4o
+OPENROUTER_SITE_URL=  # Optional
+OPENROUTER_SITE_NAME=  # Optional
+
+# Google Gemini Configuration (if using Gemini)
+GOOGLE_API_KEY=
+GEMINI_MODEL=gemini-2.0-flash
 
 # Paths
 DATA_DIR=test_data
@@ -300,17 +311,24 @@ alerts/
 
 ## Tools
 
-### Shared Tools (Used by All Agents)
+### Common Tools (Used by All Agents)
 
-The agents use 6 shared tools, each calling an LLM internally:
+The agents use 3 common tools, each calling an LLM internally:
 
 | Tool | Purpose | Returns |
 |------|---------|---------|
 | `read_alert` | Parse alert XML | Structured alert summary |
-| `query_trader_history` | 1-year trade history | Baseline deviation analysis |
 | `query_trader_profile` | Role and access level | MNPI access assessment |
-| `query_market_news` | News timeline | Public information analysis |
 | `query_market_data` | Price/volume data | Market conditions analysis |
+
+### Insider Trading-Specific Tools
+
+The insider trading agent has 3 additional specialized tools:
+
+| Tool | Purpose | Returns |
+|------|---------|---------|
+| `query_trader_history` | 1-year trade history | Baseline deviation analysis |
+| `query_market_news` | News timeline | Public information analysis |
 | `query_peer_trades` | Peer activity | Isolation vs. consensus |
 
 ### Wash Trade-Specific Tools
@@ -479,7 +497,11 @@ Navigate to `http://localhost:8080`
 
 - **Drag-and-Drop Upload**: Upload XML alert files via drag-and-drop or file browser
 - **XML Preview**: Collapsible preview of uploaded XML content
-- **Real-time Analysis**: Status polling with progress updates
+- **Real-Time Execution DAG**: Live visualization of multi-agent workflow using Cytoscape.js
+  - Shows: User → Orchestrator → Agent → Tools (dynamically added) → Output
+  - Node states: Pending, Active, Completed, Error
+  - Maximize/minimize controls for detailed inspection
+- **Progress Timeline**: SSE-based streaming of tool execution events
 - **Results Display**: Dynamic rendering of analysis results including:
   - Determination badge (ESCALATE/CLOSE/NEEDS_HUMAN_REVIEW)
   - Confidence score bars
