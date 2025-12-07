@@ -15,6 +15,7 @@ const xmlPreview = document.getElementById('xml-preview');
 const clearFileBtn = document.getElementById('clear-file');
 const analyzeBtn = document.getElementById('analyze-btn');
 const uploadSection = document.getElementById('upload-section');
+const analysisSection = document.getElementById('analysis-section');
 const loadingSection = document.getElementById('loading-section');
 const resultsSection = document.getElementById('results-section');
 const errorSection = document.getElementById('error-section');
@@ -192,24 +193,53 @@ async function submitAnalysis() {
  * @param {string} section - Section to show: 'upload', 'loading', 'results', 'error'
  */
 function showSection(section) {
+    // Hide all top-level sections
     uploadSection.classList.add('hidden');
-    loadingSection.classList.add('hidden');
-    resultsSection.classList.add('hidden');
+    analysisSection.classList.add('hidden');
     errorSection.classList.add('hidden');
 
     switch (section) {
         case 'upload':
             uploadSection.classList.remove('hidden');
+            // Reset timeline header for next analysis
+            resetTimelineHeader();
             break;
         case 'loading':
-            loadingSection.classList.remove('hidden');
+            // Show analysis section with loading state
+            analysisSection.classList.remove('hidden');
+            resultsSection.classList.add('hidden');
             break;
         case 'results':
+            // Keep analysis section visible, show results below timeline
+            analysisSection.classList.remove('hidden');
             resultsSection.classList.remove('hidden');
             break;
         case 'error':
             errorSection.classList.remove('hidden');
             break;
+    }
+}
+
+/**
+ * Reset timeline header to initial state for new analysis.
+ */
+function resetTimelineHeader() {
+    // Reset spinner
+    const spinnerContainer = document.getElementById('timeline-spinner-container');
+    if (spinnerContainer) {
+        spinnerContainer.innerHTML = '<div class="inline-block animate-spin rounded-full h-8 w-8 border-3 border-blue-600 border-t-transparent"></div>';
+    }
+
+    // Reset header title
+    const headerTitle = document.getElementById('timeline-header-title');
+    if (headerTitle) {
+        headerTitle.textContent = 'Analyzing Alert';
+    }
+
+    // Reset status text
+    const loadingStatus = document.getElementById('loading-status');
+    if (loadingStatus) {
+        loadingStatus.textContent = 'Connecting to analysis agents...';
     }
 }
 

@@ -63,61 +63,65 @@
     </div>
 </div>
 
-<!-- Loading Section with Progress Timeline -->
-<div id="loading-section" class="hidden max-w-4xl mx-auto">
-    <div class="bg-white rounded-lg shadow-md overflow-hidden">
-        <!-- Header with status -->
-        <div class="timeline-header">
-            <div class="flex items-center gap-3">
-                <!-- Animated spinner -->
-                <div class="inline-block animate-spin rounded-full h-8 w-8 border-3 border-blue-600 border-t-transparent"></div>
-                <div>
-                    <h2 class="text-lg font-semibold text-gray-900">Analyzing Alert</h2>
-                    <p id="loading-status" class="text-sm text-gray-600">Connecting to analysis agents...</p>
+<!-- Analysis Section (contains both timeline and results) -->
+<div id="analysis-section" class="hidden max-w-4xl mx-auto space-y-6">
+    <!-- Loading Section with Progress Timeline -->
+    <div id="loading-section">
+        <div class="bg-white rounded-lg shadow-md overflow-hidden">
+            <!-- Header with status -->
+            <div class="timeline-header">
+                <div class="flex items-center gap-3">
+                    <!-- Animated spinner (replaced with checkmark on completion) -->
+                    <div id="timeline-spinner-container">
+                        <div class="inline-block animate-spin rounded-full h-8 w-8 border-3 border-blue-600 border-t-transparent"></div>
+                    </div>
+                    <div>
+                        <h2 id="timeline-header-title" class="text-lg font-semibold text-gray-900">Analyzing Alert</h2>
+                        <p id="loading-status" class="text-sm text-gray-600">Connecting to analysis agents...</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <!-- Connection status -->
+                    <div id="connection-status" class="connection-status connecting">
+                        <span class="status-dot"></span>
+                        <span id="connection-status-text">Connecting</span>
+                    </div>
+                    <!-- Elapsed time -->
+                    <div class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium timeline-elapsed">
+                        <span id="timeline-elapsed">0:00</span>
+                    </div>
                 </div>
             </div>
-            <div class="flex items-center gap-4">
-                <!-- Connection status -->
-                <div id="connection-status" class="connection-status connecting">
-                    <span class="status-dot"></span>
-                    <span id="connection-status-text">Connecting</span>
-                </div>
-                <!-- Elapsed time -->
-                <div class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium timeline-elapsed">
-                    <span id="timeline-elapsed">0:00</span>
-                </div>
-            </div>
-        </div>
 
-        <!-- Progress Timeline Container -->
-        <div id="progress-timeline" class="timeline-container p-4" role="list" aria-label="Analysis progress">
-            <!-- Timeline events will be added here dynamically -->
-            <div class="text-center text-gray-400 py-8">
-                <svg class="mx-auto h-8 w-8 animate-pulse mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                </svg>
-                <p class="text-sm">Waiting for events...</p>
+            <!-- Progress Timeline Container -->
+            <div id="progress-timeline" class="timeline-container p-4" role="list" aria-label="Analysis progress">
+                <!-- Timeline events will be added here dynamically -->
+                <div class="text-center text-gray-400 py-8">
+                    <svg class="mx-auto h-8 w-8 animate-pulse mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                    </svg>
+                    <p class="text-sm">Waiting for events...</p>
+                </div>
             </div>
-        </div>
 
-        <!-- Footer with stats -->
-        <div class="timeline-footer">
-            <div class="flex items-center gap-4">
-                <span id="timeline-event-count">0 events</span>
-                <span class="text-gray-300">|</span>
-                <span id="timeline-tool-count">0 tools executed</span>
-            </div>
-            <div class="text-xs text-gray-400">
-                Analysis typically takes 30-60 seconds
+            <!-- Footer with stats -->
+            <div class="timeline-footer">
+                <div class="flex items-center gap-4">
+                    <span id="timeline-event-count">0 events</span>
+                    <span class="text-gray-300">|</span>
+                    <span id="timeline-tool-count">0 tools executed</span>
+                </div>
+                <div class="text-xs text-gray-400">
+                    Analysis typically takes 30-60 seconds
+                </div>
             </div>
         </div>
     </div>
 
-</div>
-
-<!-- Results Section -->
-<div id="results-section" class="hidden">
-    <!-- Results will be rendered here by results.js -->
+    <!-- Results Section (appended below timeline when complete) -->
+    <div id="results-section" class="hidden">
+        <!-- Results will be rendered here by results.js -->
+    </div>
 </div>
 
 <!-- Error Section -->

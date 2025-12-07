@@ -111,9 +111,9 @@ class ProgressTimeline {
 
     /**
      * Handle SSE connection opened.
-     * @param {Event} event - Open event
+     * @param {Event} _event - Open event (unused)
      */
-    handleOpen(event) {
+    handleOpen(_event) {
         console.log('[ProgressTimeline] SSE connection opened');
         this.isConnected = true;
         this.reconnectAttempts = 0;

@@ -109,8 +109,8 @@ function handleStreamingComplete(result) {
     // Stop elapsed timer
     stopElapsedTimer();
 
-    // Update connection status
-    updateConnectionStatus('disconnected');
+    // Update timeline header to show completion state
+    updateTimelineHeaderComplete();
 
     // Extract decision data
     const decision = result.decision || result.raw?.result?.metadata?.payload?.decision;
@@ -141,6 +141,37 @@ function handleStreamingComplete(result) {
 
     // Cleanup
     currentTimeline = null;
+}
+
+/**
+ * Update timeline header to show completion state.
+ * Replaces spinner with checkmark and updates text.
+ */
+function updateTimelineHeaderComplete() {
+    // Replace spinner with green checkmark
+    const spinnerContainer = document.getElementById('timeline-spinner-container');
+    if (spinnerContainer) {
+        spinnerContainer.innerHTML = `
+            <svg class="h-8 w-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+        `;
+    }
+
+    // Update header title
+    const headerTitle = document.getElementById('timeline-header-title');
+    if (headerTitle) {
+        headerTitle.textContent = 'Analysis Complete';
+    }
+
+    // Update status text
+    const loadingStatus = document.getElementById('loading-status');
+    if (loadingStatus) {
+        loadingStatus.textContent = 'All agents have finished processing';
+    }
+
+    // Update connection status to show "Completed"
+    updateConnectionStatus('completed');
 }
 
 /**
@@ -298,6 +329,7 @@ function updateConnectionStatus(status) {
         'connecting': 'Connecting',
         'connected': 'Connected',
         'disconnected': 'Disconnected',
+        'completed': 'Completed',
     };
     text.textContent = statusText[status] || status;
 }

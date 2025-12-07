@@ -322,6 +322,14 @@ input:focus {
     background-color: #EF4444;
 }
 
+.connection-status.completed .status-dot {
+    background-color: #10B981;
+}
+
+.connection-status.completed {
+    color: #10B981;
+}
+
 .status-dot {
     width: 8px;
     height: 8px;
