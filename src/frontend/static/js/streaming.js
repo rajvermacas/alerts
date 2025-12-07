@@ -17,6 +17,7 @@
 
 // Global state for streaming
 let currentTimeline = null;
+let dagVisualization = null;
 let eventCount = 0;
 let toolCount = 0;
 let elapsedInterval = null;
@@ -50,6 +51,9 @@ function startStreaming(taskId) {
 
     // Reset state
     resetTimelineState();
+
+    // Initialize DAG visualization
+    initializeDAGVisualization();
 
     // Get timeline container - fail fast if not found
     const timelineContainer = document.getElementById('progress-timeline');
@@ -99,6 +103,44 @@ function startStreaming(taskId) {
 }
 
 /**
+ * Initialize or reset the DAG visualization.
+ */
+function initializeDAGVisualization() {
+    const dagContainer = document.getElementById('dag-container');
+
+    if (!dagContainer) {
+        console.warn('[Streaming] DAG container not found, skipping DAG initialization');
+        return;
+    }
+
+    if (!window.DAGVisualization) {
+        console.warn('[Streaming] DAGVisualization class not available, skipping DAG initialization');
+        return;
+    }
+
+    try {
+        if (dagVisualization) {
+            // Reset existing visualization
+            dagVisualization.reset();
+            console.log('[Streaming] DAG visualization reset');
+        } else {
+            // Create new visualization
+            dagVisualization = new DAGVisualization({
+                container: dagContainer,
+                onNodeClick: (nodeData) => {
+                    console.log('[Streaming] DAG node clicked:', nodeData);
+                }
+            });
+            console.log('[Streaming] DAG visualization initialized');
+        }
+    } catch (error) {
+        console.error('[Streaming] Failed to initialize DAG visualization:', error);
+        // Non-fatal error - continue without DAG
+        dagVisualization = null;
+    }
+}
+
+/**
  * Handle streaming completion.
  *
  * @param {Object} result - Completion result from timeline
@@ -108,6 +150,11 @@ function handleStreamingComplete(result) {
 
     // Stop elapsed timer
     stopElapsedTimer();
+
+    // Update DAG visualization to completed state
+    if (dagVisualization) {
+        dagVisualization.handleEvent({ type: 'analysis_complete' });
+    }
 
     // Update timeline header to show completion state
     updateTimelineHeaderComplete();
@@ -186,6 +233,11 @@ function handleStreamingError(errorMessage) {
     // Stop elapsed timer
     stopElapsedTimer();
 
+    // Update DAG visualization to error state
+    if (dagVisualization) {
+        dagVisualization.handleEvent({ type: 'error' });
+    }
+
     // Update connection status
     updateConnectionStatus('disconnected');
 
@@ -221,6 +273,11 @@ function handleProgressEvent(eventInfo) {
     // Update connection status if we received an event
     if (currentTimeline?.isActive()) {
         updateConnectionStatus('connected');
+    }
+
+    // Update DAG visualization with this event
+    if (dagVisualization) {
+        dagVisualization.handleEvent(eventInfo);
     }
 }
 
@@ -273,6 +330,11 @@ function resetTimelineState() {
 
     // Reset connection status
     updateConnectionStatus('connecting');
+
+    // Reset DAG visualization
+    if (dagVisualization) {
+        dagVisualization.reset();
+    }
 }
 
 /**

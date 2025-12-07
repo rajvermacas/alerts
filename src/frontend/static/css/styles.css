@@ -518,3 +518,123 @@ input:focus {
 .output-summary-chevron {
     transition: transform 0.2s ease;
 }
+
+/* ============================================
+   DAG Visualization Styles
+   ============================================ */
+
+/* DAG container */
+.dag-container {
+    height: 200px;
+    min-height: 180px;
+    max-height: 280px;
+    width: 100%;
+    background-color: #F9FAFB;
+}
+
+/* Responsive DAG height adjustments */
+@media (min-width: 768px) {
+    .dag-container {
+        height: 220px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .dag-container {
+        height: 240px;
+    }
+}
+
+/* Mobile: smaller DAG */
+@media (max-width: 640px) {
+    .dag-container {
+        height: 160px;
+        min-height: 140px;
+    }
+
+    #dag-legend {
+        gap: 0.75rem;
+        font-size: 0.625rem;
+        padding: 0.375rem;
+    }
+
+    #dag-legend .w-3 {
+        width: 0.5rem;
+        height: 0.5rem;
+    }
+}
+
+/* DAG section container */
+#dag-section {
+    background-color: #F9FAFB;
+}
+
+/* DAG legend styling */
+#dag-legend {
+    border-top: 1px solid #E5E7EB;
+}
+
+#dag-legend > div {
+    transition: opacity 0.2s ease;
+}
+
+#dag-legend > div:hover {
+    opacity: 0.7;
+}
+
+/* Active pulse animation for legend indicator */
+@keyframes dag-pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
+    }
+}
+
+.dag-legend-active {
+    animation: dag-pulse 2s ease-in-out infinite;
+}
+
+/* Cytoscape node active animation (applied via Cytoscape styles) */
+@keyframes dag-node-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+/* Transition for DAG visibility */
+#dag-section {
+    transition: opacity 0.3s ease, max-height 0.3s ease;
+}
+
+#dag-section.hidden {
+    opacity: 0;
+    max-height: 0;
+    overflow: hidden;
+}
+
+/* Edge flow animation (for future enhancement) */
+@keyframes dag-edge-flow {
+    0% {
+        stroke-dashoffset: 24;
+    }
+    100% {
+        stroke-dashoffset: 0;
+    }
+}
+
+/* Tool node specific styling adjustments */
+.dag-tool-node {
+    font-size: 9px;
+}
+
+/* Print styles for DAG */
+@media print {
+    #dag-section {
+        display: none !important;
+    }
+}

@@ -93,6 +93,31 @@
                 </div>
             </div>
 
+            <!-- DAG Visualization Section -->
+            <div id="dag-section" class="border-b border-gray-200 bg-gray-50">
+                <!-- DAG Graph Container -->
+                <div id="dag-container" class="dag-container"></div>
+                <!-- DAG Legend -->
+                <div id="dag-legend" class="flex justify-center items-center gap-6 py-2 text-xs text-gray-600 border-t border-gray-200 bg-white">
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded-full bg-gray-300 border border-gray-400"></span>
+                        <span>Pending</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded-full bg-blue-500 border border-blue-600 dag-legend-active"></span>
+                        <span>Active</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded-full bg-green-500 border border-green-600"></span>
+                        <span>Completed</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded-full bg-red-500 border border-red-600"></span>
+                        <span>Error</span>
+                    </div>
+                </div>
+            </div>
+
             <!-- Progress Timeline Container -->
             <div id="progress-timeline" class="timeline-container p-4" role="list" aria-label="Analysis progress">
                 <!-- Timeline events will be added here dynamically -->
@@ -145,6 +170,7 @@
 {% block scripts %}
 <script src="/static/js/upload.js"></script>
 <script src="/static/js/progress-timeline.js"></script>
+<script src="/static/js/dag-visualization.js"></script>
 <script src="/static/js/results.js"></script>
 <script src="/static/js/streaming.js"></script>
 {% endblock %}
