@@ -686,6 +686,9 @@ class DAGVisualization {
 
             case 'analysis_complete':
             case 'complete':
+                // Mark ALL nodes as completed when analysis finishes
+                // This ensures orchestrator is completed even if agent_handoff event was missed
+                this.setNodeState('orchestrator', DAGVisualization.STATES.COMPLETED);
                 // Mark evaluation as completed if it exists
                 if (this.cy.$('#evaluation').length > 0) {
                     this.setNodeState('evaluation', DAGVisualization.STATES.COMPLETED);
