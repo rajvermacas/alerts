@@ -703,19 +703,7 @@ All paths relative to `src/` unless otherwise noted.
 
 ## Known Issues
 
-### BaseTool Duplication
-There are currently TWO BaseTool implementations:
-- `alerts/tools/base.py` (426 lines) - **NEWER** with streaming support via `_emit_event()`, updated Dec 3 20:38
-- `alerts/tools/common/base.py` (332 lines) - **OLDER** without streaming, updated Dec 3 09:44
-
-**Current State**: All tools import from the older `alerts.tools.common.base` which lacks streaming support. The newer `alerts/tools/base.py` with streaming is not being used.
-
-**Impact**: Tools do not emit real-time progress events despite the streaming infrastructure being in place.
-
-**Resolution Needed**: Either:
-1. Update `alerts/tools/common/base.py` with streaming support from `alerts/tools/base.py`
-2. Change all tool imports to use `alerts.tools.base` instead of `alerts.tools.common.base`
-3. Make `alerts/tools/common/base.py` re-export from `alerts.tools.base`
+None currently. The BaseTool duplication issue has been resolved as of commit `13c5dfb` (Dec 5, 2025). The unified `alerts/tools/common/base.py` (426 lines) now includes full streaming support via `_emit_event()` method.
 
 ## Reference Documentation
 
