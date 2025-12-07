@@ -266,6 +266,7 @@ class ProgressTimeline {
         const type = metadata.event_type || eventType || 'update';
         const payload = metadata.payload || {};
         const toolName = metadata.tool_name || payload.tool_name;
+        const agentName = metadata.agent || metadata.source_agent;
 
         // Get message from various possible locations
         let message = payload.message || payload.insight || '';
@@ -294,6 +295,7 @@ class ProgressTimeline {
         return {
             type,
             toolName,
+            agentName,
             message: message || this.getDefaultMessage(type, toolName),
             timestamp: metadata.timestamp || new Date().toISOString(),
             icon,
@@ -385,6 +387,36 @@ class ProgressTimeline {
             .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
             .join(' ')
             .trim();
+    }
+
+    /**
+     * Format agent name for display.
+     * @param {string} name - Raw agent name
+     * @returns {string|null} Formatted name or null if no name
+     */
+    formatAgentName(name) {
+        if (!name) return null;
+        const names = {
+            'insider_trading': 'Insider Trading Agent',
+            'wash_trade': 'Wash Trade Agent',
+            'orchestrator': 'Orchestrator',
+        };
+        return names[name] || name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
+
+    /**
+     * Get CSS class for agent badge based on agent type.
+     * @param {string} agentName - Raw agent name
+     * @returns {string} Tailwind CSS classes
+     */
+    getAgentBadgeClass(agentName) {
+        const baseClass = 'text-xs px-2 py-0.5 rounded';
+        const colorClasses = {
+            'insider_trading': 'bg-blue-100 text-blue-700',
+            'wash_trade': 'bg-green-100 text-green-700',
+            'orchestrator': 'bg-purple-100 text-purple-700',
+        };
+        return `${baseClass} ${colorClasses[agentName] || 'bg-gray-100 text-gray-600'}`;
     }
 
     /**
@@ -515,6 +547,13 @@ class ProgressTimeline {
             toolBadge.className = 'text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded';
             toolBadge.textContent = this.formatToolName(eventInfo.toolName);
             meta.appendChild(toolBadge);
+        }
+
+        if (eventInfo.agentName) {
+            const agentBadge = document.createElement('span');
+            agentBadge.className = this.getAgentBadgeClass(eventInfo.agentName);
+            agentBadge.textContent = this.formatAgentName(eventInfo.agentName);
+            meta.appendChild(agentBadge);
         }
 
         content.appendChild(meta);
