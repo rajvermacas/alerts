@@ -40,6 +40,7 @@ class DAGVisualization {
         this.cy = null;
         this.nodeStates = {};
         this.toolNodes = new Set();
+        this.toolResults = new Map(); // toolName -> { outputSummary, durationSeconds }
         this.currentAgent = null;
         this.isInitialized = false;
         this.isMaximized = false;
@@ -50,24 +51,45 @@ class DAGVisualization {
     }
 
     /**
+     * Store tool result for later retrieval on click.
+     * @param {string} toolName - Name of the tool
+     * @param {string} outputSummary - Tool output summary
+     * @param {number} durationSeconds - Execution duration in seconds
+     */
+    storeToolResult(toolName, outputSummary, durationSeconds) {
+        this.toolResults.set(toolName, { outputSummary, durationSeconds });
+        console.log(`[DAG] Stored result for tool: ${toolName}`);
+    }
+
+    /**
+     * Get stored tool result.
+     * @param {string} toolName - Name of the tool
+     * @returns {Object|undefined} Tool result object with outputSummary and durationSeconds
+     */
+    getToolResult(toolName) {
+        return this.toolResults.get(toolName);
+    }
+
+    /**
      * Initialize the Cytoscape graph with dagre layout.
      */
     _initializeGraph() {
         console.log('[DAG] Initializing graph...');
 
         // Define main node data
+        // Node types are distinguished by shape: ellipse=agent, rectangle=tool, diamond=process
         const nodes = [
             {
                 data: { id: 'user', label: 'User', nodeType: 'main' },
                 classes: 'main-node'
             },
             {
-                data: { id: 'orchestrator', label: 'Orchestrator', nodeType: 'main' },
-                classes: 'main-node'
+                data: { id: 'orchestrator', label: 'Orchestrator', nodeType: 'main', nodeCategory: 'agent' },
+                classes: 'main-node agent-node'
             },
             {
-                data: { id: 'agent', label: 'Agent', nodeType: 'main' },
-                classes: 'main-node'
+                data: { id: 'agent', label: 'Agent', nodeType: 'main', nodeCategory: 'agent' },
+                classes: 'main-node agent-node'
             },
             {
                 data: { id: 'output', label: 'Output', nodeType: 'main' },
@@ -210,21 +232,40 @@ class DAGVisualization {
             </div>
             <div id="dag-maximize-container" class="dag-maximize-content"></div>
             <div class="dag-maximize-legend">
-                <div class="flex items-center gap-1.5">
-                    <span class="w-3 h-3 rounded-full bg-gray-300 border border-gray-400"></span>
-                    <span>Pending</span>
+                <div class="dag-legend-section">
+                    <span class="dag-legend-title">Status:</span>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded-full bg-gray-300 border border-gray-400"></span>
+                        <span>Pending</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded-full bg-blue-500 border border-blue-600"></span>
+                        <span>Active</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded-full bg-green-500 border border-green-600"></span>
+                        <span>Completed</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded-full bg-red-500 border border-red-600"></span>
+                        <span>Error</span>
+                    </div>
                 </div>
-                <div class="flex items-center gap-1.5">
-                    <span class="w-3 h-3 rounded-full bg-blue-500 border border-blue-600"></span>
-                    <span>Active</span>
-                </div>
-                <div class="flex items-center gap-1.5">
-                    <span class="w-3 h-3 rounded-full bg-green-500 border border-green-600"></span>
-                    <span>Completed</span>
-                </div>
-                <div class="flex items-center gap-1.5">
-                    <span class="w-3 h-3 rounded-full bg-red-500 border border-red-600"></span>
-                    <span>Error</span>
+                <div class="dag-legend-divider"></div>
+                <div class="dag-legend-section">
+                    <span class="dag-legend-title">Node Type:</span>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded-full bg-gray-400" style="border: 2px double #666;"></span>
+                        <span>Agent</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded bg-gray-400 border border-gray-600"></span>
+                        <span>Tool</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 bg-gray-400 border border-dashed border-gray-600" style="transform: rotate(45deg);"></span>
+                        <span>Process</span>
+                    </div>
                 </div>
             </div>
         `;
@@ -319,19 +360,25 @@ class DAGVisualization {
                 'border-color': '#D1D5DB', 'transition-property': 'background-color, border-color, border-width',
                 'transition-duration': '0.3s'
             }},
-            // Main node style
+            // Main node style (ellipse for agents)
             { selector: 'node.main-node', style: {
                 'width': '45px', 'height': '45px', 'shape': 'ellipse', 'font-weight': '600'
             }},
-            // Tool node style
+            // Agent node style - double border to indicate "agent"
+            { selector: 'node.agent-node', style: {
+                'border-width': '3px', 'border-style': 'double'
+            }},
+            // Tool node style (rounded rectangle)
             { selector: 'node.tool-node', style: {
                 'width': '32px', 'height': '32px', 'shape': 'round-rectangle',
-                'font-size': '9px', 'font-weight': '400', 'text-margin-y': '5px'
+                'font-size': '9px', 'font-weight': '400', 'text-margin-y': '5px',
+                'border-style': 'solid'
             }},
-            // Evaluation node style (distinct diamond shape)
+            // Evaluation/Process node style (diamond shape)
             { selector: 'node.evaluation-node', style: {
                 'width': '40px', 'height': '40px', 'shape': 'diamond',
-                'font-size': '10px', 'font-weight': '500', 'text-margin-y': '6px'
+                'font-size': '10px', 'font-weight': '500', 'text-margin-y': '6px',
+                'border-style': 'dashed'
             }},
             // Node states
             { selector: 'node.pending', style: { 'background-color': '#E5E7EB', 'border-color': '#D1D5DB', 'opacity': 0.6 }},
@@ -495,6 +542,7 @@ class DAGVisualization {
                 id: nodeId,
                 label: label,
                 nodeType: 'tool',
+                nodeCategory: 'tool',
                 toolName: toolName
             },
             classes: 'tool-node pending'
@@ -559,7 +607,8 @@ class DAGVisualization {
             data: {
                 id: nodeId,
                 label: 'Evaluation',
-                nodeType: 'evaluation'
+                nodeType: 'evaluation',
+                nodeCategory: 'process'
             },
             classes: 'evaluation-node pending'
         });
@@ -623,7 +672,16 @@ class DAGVisualization {
         switch (eventType) {
             case 'analysis_started':
                 this.setNodeState('user', DAGVisualization.STATES.COMPLETED);
-                this.setNodeState('orchestrator', DAGVisualization.STATES.ACTIVE);
+                // Only set orchestrator to active if this event is from orchestrator itself
+                // Specialized agents also emit analysis_started, but orchestrator should stay completed
+                if (!agentName || agentName === 'orchestrator') {
+                    this.setNodeState('orchestrator', DAGVisualization.STATES.ACTIVE);
+                }
+                // If the event is from a specialized agent (post-handoff), ensure agent is active
+                if (agentName && agentName !== 'orchestrator') {
+                    this.setNodeState('agent', DAGVisualization.STATES.ACTIVE);
+                    this.updateAgentLabel(agentName);
+                }
                 break;
 
             case 'routing':
@@ -663,6 +721,10 @@ class DAGVisualization {
                 // Mark tool as completed
                 if (toolName) {
                     this.setToolState(toolName, DAGVisualization.STATES.COMPLETED);
+                    // Store tool result for click display
+                    if (eventInfo.outputSummary) {
+                        this.storeToolResult(toolName, eventInfo.outputSummary, eventInfo.durationSeconds);
+                    }
                 }
                 break;
 
@@ -746,6 +808,7 @@ class DAGVisualization {
             delete this.nodeStates[nodeId];
         });
         this.toolNodes.clear();
+        this.toolResults.clear();
 
         // Remove evaluation node if it exists
         const evaluationNode = this.cy.$('#evaluation');

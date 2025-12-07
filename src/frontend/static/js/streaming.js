@@ -24,6 +24,71 @@ let elapsedInterval = null;
 let startTime = null;
 
 /**
+ * Show a modal with tool result details.
+ * @param {string} toolName - Name of the tool
+ * @param {string} outputSummary - Tool output summary
+ * @param {number} durationSeconds - Execution duration in seconds
+ */
+function showToolResultModal(toolName, outputSummary, durationSeconds) {
+    // Create or get modal element
+    let modal = document.getElementById('tool-result-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'tool-result-modal';
+        modal.className = 'tool-result-modal';
+        modal.innerHTML = `
+            <div class="tool-result-modal-content">
+                <div class="tool-result-modal-header">
+                    <h3 id="tool-result-title"></h3>
+                    <button class="tool-result-modal-close" aria-label="Close">&times;</button>
+                </div>
+                <div class="tool-result-modal-body">
+                    <div id="tool-result-duration"></div>
+                    <div id="tool-result-output"></div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // Close button handler
+        modal.querySelector('.tool-result-modal-close').addEventListener('click', () => {
+            modal.classList.remove('show');
+        });
+
+        // Click outside to close
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.classList.remove('show');
+            }
+        });
+
+        // Escape key to close
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.classList.contains('show')) {
+                modal.classList.remove('show');
+            }
+        });
+    }
+
+    // Format tool name: trader_history -> Trader History
+    const formattedName = toolName
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+
+    // Populate modal content
+    document.getElementById('tool-result-title').textContent = '[Tool] ' + formattedName;
+    document.getElementById('tool-result-duration').textContent = durationSeconds
+        ? `Duration: ${durationSeconds.toFixed(2)}s`
+        : '';
+    document.getElementById('tool-result-output').textContent = outputSummary;
+
+    // Show modal
+    modal.classList.add('show');
+    console.log('[Streaming] Showing tool result modal for:', toolName);
+}
+
+/**
  * Start streaming analysis for a task.
  * Uses SSE for real-time progress updates.
  *
@@ -129,6 +194,15 @@ function initializeDAGVisualization() {
                 container: dagContainer,
                 onNodeClick: (nodeData) => {
                     console.log('[Streaming] DAG node clicked:', nodeData);
+                    // Show tool result modal for completed tool nodes
+                    if (nodeData.nodeType === 'tool' && nodeData.toolName) {
+                        const result = dagVisualization.getToolResult(nodeData.toolName);
+                        if (result && result.outputSummary) {
+                            showToolResultModal(nodeData.toolName, result.outputSummary, result.durationSeconds);
+                        } else {
+                            console.log('[Streaming] No result stored for tool:', nodeData.toolName);
+                        }
+                    }
                 }
             });
             console.log('[Streaming] DAG visualization initialized');
