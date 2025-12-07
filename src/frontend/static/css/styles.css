@@ -525,13 +525,15 @@ input:focus {
 
 /* DAG container */
 .dag-container {
-    height: 200px;
-    min-height: 180px;
-    max-height: 280px;
+    height: 280px;
+    min-height: 200px;
+    max-height: 600px;
     width: 100%;
     background-color: #F9FAFB;
     cursor: grab;
     position: relative;
+    resize: vertical;
+    overflow: hidden;
 }
 
 .dag-container:active {
@@ -540,7 +542,7 @@ input:focus {
 
 /* DAG interaction hint */
 .dag-container::after {
-    content: 'Drag nodes to move • Scroll to zoom • Drag background to pan';
+    content: 'Drag nodes • Scroll to zoom • Drag edge to resize';
     position: absolute;
     bottom: 4px;
     right: 8px;
@@ -555,24 +557,31 @@ input:focus {
     opacity: 1;
 }
 
+/* Resize handle styling */
+.dag-container::-webkit-resizer {
+    background-color: #D1D5DB;
+    border-radius: 2px;
+}
+
 /* Responsive DAG height adjustments */
 @media (min-width: 768px) {
     .dag-container {
-        height: 220px;
+        height: 300px;
     }
 }
 
 @media (min-width: 1024px) {
     .dag-container {
-        height: 240px;
+        height: 320px;
     }
 }
 
 /* Mobile: smaller DAG */
 @media (max-width: 640px) {
     .dag-container {
-        height: 160px;
-        min-height: 140px;
+        height: 200px;
+        min-height: 160px;
+        resize: none;
     }
 
     #dag-legend {

@@ -116,8 +116,32 @@ class DAGVisualization {
             this.onNodeClick(nodeData);
         });
 
+        // Add resize observer for container resizing
+        this._initializeResizeObserver();
+
         this.isInitialized = true;
         console.log('[DAG] Graph initialized successfully');
+    }
+
+    /**
+     * Initialize resize observer to handle container size changes.
+     */
+    _initializeResizeObserver() {
+        if (typeof ResizeObserver === 'undefined') {
+            console.warn('[DAG] ResizeObserver not supported');
+            return;
+        }
+
+        this._resizeObserver = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                if (entry.target === this.container && this.cy) {
+                    this.cy.resize();
+                    this.cy.fit(undefined, 30);
+                }
+            }
+        });
+
+        this._resizeObserver.observe(this.container);
     }
 
     /**
@@ -669,6 +693,12 @@ class DAGVisualization {
         // Remove escape key listener
         if (this._handleEscapeKey) {
             document.removeEventListener('keydown', this._handleEscapeKey);
+        }
+
+        // Disconnect resize observer
+        if (this._resizeObserver) {
+            this._resizeObserver.disconnect();
+            this._resizeObserver = null;
         }
 
         if (this.cy) {
