@@ -71,7 +71,7 @@ class DAGVisualization {
             },
             {
                 data: { id: 'output', label: 'Output', nodeType: 'main' },
-                classes: 'main-node'
+                classes: 'main-node hidden-node'
             }
         ];
 
@@ -87,7 +87,7 @@ class DAGVisualization {
             },
             {
                 data: { id: 'e-agent-output', source: 'agent', target: 'output', label: 'Result' },
-                classes: 'main-edge'
+                classes: 'main-edge hidden-edge'
             }
         ];
 
@@ -356,7 +356,10 @@ class DAGVisualization {
             { selector: 'edge.tool-edge', style: { 'width': 1.5, 'line-style': 'dashed', 'arrow-scale': 0.6 }},
             // Edge states
             { selector: 'edge.active', style: { 'line-color': '#3B82F6', 'target-arrow-color': '#3B82F6', 'opacity': 1, 'width': 2.5 }},
-            { selector: 'edge.completed', style: { 'line-color': '#10B981', 'target-arrow-color': '#10B981', 'opacity': 1 }}
+            { selector: 'edge.completed', style: { 'line-color': '#10B981', 'target-arrow-color': '#10B981', 'opacity': 1 }},
+            // Hidden states (for output node before evaluation starts)
+            { selector: 'node.hidden-node', style: { 'opacity': 0, 'visibility': 'hidden' }},
+            { selector: 'edge.hidden-edge', style: { 'opacity': 0, 'visibility': 'hidden' }}
         ];
     }
 
@@ -629,6 +632,7 @@ class DAGVisualization {
                 break;
 
             case 'agent_handoff':
+                console.log('[DAG] agent_handoff received - marking orchestrator COMPLETED, agent ACTIVE');
                 this.setNodeState('orchestrator', DAGVisualization.STATES.COMPLETED);
                 this.setNodeState('agent', DAGVisualization.STATES.ACTIVE);
                 if (agentName) {
@@ -674,6 +678,10 @@ class DAGVisualization {
                 // Add evaluation node dynamically and set it to active
                 this.addEvaluationNode();
                 this.setNodeState('evaluation', DAGVisualization.STATES.ACTIVE);
+                // Show output node now that evaluation has started
+                this.cy.$('#output').removeClass('hidden-node');
+                // Note: e-agent-output edge is removed by addEvaluationNode() and replaced
+                // with e-evaluation-output, so no need to unhide it here
                 break;
 
             case 'analysis_complete':
@@ -744,7 +752,7 @@ class DAGVisualization {
             evaluationNode.remove();
             delete this.nodeStates['evaluation'];
 
-            // Restore direct agent->output edge
+            // Restore direct agent->output edge (hidden initially)
             this.cy.add({
                 group: 'edges',
                 data: {
@@ -753,8 +761,20 @@ class DAGVisualization {
                     target: 'output',
                     label: 'Result'
                 },
-                classes: 'main-edge pending'
+                classes: 'main-edge hidden-edge'
             });
+        }
+
+        // Re-hide output node (it's shown when evaluation starts)
+        const outputNode = this.cy.$('#output');
+        if (outputNode.length > 0) {
+            outputNode.addClass('hidden-node');
+        }
+
+        // Also hide e-agent-output edge if it exists
+        const agentOutputEdge = this.cy.$('#e-agent-output');
+        if (agentOutputEdge.length > 0) {
+            agentOutputEdge.addClass('hidden-edge');
         }
 
         // Reset agent label
