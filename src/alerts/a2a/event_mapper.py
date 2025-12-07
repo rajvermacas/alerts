@@ -437,6 +437,24 @@ class EventMapper:
             final=False,
         )
 
+    def create_evaluation_started_event(self) -> StreamEvent:
+        """Create event for when final evaluation/determination begins.
+
+        This event is emitted when all tools have completed and the agent
+        is generating the final determination.
+
+        Returns:
+            StreamEvent indicating evaluation has started
+        """
+        return self.create_event(
+            event_type="evaluation_started",
+            payload={
+                "message": "Generating final determination...",
+                "stage": "evaluation",
+            },
+            final=False,
+        )
+
 
 def create_stream_writer_for_mapper(
     event_mapper: EventMapper,

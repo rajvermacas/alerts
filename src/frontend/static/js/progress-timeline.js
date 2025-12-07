@@ -104,6 +104,7 @@ class ProgressTimeline {
 
         // Agent events
         this.eventSource.addEventListener('agent_thinking', (e) => this.handleEvent('agent_thinking', e));
+        this.eventSource.addEventListener('evaluation_started', (e) => this.handleEvent('evaluation_started', e));
 
         // Keep-alive (snake_case version to match backend)
         this.eventSource.addEventListener('keep_alive', (e) => this.handleKeepalive(e));
@@ -331,6 +332,7 @@ class ProgressTimeline {
             'agent_handoff': { icon: 'play', color: 'purple' },
             // Agent events
             'agent_thinking': { icon: 'cog', color: 'indigo' },
+            'evaluation_started': { icon: 'scale', color: 'indigo' },
         };
 
         // Special handling for determination in complete events
@@ -368,6 +370,7 @@ class ProgressTimeline {
             'agent_handoff': 'Handing off to agent...',
             // Agent events
             'agent_thinking': 'Agent is analyzing...',
+            'evaluation_started': 'Generating final determination...',
         };
         return messages[type] || 'Processing...';
     }

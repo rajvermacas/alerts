@@ -658,17 +658,16 @@ After gathering all evidence, provide your determination with detailed reasoning
 
                 # Map and emit relevant LangGraph events
                 if event_kind == "on_chain_start":
-                    if event_name in ("agent", "respond"):
+                    if event_name in ("agent", "respond", "_respond_node"):
                         if event_name != last_node:
                             last_node = event_name
                             if event_name == "agent":
                                 yield event_mapper.create_agent_thinking_event(
                                     "Deciding next action..."
                                 )
-                            elif event_name == "respond":
-                                yield event_mapper.create_agent_thinking_event(
-                                    "Generating final determination..."
-                                )
+                            elif event_name in ("respond", "_respond_node"):
+                                self.logger.info(f"Emitting evaluation_started event for node: {event_name}")
+                                yield event_mapper.create_evaluation_started_event()
 
                 elif event_kind == "on_tool_start":
                     # Map and yield tool start events

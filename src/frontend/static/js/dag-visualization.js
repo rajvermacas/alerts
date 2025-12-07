@@ -328,6 +328,11 @@ class DAGVisualization {
                 'width': '32px', 'height': '32px', 'shape': 'round-rectangle',
                 'font-size': '9px', 'font-weight': '400', 'text-margin-y': '5px'
             }},
+            // Evaluation node style (distinct diamond shape)
+            { selector: 'node.evaluation-node', style: {
+                'width': '40px', 'height': '40px', 'shape': 'diamond',
+                'font-size': '10px', 'font-weight': '500', 'text-margin-y': '6px'
+            }},
             // Node states
             { selector: 'node.pending', style: { 'background-color': '#E5E7EB', 'border-color': '#D1D5DB', 'opacity': 0.6 }},
             { selector: 'node.active', style: { 'background-color': '#3B82F6', 'border-color': '#1D4ED8', 'border-width': '3px', 'opacity': 1 }},
@@ -531,6 +536,64 @@ class DAGVisualization {
     }
 
     /**
+     * Add the evaluation node dynamically when final determination begins.
+     * This node appears between the agent and output nodes.
+     */
+    addEvaluationNode() {
+        const nodeId = 'evaluation';
+
+        // Check if evaluation node already exists
+        if (this.cy.$(`#${nodeId}`).length > 0) {
+            console.log('[DAG] Evaluation node already exists');
+            return;
+        }
+
+        console.log('[DAG] Adding evaluation node');
+
+        // Add evaluation node
+        this.cy.add({
+            group: 'nodes',
+            data: {
+                id: nodeId,
+                label: 'Evaluation',
+                nodeType: 'evaluation'
+            },
+            classes: 'evaluation-node pending'
+        });
+
+        // Add edge from agent to evaluation
+        this.cy.add({
+            group: 'edges',
+            data: {
+                id: 'e-agent-evaluation',
+                source: 'agent',
+                target: nodeId
+            },
+            classes: 'main-edge pending'
+        });
+
+        // Add edge from evaluation to output
+        this.cy.add({
+            group: 'edges',
+            data: {
+                id: 'e-evaluation-output',
+                source: nodeId,
+                target: 'output'
+            },
+            classes: 'main-edge pending'
+        });
+
+        // Remove direct agent->output edge
+        this.cy.$('#e-agent-output').remove();
+
+        // Track evaluation node state
+        this.nodeStates[nodeId] = DAGVisualization.STATES.PENDING;
+
+        // Re-run layout to position new node
+        this._relayout();
+    }
+
+    /**
      * Re-run the dagre layout after adding nodes.
      */
     _relayout() {
@@ -607,8 +670,18 @@ class DAGVisualization {
                 }
                 break;
 
+            case 'evaluation_started':
+                // Add evaluation node dynamically and set it to active
+                this.addEvaluationNode();
+                this.setNodeState('evaluation', DAGVisualization.STATES.ACTIVE);
+                break;
+
             case 'analysis_complete':
             case 'complete':
+                // Mark evaluation as completed if it exists
+                if (this.cy.$('#evaluation').length > 0) {
+                    this.setNodeState('evaluation', DAGVisualization.STATES.COMPLETED);
+                }
                 // Mark agent and all tools as completed
                 this.setNodeState('agent', DAGVisualization.STATES.COMPLETED);
                 this._completeAllTools();
@@ -662,6 +735,27 @@ class DAGVisualization {
             delete this.nodeStates[nodeId];
         });
         this.toolNodes.clear();
+
+        // Remove evaluation node if it exists
+        const evaluationNode = this.cy.$('#evaluation');
+        if (evaluationNode.length > 0) {
+            this.cy.$('#e-agent-evaluation').remove();
+            this.cy.$('#e-evaluation-output').remove();
+            evaluationNode.remove();
+            delete this.nodeStates['evaluation'];
+
+            // Restore direct agent->output edge
+            this.cy.add({
+                group: 'edges',
+                data: {
+                    id: 'e-agent-output',
+                    source: 'agent',
+                    target: 'output',
+                    label: 'Result'
+                },
+                classes: 'main-edge pending'
+            });
+        }
 
         // Reset agent label
         this.currentAgent = null;
