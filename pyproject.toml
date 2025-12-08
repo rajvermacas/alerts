@@ -40,15 +40,19 @@ dependencies = [
     "jinja2>=3.1.0",
     "aiofiles>=23.0.0",
     "sse-starlette>=3.0.3",
-    # AG-UI Protocol and CopilotKit support
-    "ag-ui-langgraph>=0.1.0",
-    "copilotkit>=0.1.0",
+    # AG-UI Protocol support (official SDK)
+    "ag-ui-protocol>=0.1.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
+]
+# Optional AG-UI LangGraph integration
+agui = [
+    "ag-ui-langgraph>=0.1.0",
+    "copilotkit>=0.1.0",
 ]
 
 [project.scripts]

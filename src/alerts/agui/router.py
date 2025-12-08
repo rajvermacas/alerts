@@ -1,12 +1,12 @@
 """AG-UI Protocol FastAPI Router.
 
-This module provides FastAPI endpoints for AG-UI protocol streaming,
-enabling integration with CopilotKit and other AG-UI compatible frontends.
+This module provides FastAPI endpoints for AG-UI protocol streaming using
+the official AG-UI SDK (ag_ui.core, ag_ui.encoder).
 
 Endpoints:
 - POST /agui/run: Start a new analysis run with AG-UI event streaming
-- GET /agui/stream/{run_id}: Stream AG-UI events for an existing run
-- POST /agui/message: CopilotKit-compatible message endpoint
+- POST /agui/awp: CopilotKit-compatible endpoint using RunAgentInput
+- GET /agui/info: Get AG-UI endpoint information
 
 The AG-UI protocol enables real-time bidirectional communication between
 AI agents and frontend applications using Server-Sent Events (SSE).
@@ -23,17 +23,20 @@ from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-from sse_starlette import EventSourceResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+
+# Import from official AG-UI SDK
+from ag_ui.core import (
+    RunAgentInput,
+    EventType,
+    RunStartedEvent,
+    RunFinishedEvent,
+    RunErrorEvent,
+    CustomEvent,
+)
+from ag_ui.encoder import EventEncoder
 
 from alerts.agui.adapter import AGUIAdapter
-from alerts.agui.events import (
-    AGUIEvent,
-    CustomEvent,
-    RunErrorEvent,
-    RunStartedEvent,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -46,52 +49,16 @@ TEMP_DIR.mkdir(parents=True, exist_ok=True)
 router = APIRouter(prefix="/agui", tags=["AG-UI Protocol"])
 
 
-class AGUIRunRequest(BaseModel):
-    """Request to start a new AG-UI run."""
-
-    thread_id: Optional[str] = Field(
-        default=None, description="Thread/conversation ID for context"
-    )
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict, description="Additional metadata"
-    )
-
-
-class AGUIMessageRequest(BaseModel):
-    """CopilotKit-compatible message request.
-
-    This follows the AG-UI message/stream protocol format.
-    """
-
-    message: Dict[str, Any] = Field(description="Message content with role and parts")
-    thread_id: Optional[str] = Field(default=None, description="Thread ID")
-    run_id: Optional[str] = Field(default=None, description="Existing run ID to continue")
-
-
-class MessagePart(BaseModel):
-    """A part of a message."""
-
-    type: str = Field(description="Part type (textPart, etc.)")
-    text: Optional[str] = Field(default=None, description="Text content")
-
-
-class Message(BaseModel):
-    """A message in the AG-UI format."""
-
-    role: str = Field(description="Message role (user, assistant, system)")
-    parts: list[MessagePart] = Field(description="Message content parts")
-
-
 @router.post("/run")
 async def start_agui_run(
     request: Request,
     file: UploadFile = File(...),
     thread_id: Optional[str] = Query(default=None),
-) -> EventSourceResponse:
+) -> StreamingResponse:
     """Start a new AG-UI analysis run with file upload.
 
     This endpoint accepts an XML alert file and streams AG-UI events
-    as the analysis progresses.
+    as the analysis progresses using the official AG-UI SDK.
 
     Args:
         request: FastAPI request
@@ -99,7 +66,7 @@ async def start_agui_run(
         thread_id: Optional thread ID for conversation context
 
     Returns:
-        EventSourceResponse with AG-UI event stream
+        StreamingResponse with AG-UI event stream (text/event-stream)
     """
     logger.info(f"Starting AG-UI run with file: {file.filename}")
 
@@ -122,8 +89,11 @@ async def start_agui_run(
         logger.error(f"Failed to save file: {e}")
         raise HTTPException(status_code=500, detail="Failed to save file")
 
-    return EventSourceResponse(
-        _agui_event_generator(run_id, thread_id, temp_file_path, request),
+    # Get accept header for encoder
+    accept_header = request.headers.get("accept", "text/event-stream")
+
+    return StreamingResponse(
+        _agui_event_generator(run_id, thread_id, temp_file_path, request, accept_header),
         media_type="text/event-stream",
         headers={
             "X-Accel-Buffering": "no",
@@ -133,54 +103,52 @@ async def start_agui_run(
     )
 
 
-@router.post("/message/stream")
-async def agui_message_stream(
+@router.post("/awp")
+async def agui_awp_endpoint(
     request: Request,
-    body: AGUIMessageRequest,
-) -> EventSourceResponse:
-    """CopilotKit-compatible message streaming endpoint.
+    input_data: RunAgentInput,
+) -> StreamingResponse:
+    """AG-UI Agent Worker Protocol endpoint.
 
-    This endpoint follows the AG-UI protocol for message streaming,
-    compatible with CopilotKit's useCoAgent hook.
+    This endpoint follows the AG-UI AWP standard, accepting RunAgentInput
+    and streaming BaseEvent objects. Compatible with CopilotKit's HttpAgent.
 
-    The message should contain the alert file path or content.
+    The input messages should contain the alert file path.
 
     Args:
         request: FastAPI request
-        body: AG-UI message request
+        input_data: AG-UI RunAgentInput with messages, tools, and context
 
     Returns:
-        EventSourceResponse with AG-UI event stream
+        StreamingResponse with AG-UI event stream
     """
-    logger.info(f"AG-UI message stream request: thread_id={body.thread_id}")
+    logger.info(f"AG-UI AWP request: thread_id={input_data.thread_id}, run_id={input_data.run_id}")
 
-    # Extract message content
-    message = body.message
-    role = message.get("role", "user")
-    parts = message.get("parts", [])
-
-    # Get text content from parts
+    # Extract alert path from messages
     alert_path = None
-    for part in parts:
-        if part.get("type") == "textPart":
-            text = part.get("text", "")
-            # Check if it's a file path
-            if text.endswith(".xml") and Path(text).exists():
-                alert_path = Path(text)
-                break
+    for msg in input_data.messages:
+        if hasattr(msg, 'content'):
+            content = msg.content
+            if isinstance(content, str) and content.endswith(".xml"):
+                if Path(content).exists():
+                    alert_path = Path(content)
+                    break
 
     if not alert_path:
         raise HTTPException(
             status_code=400,
-            detail="Message must contain a valid path to an XML alert file",
+            detail="Messages must contain a valid path to an XML alert file",
         )
 
-    # Generate run/thread IDs
-    run_id = body.run_id or str(uuid4())
-    thread_id = body.thread_id or str(uuid4())
+    # Use provided IDs or generate new ones
+    run_id = input_data.run_id or str(uuid4())
+    thread_id = input_data.thread_id or str(uuid4())
 
-    return EventSourceResponse(
-        _agui_event_generator(run_id, thread_id, alert_path, request),
+    # Get accept header for encoder
+    accept_header = request.headers.get("accept", "text/event-stream")
+
+    return StreamingResponse(
+        _agui_event_generator(run_id, thread_id, alert_path, request, accept_header),
         media_type="text/event-stream",
         headers={
             "X-Accel-Buffering": "no",
@@ -200,6 +168,7 @@ async def agui_info() -> JSONResponse:
     return JSONResponse({
         "protocol": "AG-UI",
         "version": "1.0.0",
+        "sdk": "ag-ui-protocol",
         "capabilities": {
             "streaming": True,
             "tools": True,
@@ -208,7 +177,7 @@ async def agui_info() -> JSONResponse:
         },
         "endpoints": {
             "run": "/agui/run",
-            "message_stream": "/agui/message/stream",
+            "awp": "/agui/awp",
             "info": "/agui/info",
         },
         "events": [
@@ -234,22 +203,26 @@ async def _agui_event_generator(
     thread_id: str,
     alert_path: Path,
     request: Request,
+    accept_header: str = "text/event-stream",
 ):
     """Generate AG-UI events by proxying from orchestrator.
 
     This function connects to the orchestrator's A2A streaming endpoint,
-    converts the A2A events to AG-UI format, and yields them.
+    converts the A2A events to AG-UI format using the adapter, and yields
+    them properly encoded using the official AG-UI EventEncoder.
 
     Args:
         run_id: Unique run identifier
         thread_id: Thread/conversation identifier
         alert_path: Path to alert XML file
         request: FastAPI request for disconnect checking
+        accept_header: Accept header for EventEncoder
 
     Yields:
         SSE-formatted AG-UI events
     """
     adapter = AGUIAdapter(run_id=run_id, thread_id=thread_id)
+    encoder = EventEncoder(accept=accept_header)
     event_count = 0
     last_keepalive = asyncio.get_event_loop().time()
     keepalive_interval = 25  # seconds
@@ -280,14 +253,10 @@ async def _agui_event_generator(
                 if response.status_code != 200:
                     logger.error(f"Orchestrator returned: {response.status_code}")
                     error_event = RunErrorEvent(
-                        run_id=run_id,
-                        thread_id=thread_id,
-                        error=f"Orchestrator returned status {response.status_code}",
+                        type=EventType.RUN_ERROR,
+                        message=f"Orchestrator returned status {response.status_code}",
                     )
-                    yield {
-                        "data": error_event.to_sse_data(),
-                        "event": "RUN_ERROR",
-                    }
+                    yield encoder.encode(error_event)
                     return
 
                 # Process A2A events and convert to AG-UI
@@ -301,15 +270,11 @@ async def _agui_event_generator(
                     current_time = asyncio.get_event_loop().time()
                     if current_time - last_keepalive > keepalive_interval:
                         keep_alive = CustomEvent(
-                            run_id=run_id,
-                            thread_id=thread_id,
-                            event_name="keep_alive",
-                            data={"message": "Processing..."},
+                            type=EventType.CUSTOM,
+                            name="keep_alive",
+                            value={"message": "Processing..."},
                         )
-                        yield {
-                            "data": keep_alive.to_sse_data(),
-                            "event": "CUSTOM",
-                        }
+                        yield encoder.encode(keep_alive)
                         last_keepalive = current_time
 
                     # Parse SSE line
@@ -320,19 +285,14 @@ async def _agui_event_generator(
                                 a2a_event = json.loads(data_str)
                                 event_count += 1
 
-                                # Convert to AG-UI events
+                                # Convert to AG-UI events using adapter
                                 agui_events = adapter.convert_event(a2a_event)
 
+                                # Encode and yield each event
                                 for agui_event in agui_events:
-                                    yield {
-                                        "data": agui_event.to_sse_data(),
-                                        "event": agui_event.type.value if hasattr(agui_event.type, 'value') else str(agui_event.type),
-                                        "id": str(uuid4()),
-                                        "retry": 5000,
-                                    }
+                                    yield encoder.encode(agui_event)
 
                                 # Check for final event
-                                metadata = a2a_event.get("result", {}).get("metadata", {})
                                 if a2a_event.get("result", {}).get("taskStatusUpdateEvent", {}).get("final", False):
                                     logger.info(f"Final event received for run {run_id}")
                                     break
@@ -343,14 +303,10 @@ async def _agui_event_generator(
     except httpx.ConnectError as e:
         logger.error(f"Failed to connect to orchestrator: {e}")
         error_event = RunErrorEvent(
-            run_id=run_id,
-            thread_id=thread_id,
-            error="Analysis service unavailable. Please ensure servers are running.",
+            type=EventType.RUN_ERROR,
+            message="Analysis service unavailable. Please ensure servers are running.",
         )
-        yield {
-            "data": error_event.to_sse_data(),
-            "event": "RUN_ERROR",
-        }
+        yield encoder.encode(error_event)
 
     except asyncio.CancelledError:
         logger.info(f"Stream cancelled for run {run_id}")
@@ -358,14 +314,10 @@ async def _agui_event_generator(
     except Exception as e:
         logger.error(f"Stream error for run {run_id}: {e}", exc_info=True)
         error_event = RunErrorEvent(
-            run_id=run_id,
-            thread_id=thread_id,
-            error=f"Stream error: {str(e)}",
+            type=EventType.RUN_ERROR,
+            message=f"Stream error: {str(e)}",
         )
-        yield {
-            "data": error_event.to_sse_data(),
-            "event": "RUN_ERROR",
-        }
+        yield encoder.encode(error_event)
 
     finally:
         logger.info(f"Stream ended for run {run_id}, {event_count} A2A events processed")
