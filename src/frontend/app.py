@@ -26,6 +26,7 @@ from fastapi.templating import Jinja2Templates
 from sse_starlette import EventSourceResponse
 
 from frontend.task_manager import TaskManager
+from alerts.agui.router import router as agui_router
 
 # Configure logging
 logging.basicConfig(
@@ -69,6 +70,9 @@ templates = Jinja2Templates(directory=MODULE_DIR / "templates")
 
 # Initialize task manager
 task_manager = TaskManager(max_age_hours=1)
+
+# Include AG-UI protocol router for CopilotKit compatibility
+app.include_router(agui_router)
 
 
 @app.get("/")

@@ -40,6 +40,9 @@ dependencies = [
     "jinja2>=3.1.0",
     "aiofiles>=23.0.0",
     "sse-starlette>=3.0.3",
+    # AG-UI Protocol and CopilotKit support
+    "ag-ui-langgraph>=0.1.0",
+    "copilotkit>=0.1.0",
 ]
 
 [project.optional-dependencies]

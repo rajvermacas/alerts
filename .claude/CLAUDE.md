@@ -292,6 +292,68 @@ alerts-orchestrator-server --port 10000 \
 - **Insider Trading**: Alert types containing "insider", "pre-announcement", "mnpi", "material"
 - **Wash Trade**: Alert types containing "wash", "self-trade", "matched order", "circular"
 
+### AG-UI Protocol Support (CopilotKit Compatible)
+
+The system supports the AG-UI (Agent-User Interaction) protocol for real-time streaming to frontend applications compatible with CopilotKit.
+
+**AG-UI Module:**
+```
+src/alerts/agui/
+├── __init__.py          # Module exports
+├── events.py            # Pydantic models for all 17 AG-UI event types
+├── adapter.py           # Converts A2A/StreamEvent to AG-UI format
+└── router.py            # FastAPI endpoints for AG-UI streaming
+```
+
+**Endpoints:**
+- `POST /agui/run` - Start analysis with file upload, returns SSE stream
+- `POST /agui/message/stream` - CopilotKit-compatible message streaming
+- `GET /agui/info` - Protocol capabilities and event types
+
+**AG-UI Event Types:**
+- **Lifecycle**: `RUN_STARTED`, `RUN_FINISHED`, `RUN_ERROR`, `STEP_STARTED`, `STEP_FINISHED`
+- **Text Messages**: `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT`, `TEXT_MESSAGE_END`
+- **Tool Calls**: `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END`
+- **State**: `STATE_SNAPSHOT`, `STATE_DELTA` (RFC 6902 JSON Patch)
+- **Special**: `CUSTOM`
+
+**Event Mapping:**
+The AGUIAdapter converts internal events to AG-UI format:
+```
+Internal Event          →    AG-UI Events
+─────────────────────────────────────────────
+analysis_started        →    RUN_STARTED, STATE_SNAPSHOT
+tool_started           →    TOOL_CALL_START, TEXT_MESSAGE_*
+tool_completed         →    TOOL_CALL_END, STATE_DELTA
+agent_thinking         →    TEXT_MESSAGE_*
+evaluation_started     →    STEP_STARTED
+analysis_complete      →    STATE_SNAPSHOT, RUN_FINISHED
+error                  →    RUN_ERROR
+```
+
+**CopilotKit Integration:**
+```javascript
+// React frontend example with CopilotKit
+import { useCoAgent } from "@copilotkit/react-core";
+
+function AlertAnalyzer() {
+  const { state, run } = useCoAgent({
+    url: "http://localhost:8080/agui/message/stream",
+    name: "alert-analyzer",
+  });
+
+  return (
+    <button onClick={() => run({ message: "/path/to/alert.xml" })}>
+      Analyze Alert
+    </button>
+  );
+}
+```
+
+**References:**
+- AG-UI Protocol: https://docs.ag-ui.com/introduction
+- CopilotKit: https://docs.copilotkit.ai
+
 ### LangGraph Workflow
 
 ```
