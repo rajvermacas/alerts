@@ -1,0 +1,75 @@
+Current scenario:
+Right now all the tools mentioned in @src/alerts/agents/insider_trading/agent.py#L154-163 get all the data they need from within the tool itself. Like for example: 
+@src/alerts/tools/common/trader_profile.py - TraderProfileTool loads csv from within the tool.
+And the same is true for all the tools.
+
+Target state:
+I want to pass all the information (needed for insider trading agent for all its functions) to orchestrator agent and let it pass those information to the insider trading agent and insider trading agent should parse the information where it will be written clearly that which information is required for which tool and then those tools should be called with the required information.
+-----------------------
+
+Q1: Data Aggregation Responsibility
+
+Data aggregation should be done even before the execution reaches orchestrator agent. 
+There is another layer which calls orchestrator. This upstream layer is a big data processing layer. It should be responsible for data aggregation and should pass the aggregated data to orchestrator agent because the trade data is too large to be processed by orchestrator agent.
+
+Right now even though the upstream layer is a UI but in target state it should be a big data processing layer.
+
+Q3: Data Mapping Declaration
+When the big data processing layer passes the aggregated data to orchestrator agent, it should pass the mapping of data to tools as well. So along with trader data history and market news of the stock, it will clearly mention which information needed for which tool.
+
+Even though this is an agentic solution the workflow steps that first market news analysis, market volatility, trader profile analysis, trader history analysis etc is a deterministic flow and it should be called by writing code at compile time rather than relying on the LLM's capability to call tools using system prompt.
+
+And the upstream big data layer is also written by us only we know which tools need which information.
+
+Q5: Backward Compatibility
+- Option B: No, strict injection only (fail-fast per your guidelines)
+
+
+1. Caching Strategy: If Orchestrator loads all data upfront, should it cache for repeated analyses of similar alerts? (e.g., same trader across multiple alerts) - No
+
+ 4. Progress Visibility: Currently tools emit progress events. With centralized data loading, should Orchestrator emit "data_loaded" events for the timeline UI? - NO
+  5. Data Size Limits: Some CSVs might be large. Should there be a preprocessing/filtering step before passing to agent? - NO
+
+6. Wash Trade Agent: Should this same pattern apply? It has different tool-data mappings. Do we want a unified approach? - Yes I want a unified approach. for wash trade the big data layer will itself provide with only those information against the tool mapping which is required by the wash trade agent.
+
+7. Dynamic Tool Selection: If data determines which tools are relevant (e.g., no peer trades data → skip peer_trades tool), should this be agent's decision or Orchestrator's? - No dynamic tool calling is allowed
+-----------------------
+First of all Big data layer is not to be developed by us. It is owned by a different team. We just need to provide the contract to the big data layer team. 
+
+Q1: Tool Execution - Still Use LangGraph or Plain Python Loop?
+
+Plain loop for tools, LangGraph only for final synthesis - What does it mean? do we really need a langgraph agent here? or a simple method with LLM interpretation?
+
+Q2: Tool-Level LLM Interpretation - Keep or Remove? - Keep as it is the key.
+The Big data layer will only provide the raw information. It won't provide any insight as such. Insights has to come from the LLM called from within the tool.
+
+Q3: ToolDataBundle Schema - What Structure?
+I have a question:
+In # Option B: Typed with metadata
+  ToolDataBundle = {
+      "tools": {
+          "alert_reader": ToolInput(data="...", format="xml"),
+          "trader_profile": ToolInput(data="...", format="csv", params={"trader_id": "T123"}),
+          ...
+      },
+      "execution_order": ["alert_reader", "market_news", "market_data", ...]
+  }
+
+As per my understanding the big data layer will provide the data through network calls. In a network api call how would the ToolInput class would get resolved? 
+My understanding is through network we can only send string. Is there any gap in my understanding?
+
+Q4: Where Does Big Data Layer Live? - It lives in a different team. 
+
+Question: For this POC, should Big Data Layer be:
+A mock/stub that simulates the interface. Just to check if our contracts and implementation is working fine. Once we are confident our solution works we will provide the contract with the big data layer team.
+
+Important note: peer_trades is not required anymore.
+----------------------------
+
+I am comfortable dropping langgraph for this agent.
+For deterministic flow also keep sending emitting the SSE events.
+Execution Order - Hardcoded in each agent class
+
+What is the difference between Option A json schema and Option B OpenAPI/Swager spec?
+
+----------------------------
