@@ -1,6 +1,6 @@
 """Tools package for SMARTS Alert Analyzer.
 
-This package contains all tools used by the LangGraph agents
+This package contains all tools used by the deterministic agents
 to gather and interpret evidence for alert analysis.
 
 Tools are organized into:

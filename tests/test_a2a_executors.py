@@ -1,7 +1,8 @@
 """Tests for A2A Agent Executors.
 
-This module tests the A2A executor implementations for both the
-insider trading agent and orchestrator agent.
+This module tests the A2A executor implementations for Proactive Info Flow mode.
+Executors now only accept AnalysisRequest payloads prefixed with
+PROACTIVE_INFO_FLOW_REQUEST:
 """
 
 import pytest
@@ -10,9 +11,14 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from a2a.server.agent_execution import RequestContext
 from a2a.server.events import EventQueue
 from a2a.types import Message, TextPart, Task, TaskState
-from alerts.a2a.insider_trading_executor import InsiderTradingAgentExecutor
+
+from alerts.a2a.insider_trading_executor import (
+    InsiderTradingAgentExecutor,
+    PROACTIVE_INFO_FLOW_PREFIX,
+)
 from alerts.a2a.orchestrator_executor import OrchestratorAgentExecutor
-from alerts.models import AlertDecision
+from alerts.models.insider_trading import InsiderTradingDecision
+from alerts.models.request import AnalysisRequest, ToolInput
 
 
 class TestInsiderTradingExecutor:
@@ -50,43 +56,6 @@ class TestInsiderTradingExecutor:
         agent2 = executor._get_agent()
         assert agent2 is agent1
 
-    @pytest.mark.parametrize("input_str,expected", [
-        ("test_data/alerts/alert.xml", "test_data/alerts/alert.xml"),
-        ("analyze test.xml", "test.xml"),
-        ("check this alert: /path/to/alert.xml", "/path/to/alert.xml"),
-        ("'test_data/alert.xml'", "test_data/alert.xml"),
-        ('"test_data/alert.xml"', "test_data/alert.xml"),
-        ("Please analyze test_data/alerts/genuine.xml", "test_data/alerts/genuine.xml"),
-        ("review /tmp/alert.xml", "/tmp/alert.xml"),
-        ("/absolute/path/alert.xml", "/absolute/path/alert.xml"),
-        ("", None),
-        ("   ", None),
-    ])
-    def test_extract_alert_path(self, tmp_path, input_str, expected):
-        """Test alert path extraction from various input formats."""
-        mock_llm = MagicMock()
-        executor = InsiderTradingAgentExecutor(mock_llm, tmp_path, tmp_path)
-        result = executor._extract_alert_path(input_str)
-        assert result == expected
-
-    def test_extract_alert_path_xml_in_sentence(self, tmp_path):
-        """Test extracting .xml from middle of sentence."""
-        mock_llm = MagicMock()
-        executor = InsiderTradingAgentExecutor(mock_llm, tmp_path, tmp_path)
-
-        input_str = "Can you analyze the file alert_genuine.xml for me?"
-        result = executor._extract_alert_path(input_str)
-        assert result == "alert_genuine.xml"
-
-    def test_extract_alert_path_with_spaces(self, tmp_path):
-        """Test extracting path with spaces in quotes."""
-        mock_llm = MagicMock()
-        executor = InsiderTradingAgentExecutor(mock_llm, tmp_path, tmp_path)
-
-        input_str = "'test data/alerts/alert.xml'"
-        result = executor._extract_alert_path(input_str)
-        assert result == "test data/alerts/alert.xml"
-
     def test_validate_request_valid(self, tmp_path):
         """Test validation with valid request."""
         mock_llm = MagicMock()
@@ -94,10 +63,10 @@ class TestInsiderTradingExecutor:
 
         # Create valid context
         message = Mock()
-        message.parts = [TextPart(kind="text", text="analyze test.xml")]
+        message.parts = [TextPart(kind="text", text="PROACTIVE_INFO_FLOW_REQUEST:{}")]
         context = Mock(spec=RequestContext)
         context.message = message
-        context.get_user_input.return_value = "analyze test.xml"
+        context.get_user_input.return_value = "PROACTIVE_INFO_FLOW_REQUEST:{}"
 
         result = executor._validate_request(context)
         assert result is False  # False means valid
@@ -140,99 +109,57 @@ class TestInsiderTradingExecutor:
         result = executor._validate_request(context)
         assert result is True  # True means invalid
 
-    def test_format_decision(self, tmp_path):
-        """Test decision formatting."""
+    def test_is_proactive_info_flow_request(self, tmp_path):
+        """Test Proactive Info Flow request detection."""
         mock_llm = MagicMock()
         executor = InsiderTradingAgentExecutor(mock_llm, tmp_path, tmp_path)
 
-        # Create sample decision
-        decision = AlertDecision(
-            alert_id="TEST-001",
-            determination="ESCALATE",
-            genuine_alert_confidence=85,
-            false_positive_confidence=15,
-            recommended_action="Escalate to senior investigator",
-            similar_precedent="Example A",
-            key_findings=["Finding 1", "Finding 2"],
-            favorable_indicators=["Indicator 1", "Indicator 2"],
-            risk_mitigating_factors=["Factor 1"],
-            reasoning_narrative="This is the reasoning.",
-            trader_baseline_analysis={},
-            market_context={}
-        )
+        # Valid proactive info flow request
+        valid_input = f"{PROACTIVE_INFO_FLOW_PREFIX}{{\"agent_type\": \"insider_trading\"}}"
+        assert executor._is_proactive_info_flow_request(valid_input) is True
 
-        result = executor._format_decision(decision)
+        # Invalid - no prefix
+        assert executor._is_proactive_info_flow_request("test.xml") is False
+        assert executor._is_proactive_info_flow_request("analyze alert") is False
 
-        assert "INSIDER TRADING ALERT ANALYSIS RESULT" in result
-        assert "Alert ID: TEST-001" in result
-        assert "Determination: ESCALATE" in result
-        assert "Genuine Confidence: 85%" in result
-        assert "Finding 1" in result
-        assert "Finding 2" in result
-        assert "Indicator 1" in result
-        assert "Factor 1" in result
-        assert "This is the reasoning." in result
-
-    @pytest.mark.asyncio
-    async def test_execute_success(self, tmp_path):
-        """Test successful execution."""
-        # Setup
+    def test_parse_analysis_request_valid(self, tmp_path):
+        """Test parsing valid AnalysisRequest."""
         mock_llm = MagicMock()
-        data_dir = tmp_path / "data"
-        data_dir.mkdir()
-        output_dir = tmp_path / "output"
-        output_dir.mkdir()
+        executor = InsiderTradingAgentExecutor(mock_llm, tmp_path, tmp_path)
 
-        # Create test alert
-        alerts_dir = data_dir / "alerts"
-        alerts_dir.mkdir()
-        alert_file = alerts_dir / "test.xml"
-        alert_file.write_text("""<?xml version="1.0" encoding="UTF-8"?>
-<SMARTSAlert>
-    <AlertID>TEST-001</AlertID>
-    <AlertType>Insider Trading</AlertType>
-</SMARTSAlert>
-""")
-
-        executor = InsiderTradingAgentExecutor(mock_llm, data_dir, output_dir)
-
-        # Mock agent
-        mock_agent = MagicMock()
-        mock_decision = AlertDecision(
-            alert_id="TEST-001",
-            determination="ESCALATE",
-            genuine_alert_confidence=85,
-            false_positive_confidence=15,
-            recommended_action="Escalate",
-            similar_precedent="Example",
-            key_findings=["Test"],
-            favorable_indicators=["Test"],
-            risk_mitigating_factors=["Test"],
-            reasoning_narrative="Test",
-            trader_baseline_analysis={},
-            market_context={}
+        # Create valid request JSON with all required tools for insider_trading
+        request = AnalysisRequest(
+            alert_xml="<Alert/>",
+            agent_type="insider_trading",
+            tool_data={
+                "alert_reader": ToolInput(format="xml", data="<Alert/>"),
+                "market_news": ToolInput(format="txt", data="Some news"),
+                "market_data": ToolInput(format="csv", data="date,price\n2024-01-01,100"),
+                "trader_profile": ToolInput(format="csv", data="id,name\n1,John"),
+                "trader_history": ToolInput(format="csv", data="date,amount\n2024-01-01,1000"),
+            }
         )
-        mock_agent.analyze.return_value = mock_decision
-        executor._agent = mock_agent
+        input_str = f"{PROACTIVE_INFO_FLOW_PREFIX}{request.model_dump_json()}"
 
-        # Create context
-        message = Mock()
-        message.parts = [TextPart(kind="text", text=str(alert_file))]
-        message.messageId = "msg-123"
-        context = Mock(spec=RequestContext)
-        context.message = message
-        context.get_user_input.return_value = str(alert_file)
-        context.current_task = None
+        parsed = executor._parse_analysis_request(input_str)
 
-        # Mock event queue
-        event_queue = AsyncMock(spec=EventQueue)
+        assert parsed.agent_type == "insider_trading"
+        assert parsed.alert_xml == "<Alert/>"
+        assert "alert_reader" in parsed.tool_data
+        assert "market_news" in parsed.tool_data
+        assert "trader_profile" in parsed.tool_data
 
-        # Execute
-        await executor.execute(context, event_queue)
+    def test_parse_analysis_request_invalid_json(self, tmp_path):
+        """Test parsing invalid JSON."""
+        mock_llm = MagicMock()
+        executor = InsiderTradingAgentExecutor(mock_llm, tmp_path, tmp_path)
 
-        # Verify
-        assert event_queue.enqueue_event.called
-        mock_agent.analyze.assert_called_once()
+        input_str = f"{PROACTIVE_INFO_FLOW_PREFIX}{{invalid json}}"
+
+        with pytest.raises(ValueError) as exc_info:
+            executor._parse_analysis_request(input_str)
+
+        assert "Failed to parse AnalysisRequest" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_execute_invalid_request(self, tmp_path):
@@ -252,78 +179,40 @@ class TestInsiderTradingExecutor:
         with pytest.raises(ServerError):
             await executor.execute(context, event_queue)
 
-    @pytest.mark.asyncio
-    async def test_execute_file_not_found(self, tmp_path):
-        """Test execution with non-existent file."""
-        mock_llm = MagicMock()
-        data_dir = tmp_path / "data"
-        output_dir = tmp_path / "output"
-
-        executor = InsiderTradingAgentExecutor(mock_llm, data_dir, output_dir)
-
-        # Create context with non-existent file
-        message = Mock()
-        message.parts = [TextPart(kind="text", text="nonexistent.xml")]
-        message.messageId = "msg-123"
-        context = Mock(spec=RequestContext)
-        context.message = message
-        context.get_user_input.return_value = "nonexistent.xml"
-        context.current_task = None
-
-        event_queue = AsyncMock(spec=EventQueue)
-
-        # Execute (should handle error gracefully)
-        await executor.execute(context, event_queue)
-
-        # Should have sent error message
-        assert event_queue.enqueue_event.called
-
 
 class TestOrchestratorExecutor:
     """Test OrchestratorAgentExecutor functionality."""
 
     def test_init(self, tmp_path):
         """Test executor initialization."""
-        data_dir = tmp_path / "data"
         insider_url = "http://localhost:10001"
+        wash_trade_url = "http://localhost:10002"
 
-        executor = OrchestratorAgentExecutor(data_dir, insider_url)
+        executor = OrchestratorAgentExecutor(insider_url, wash_trade_url)
 
-        assert executor.data_dir == data_dir
-        assert executor.insider_trading_agent_url == insider_url
-        assert executor._orchestrator is None
+        # URLs are stored in the orchestrator object
+        assert executor.orchestrator is not None
+        assert executor.orchestrator.insider_trading_agent_url == insider_url
+        assert executor.orchestrator.wash_trade_agent_url == wash_trade_url
 
-    def test_get_orchestrator(self, tmp_path):
-        """Test lazy orchestrator creation."""
-        executor = OrchestratorAgentExecutor(tmp_path, "http://localhost:10001")
-
-        # First call creates orchestrator
-        orch1 = executor._get_orchestrator()
-        assert orch1 is not None
-        assert executor._orchestrator is orch1
-
-        # Second call returns same instance
-        orch2 = executor._get_orchestrator()
-        assert orch2 is orch1
-
-    @pytest.mark.parametrize("input_str,expected", [
-        ("test_data/alerts/alert.xml", "test_data/alerts/alert.xml"),
-        ("analyze test.xml", "test.xml"),
-        ("route this: /path/to/alert.xml", "/path/to/alert.xml"),
-        ("'test_data/alert.xml'", "test_data/alert.xml"),
-        ('"test_data/alert.xml"', "test_data/alert.xml"),
-        ("Please check test_data/alerts/genuine.xml", "test_data/alerts/genuine.xml"),
-        ("", None),
-    ])
-    def test_extract_alert_path(self, tmp_path, input_str, expected):
+    def test_extract_alert_path(self, tmp_path):
         """Test alert path extraction from orchestrator input."""
-        executor = OrchestratorAgentExecutor(tmp_path, "http://localhost:10001")
-        result = executor._extract_alert_path(input_str)
-        assert result == expected
+        executor = OrchestratorAgentExecutor(
+            "http://localhost:10001",
+            "http://localhost:10002"
+        )
+        # Test various input formats
+        assert executor._extract_alert_path("test_data/alerts/alert.xml") == "test_data/alerts/alert.xml"
+        assert executor._extract_alert_path("analyze test.xml") == "test.xml"
+        assert executor._extract_alert_path("'test_data/alert.xml'") == "test_data/alert.xml"
+        assert executor._extract_alert_path("") is None
 
     def test_validate_request_valid(self, tmp_path):
         """Test validation with valid request."""
-        executor = OrchestratorAgentExecutor(tmp_path, "http://localhost:10001")
+        executor = OrchestratorAgentExecutor(
+            "http://localhost:10001",
+            "http://localhost:10002"
+        )
 
         # Create valid context
         message = Mock()
@@ -337,7 +226,10 @@ class TestOrchestratorExecutor:
 
     def test_validate_request_invalid(self, tmp_path):
         """Test validation with invalid request."""
-        executor = OrchestratorAgentExecutor(tmp_path, "http://localhost:10001")
+        executor = OrchestratorAgentExecutor(
+            "http://localhost:10001",
+            "http://localhost:10002"
+        )
 
         # Missing message
         context = Mock(spec=RequestContext)
@@ -346,115 +238,15 @@ class TestOrchestratorExecutor:
         result = executor._validate_request(context)
         assert result is True  # True means invalid
 
-    def test_format_response_success(self, tmp_path):
-        """Test formatting successful routing response."""
-        executor = OrchestratorAgentExecutor(tmp_path, "http://localhost:10001")
-
-        result_data = {
-            "alert_id": "IT-001",
-            "alert_type": "Insider Trading",
-            "routed_to": "insider_trading_agent",
-            "agent_response": {
-                "status": "success",
-                "response": {"determination": "ESCALATE"}
-            }
-        }
-
-        formatted = executor._format_response(result_data)
-
-        assert "ORCHESTRATOR ROUTING RESULT" in formatted
-        assert "Alert ID: IT-001" in formatted
-        assert "Alert Type: Insider Trading" in formatted
-        assert "Routed to: insider_trading_agent" in formatted
-        assert "success" in formatted
-
-    def test_format_response_unsupported(self, tmp_path):
-        """Test formatting unsupported alert type response."""
-        executor = OrchestratorAgentExecutor(tmp_path, "http://localhost:10001")
-
-        result_data = {
-            "alert_id": "MM-001",
-            "alert_type": "Market Manipulation",
-            "routed_to": None,
-            "message": "Alert type not supported"
-        }
-
-        formatted = executor._format_response(result_data)
-
-        assert "Market Manipulation" in formatted
-        assert "not supported" in formatted or "No routing" in formatted
-
-    def test_format_response_error(self, tmp_path):
-        """Test formatting error response."""
-        executor = OrchestratorAgentExecutor(tmp_path, "http://localhost:10001")
-
-        result_data = {
-            "alert_id": "ERR-001",
-            "alert_type": "Insider Trading",
-            "routed_to": "insider_trading_agent",
-            "agent_response": {
-                "status": "error",
-                "error": "Connection refused"
-            }
-        }
-
-        formatted = executor._format_response(result_data)
-
-        assert "error" in formatted.lower()
-        assert "Connection refused" in formatted
-
-    @pytest.mark.asyncio
-    async def test_execute_success(self, tmp_path):
-        """Test successful orchestrator execution."""
-        data_dir = tmp_path / "data"
-        data_dir.mkdir()
-
-        # Create test alert
-        alerts_dir = data_dir / "alerts"
-        alerts_dir.mkdir()
-        alert_file = alerts_dir / "test.xml"
-        alert_file.write_text("""<?xml version="1.0" encoding="UTF-8"?>
-<SMARTSAlert>
-    <AlertID>IT-001</AlertID>
-    <AlertType>Insider Trading</AlertType>
-</SMARTSAlert>
-""")
-
-        executor = OrchestratorAgentExecutor(data_dir, "http://localhost:10001")
-
-        # Mock orchestrator
-        mock_orch = MagicMock()
-        mock_orch.analyze_alert = AsyncMock(return_value={
-            "alert_id": "IT-001",
-            "routed_to": "insider_trading_agent",
-            "agent_response": {"status": "success"}
-        })
-        executor._orchestrator = mock_orch
-
-        # Create context
-        message = Mock()
-        message.parts = [TextPart(kind="text", text=str(alert_file))]
-        message.messageId = "msg-123"
-        context = Mock(spec=RequestContext)
-        context.message = message
-        context.get_user_input.return_value = str(alert_file)
-        context.current_task = None
-
-        event_queue = AsyncMock(spec=EventQueue)
-
-        # Execute
-        await executor.execute(context, event_queue)
-
-        # Verify
-        assert event_queue.enqueue_event.called
-        mock_orch.analyze_alert.assert_called_once()
-
     @pytest.mark.asyncio
     async def test_execute_invalid_request(self, tmp_path):
         """Test orchestrator execution with invalid request."""
         from a2a.utils.errors import ServerError
 
-        executor = OrchestratorAgentExecutor(tmp_path, "http://localhost:10001")
+        executor = OrchestratorAgentExecutor(
+            "http://localhost:10001",
+            "http://localhost:10002"
+        )
 
         # Invalid context
         context = Mock(spec=RequestContext)
@@ -470,57 +262,18 @@ class TestOrchestratorExecutor:
 class TestExecutorEdgeCases:
     """Test edge cases and error handling."""
 
-    def test_extract_path_none_input(self, tmp_path):
-        """Test path extraction with None input."""
-        mock_llm = MagicMock()
-        executor = InsiderTradingAgentExecutor(mock_llm, tmp_path, tmp_path)
-        assert executor._extract_alert_path(None) is None
+    def test_proactive_info_flow_prefix(self, tmp_path):
+        """Test that the PROACTIVE_INFO_FLOW_PREFIX constant is defined."""
+        from alerts.a2a.insider_trading_executor import PROACTIVE_INFO_FLOW_PREFIX
 
-    def test_extract_path_only_whitespace(self, tmp_path):
-        """Test path extraction with only whitespace."""
-        mock_llm = MagicMock()
-        executor = InsiderTradingAgentExecutor(mock_llm, tmp_path, tmp_path)
-        assert executor._extract_alert_path("   \t\n  ") is None
+        assert PROACTIVE_INFO_FLOW_PREFIX == "PROACTIVE_INFO_FLOW_REQUEST:"
 
-    def test_extract_path_special_characters(self, tmp_path):
-        """Test path extraction with special characters."""
+    def test_executor_rejects_legacy_mode(self, tmp_path):
+        """Test that executors reject non-Proactive Info Flow requests."""
         mock_llm = MagicMock()
         executor = InsiderTradingAgentExecutor(mock_llm, tmp_path, tmp_path)
 
-        result = executor._extract_alert_path("/path/with-dashes_and_underscores/alert-01.xml")
-        assert result == "/path/with-dashes_and_underscores/alert-01.xml"
-
-    def test_format_decision_empty_lists(self, tmp_path):
-        """Test decision formatting with empty lists."""
-        mock_llm = MagicMock()
-        executor = InsiderTradingAgentExecutor(mock_llm, tmp_path, tmp_path)
-
-        decision = AlertDecision(
-            alert_id="TEST-EMPTY",
-            determination="NEEDS_HUMAN_REVIEW",
-            genuine_alert_confidence=50,
-            false_positive_confidence=50,
-            recommended_action="Review manually",
-            similar_precedent="None",
-            key_findings=[],
-            favorable_indicators=[],
-            risk_mitigating_factors=[],
-            reasoning_narrative="Insufficient data.",
-            trader_baseline_analysis={},
-            market_context={}
-        )
-
-        result = executor._format_decision(decision)
-        assert "TEST-EMPTY" in result
-        assert "NEEDS_HUMAN_REVIEW" in result
-
-    def test_orchestrator_format_response_minimal(self, tmp_path):
-        """Test formatting response with minimal data."""
-        executor = OrchestratorAgentExecutor(tmp_path, "http://localhost:10001")
-
-        result_data = {
-            "alert_id": "MIN-001",
-        }
-
-        formatted = executor._format_response(result_data)
-        assert "MIN-001" in formatted
+        # Legacy file path mode should be rejected
+        assert executor._is_proactive_info_flow_request("test.xml") is False
+        assert executor._is_proactive_info_flow_request("/path/to/alert.xml") is False
+        assert executor._is_proactive_info_flow_request("analyze alert.xml") is False

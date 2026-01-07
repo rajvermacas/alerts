@@ -213,8 +213,8 @@ def main(host: str, port: int, verbose: bool) -> None:
             name="Insider Trading Alert Analyzer",
             description=(
                 "An intelligent compliance filter that analyzes SMARTS surveillance "
-                "alerts for potential insider trading. Uses a fully agentic LLM-based "
-                "approach with LangGraph, where each tool calls an LLM internally to "
+                "alerts for potential insider trading. Uses a deterministic agent with "
+                "fixed tool execution order, where each tool calls an LLM internally to "
                 "interpret data rather than returning raw data."
             ),
             url=f"http://{host}:{port}/",

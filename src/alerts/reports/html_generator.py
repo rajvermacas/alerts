@@ -88,11 +88,35 @@ class HTMLReportGenerator:
             FileNotFoundError: If XML file doesn't exist
             ValueError: If XML parsing fails
         """
-        alert_summary = cls._parse_alert_xml(alert_xml_path)
+        alert_summary = cls._parse_alert_xml_file(alert_xml_path)
+        return cls(alert_summary, decision)
+
+    @classmethod
+    def from_xml_string(
+        cls,
+        xml_content: str,
+        decision: AlertDecision,
+    ) -> "HTMLReportGenerator":
+        """Create generator from XML string content.
+
+        This method is used in Proactive Info Flow mode where the
+        alert XML is provided as a string rather than a file path.
+
+        Args:
+            xml_content: Raw XML content as string
+            decision: AI-generated analysis decision
+
+        Returns:
+            HTMLReportGenerator instance
+
+        Raises:
+            ValueError: If XML parsing fails
+        """
+        alert_summary = cls._parse_alert_xml_string(xml_content)
         return cls(alert_summary, decision)
 
     @staticmethod
-    def _parse_alert_xml(xml_path: Path) -> AlertSummary:
+    def _parse_alert_xml_file(xml_path: Path) -> AlertSummary:
         """Parse SMARTS alert XML file into AlertSummary.
 
         Args:
@@ -153,6 +177,70 @@ class HTMLReportGenerator:
 
         except ET.ParseError as e:
             raise ValueError(f"Failed to parse XML: {e}") from e
+
+    @staticmethod
+    def _parse_alert_xml_string(xml_content: str) -> AlertSummary:
+        """Parse SMARTS alert XML string into AlertSummary.
+
+        This is used in Proactive Info Flow mode where XML content
+        is provided as a string rather than read from a file.
+
+        Args:
+            xml_content: Raw XML content as string
+
+        Returns:
+            AlertSummary with parsed data
+
+        Raises:
+            ValueError: If XML is malformed or empty
+        """
+        logger.info("Parsing alert XML from string content")
+
+        if not xml_content or not xml_content.strip():
+            raise ValueError("XML content is empty")
+
+        try:
+            root = ET.fromstring(xml_content)
+
+            # Helper function to safely get text from element
+            def get_text(path: str, default: str = "") -> str:
+                elem = root.find(path)
+                return elem.text if elem is not None and elem.text else default
+
+            def get_int(path: str, default: int = 0) -> int:
+                text = get_text(path)
+                return int(text) if text else default
+
+            def get_float(path: str, default: float = 0.0) -> float:
+                text = get_text(path)
+                return float(text) if text else default
+
+            # Parse all fields
+            return AlertSummary(
+                alert_id=get_text("AlertID", "UNKNOWN"),
+                alert_type=get_text("AlertType", "Unknown"),
+                rule_violated=get_text("RuleViolated", "Unknown"),
+                generated_timestamp=get_text("GeneratedTimestamp", "Unknown"),
+                trader_id=get_text("Trader/TraderID", "Unknown"),
+                trader_name=get_text("Trader/Name", "Unknown"),
+                trader_department=get_text("Trader/Department", "Unknown"),
+                symbol=get_text("SuspiciousActivity/Symbol", "Unknown"),
+                trade_date=get_text("SuspiciousActivity/TradeDate", "Unknown"),
+                side=get_text("SuspiciousActivity/Side", "Unknown"),
+                quantity=get_int("SuspiciousActivity/Quantity"),
+                price=get_float("SuspiciousActivity/Price"),
+                total_value=get_float("SuspiciousActivity/TotalValue"),
+                anomaly_score=get_int("AnomalyIndicators/AnomalyScore"),
+                confidence_level=get_text("AnomalyIndicators/ConfidenceLevel", "Unknown"),
+                temporal_proximity=get_text("AnomalyIndicators/TemporalProximity", "Unknown"),
+                estimated_profit=get_float("AnomalyIndicators/EstimatedProfit"),
+                related_event_type=get_text("RelatedEvent/EventType") or None,
+                related_event_date=get_text("RelatedEvent/EventDate") or None,
+                related_event_description=get_text("RelatedEvent/EventDescription") or None,
+            )
+
+        except ET.ParseError as e:
+            raise ValueError(f"Failed to parse XML string: {e}") from e
 
     def generate(self) -> str:
         """Generate complete HTML report.

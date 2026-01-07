@@ -1,115 +1,100 @@
 """Market data tool for SMARTS Alert Analyzer.
 
-This tool queries market price and volume data to understand
+This tool analyzes market price and volume data to understand
 market conditions around the suspicious trade. This is a shared tool
 used by multiple agent types.
+
+In Proactive Info Flow mode, CSV content is injected via execute(data=...).
 """
 
 import logging
 from pathlib import Path
 from typing import Any, Optional
 
-from alerts.tools.common.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool, DataLoadingMixin, DataFormat
 
 logger = logging.getLogger(__name__)
 
 
 class MarketDataTool(BaseTool, DataLoadingMixin):
-    """Tool to query and analyze market data around a trade date.
+    """Tool to analyze market data around a trade date.
 
-    This tool retrieves price, volume, and volatility data for a symbol
-    and uses the LLM to interpret market conditions and price movements.
+    This tool takes CSV data (injected in Proactive Info Flow mode)
+    containing market price/volume data and uses the LLM to interpret
+    market conditions and price movements.
+
+    Expected format: csv
     """
 
-    def __init__(self, llm: Any, data_dir: Path) -> None:
+    # Expected data format for this tool
+    expected_format: DataFormat = "csv"
+
+    def __init__(self, llm: Any, data_dir: Path | None = None) -> None:
         """Initialize the market data tool.
 
         Args:
             llm: LangChain LLM instance
-            data_dir: Path to data directory
+            data_dir: DEPRECATED - kept for backward compatibility only
         """
         super().__init__(
             llm=llm,
             name="query_market_data",
             description=(
-                "Query market price and volume data for a symbol within a date range. "
-                "Input: symbol, start_date, end_date. "
+                "Analyze market price and volume data for a symbol. "
                 "Returns LLM-interpreted analysis of price movements, volatility, "
                 "and volume patterns around the trade date."
-            )
+            ),
+            expected_format="csv"
         )
-        self.data_dir = data_dir
-        self.market_data_file = data_dir / "market_data.csv"
-        self.logger.info(f"Market data tool initialized with file: {self.market_data_file}")
+        # Keep data_dir for backward compatibility but log deprecation
+        if data_dir is not None:
+            self.data_dir = data_dir
+            self.market_data_file = data_dir / "market_data.csv"
+            self.logger.warning(
+                "data_dir parameter is deprecated. In Proactive Info Flow mode, "
+                "data is injected via execute(data=...)."
+            )
+        else:
+            self.data_dir = None
+            self.market_data_file = None
+
+        self.logger.info("Market data tool initialized (Proactive Info Flow mode)")
 
     def _validate_input(self, **kwargs: Any) -> Optional[str]:
         """Validate input parameters.
 
+        In Proactive Info Flow mode, data is injected directly.
+        Optional symbol, start_date, end_date can be provided for context.
+
         Args:
-            **kwargs: Must contain 'symbol', 'start_date', 'end_date'
+            **kwargs: Optional parameters for context
 
         Returns:
             Error message if invalid, None if valid
         """
-        required = ["symbol", "start_date", "end_date"]
-        for field in required:
-            if not kwargs.get(field):
-                return f"{field} is required"
-
-        if not self.market_data_file.exists():
-            return f"Market data file not found: {self.market_data_file}"
-
+        # No validation needed in Proactive Info Flow mode
+        # Data validation is handled by execute()
         return None
-
-    def _load_data(self, **kwargs: Any) -> str:
-        """Load market data for the symbol.
-
-        Args:
-            **kwargs: Must contain 'symbol', 'start_date', 'end_date'
-
-        Returns:
-            Filtered CSV content
-        """
-        symbol = kwargs["symbol"]
-        start_date = kwargs["start_date"]
-        end_date = kwargs["end_date"]
-
-        self.logger.info(
-            f"Loading market data for {symbol} from {start_date} to {end_date}"
-        )
-
-        # Load full CSV
-        csv_content = self.load_csv_as_string(str(self.market_data_file))
-
-        # Filter for this symbol
-        symbol_data = self.filter_csv_by_column(csv_content, "symbol", symbol)
-
-        # Filter by date range
-        filtered_data = self.filter_csv_by_date_range(
-            symbol_data, "date", start_date, end_date
-        )
-
-        self.logger.debug(f"Filtered to {filtered_data.count(chr(10))} rows")
-
-        return filtered_data
 
     def _build_interpretation_prompt(self, raw_data: str, **kwargs: Any) -> str:
         """Build prompt for LLM to interpret market data.
 
         Args:
-            raw_data: Filtered CSV content
-            **kwargs: Contains 'symbol', 'start_date', 'end_date'
+            raw_data: CSV content with market data
+            **kwargs: Optional 'symbol', 'start_date', 'end_date' for context
 
         Returns:
             Interpretation prompt
         """
-        symbol = kwargs["symbol"]
-        start_date = kwargs["start_date"]
-        end_date = kwargs["end_date"]
+        symbol = kwargs.get("symbol", "the flagged security")
+        start_date = kwargs.get("start_date", "the relevant period")
+        end_date = kwargs.get("end_date", "")
+
+        date_range = f"from {start_date} to {end_date}" if end_date else f"around {start_date}"
 
         return f"""You are a compliance analyst reviewing market data for an insider trading investigation.
 
-Analyze the following market data for {symbol} from {start_date} to {end_date}.
+Analyze the following market data for {symbol} {date_range}.
 
 **Data Columns:** symbol, date, open, high, low, close, volume, vix
 

@@ -122,11 +122,35 @@ class WashTradeHTMLReportGenerator:
             FileNotFoundError: If XML file doesn't exist
             ValueError: If XML parsing fails
         """
-        alert_summary = cls._parse_wash_trade_xml(alert_xml_path)
+        alert_summary = cls._parse_wash_trade_xml_file(alert_xml_path)
+        return cls(alert_summary, decision)
+
+    @classmethod
+    def from_xml_string(
+        cls,
+        xml_content: str,
+        decision: WashTradeDecision,
+    ) -> "WashTradeHTMLReportGenerator":
+        """Create generator from XML string content.
+
+        This method is used in Proactive Info Flow mode where the
+        alert XML is provided as a string rather than a file path.
+
+        Args:
+            xml_content: Raw XML content as string
+            decision: AI-generated wash trade analysis decision
+
+        Returns:
+            WashTradeHTMLReportGenerator instance
+
+        Raises:
+            ValueError: If XML parsing fails
+        """
+        alert_summary = cls._parse_wash_trade_xml_string(xml_content)
         return cls(alert_summary, decision)
 
     @staticmethod
-    def _parse_wash_trade_xml(xml_path: Path) -> WashTradeAlertSummary:
+    def _parse_wash_trade_xml_file(xml_path: Path) -> WashTradeAlertSummary:
         """Parse wash trade alert XML file into WashTradeAlertSummary.
 
         Args:
@@ -210,6 +234,93 @@ class WashTradeHTMLReportGenerator:
 
         except ET.ParseError as e:
             raise ValueError(f"Failed to parse XML: {e}") from e
+
+    @staticmethod
+    def _parse_wash_trade_xml_string(xml_content: str) -> WashTradeAlertSummary:
+        """Parse wash trade alert XML string into WashTradeAlertSummary.
+
+        This is used in Proactive Info Flow mode where XML content
+        is provided as a string rather than read from a file.
+
+        Args:
+            xml_content: Raw XML content as string
+
+        Returns:
+            WashTradeAlertSummary with parsed data
+
+        Raises:
+            ValueError: If XML is malformed or empty
+        """
+        logger.info("Parsing wash trade alert XML from string content")
+
+        if not xml_content or not xml_content.strip():
+            raise ValueError("XML content is empty")
+
+        try:
+            root = ET.fromstring(xml_content)
+
+            # Helper function to safely get text from element
+            def get_text(path: str, default: str = "") -> str:
+                elem = root.find(path)
+                return elem.text if elem is not None and elem.text else default
+
+            def get_int(path: str, default: int = 0) -> int:
+                text = get_text(path)
+                return int(text) if text else default
+
+            # Parse trades
+            trades = []
+            for trade_elem in root.findall(".//FlaggedTrades/Trade"):
+                trade = {}
+                for child in trade_elem:
+                    trade[child.tag] = child.text
+                if trade_elem.get("sequence"):
+                    trade["sequence"] = trade_elem.get("sequence")
+                trades.append(trade)
+
+            # Parse wash indicators
+            wash_indicators = {}
+            indicators_elem = root.find(".//WashTradeIndicators")
+            if indicators_elem is not None:
+                for child in indicators_elem:
+                    wash_indicators[child.tag] = child.text
+
+            # Parse market context
+            market_context = {}
+            context_elem = root.find(".//MarketContext")
+            if context_elem is not None:
+                for child in context_elem:
+                    market_context[child.tag] = child.text
+
+            # Parse regulatory flags
+            regulatory_flags = []
+            for reg in root.findall(".//ApplicableRegulations/Regulation"):
+                if reg.text:
+                    regulatory_flags.append(reg.text)
+
+            # Parse investigation notes
+            investigation_notes = []
+            for note in root.findall(".//InvestigationNotes/Note"):
+                if note.text:
+                    investigation_notes.append(note.text)
+
+            return WashTradeAlertSummary(
+                alert_id=get_text(".//AlertID", "UNKNOWN"),
+                alert_type=get_text(".//AlertType", "WashTrade"),
+                rule_violated=get_text(".//RuleViolated", "Unknown"),
+                generated_timestamp=get_text(".//GeneratedTimestamp", "Unknown"),
+                severity=get_text(".//Severity", "MEDIUM"),
+                anomaly_score=get_int(".//AnomalyScore"),
+                confidence_level=get_text(".//ConfidenceLevel", "Unknown"),
+                trades=trades,
+                wash_indicators=wash_indicators,
+                market_context=market_context,
+                regulatory_flags=regulatory_flags,
+                investigation_notes=investigation_notes,
+            )
+
+        except ET.ParseError as e:
+            raise ValueError(f"Failed to parse XML string: {e}") from e
 
     def generate(self) -> str:
         """Generate complete HTML report.

@@ -29,6 +29,16 @@ from alerts.models.wash_trade import (
     WashTradeFewShotExample,
     WashTradeFewShotCollection,
 )
+from alerts.models.request import (
+    ToolInput,
+    AnalysisRequest,
+    AnalysisError,
+    MissingToolDataError,
+    InvalidToolFormatError,
+    INSIDER_TRADING_REQUIRED_TOOLS,
+    WASH_TRADE_REQUIRED_TOOLS,
+    TOOL_FORMAT_REQUIREMENTS,
+)
 
 __all__ = [
     # Base models
@@ -52,4 +62,13 @@ __all__ = [
     "WashTradeDecision",
     "WashTradeFewShotExample",
     "WashTradeFewShotCollection",
+    # Request/Response models (Proactive Info Flow)
+    "ToolInput",
+    "AnalysisRequest",
+    "AnalysisError",
+    "MissingToolDataError",
+    "InvalidToolFormatError",
+    "INSIDER_TRADING_REQUIRED_TOOLS",
+    "WASH_TRADE_REQUIRED_TOOLS",
+    "TOOL_FORMAT_REQUIREMENTS",
 ]

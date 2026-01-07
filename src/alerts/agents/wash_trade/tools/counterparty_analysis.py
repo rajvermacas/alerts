@@ -2,14 +2,16 @@
 
 This tool maps trade flows and detects circular patterns that
 are indicative of wash trading schemes.
+
+In Proactive Info Flow mode, CSV content is injected via execute(data=...).
 """
 
 import json
 import logging
-import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from alerts.tools.common.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool, DataLoadingMixin, DataFormat
 
 logger = logging.getLogger(__name__)
 
@@ -17,62 +19,71 @@ logger = logging.getLogger(__name__)
 class CounterpartyAnalysisTool(BaseTool, DataLoadingMixin):
     """Tool to map trade flow and detect circular patterns.
 
-    This tool analyzes the flow of trades between accounts to detect
-    patterns indicative of wash trading:
+    This tool takes CSV data (injected in Proactive Info Flow mode)
+    containing counterparty information and analyzes the flow of
+    trades between accounts to detect patterns indicative of wash trading:
     - DIRECT_WASH: A -> B where A and B have same beneficial owner
     - LAYERED_WASH: A -> B -> C -> A (circular pattern)
     - INTERMEDIARY_WASH: A -> X -> B where X is unrelated intermediary
 
-    The tool builds a trade flow graph and identifies suspicious patterns.
+    Expected format: csv
 
-    Data Sources:
-    - Trade data from alert and history
-    - Account relationships for beneficial owner mapping
+    CSV Fields (expected by Big Data Layer):
+        - trade_id: Trade identifier
+        - account_id: Account that executed the trade
+        - counterparty_id: Account on other side of trade
+        - beneficial_owner: Beneficial owner identifier
+        - relationship: Relationship type between accounts
     """
 
-    def __init__(self, llm: Any, data_dir: str) -> None:
+    # Expected data format for this tool
+    expected_format: DataFormat = "csv"
+
+    def __init__(self, llm: Any, data_dir: str | Path | None = None) -> None:
         """Initialize the CounterpartyAnalysisTool.
 
         Args:
             llm: LangChain LLM instance
-            data_dir: Path to the data directory
+            data_dir: DEPRECATED - kept for backward compatibility only
         """
         super().__init__(
             llm=llm,
             name="counterparty_analysis",
             description=(
                 "Map trade flow and detect circular trading patterns. "
-                "Use this tool to identify wash trade patterns: DIRECT_WASH "
-                "(same owner both sides), LAYERED_WASH (circular A->B->C->A), "
-                "or INTERMEDIARY_WASH (using unrelated intermediary). "
-                "Returns pattern classification with confidence level."
+                "Identifies wash trade patterns: DIRECT_WASH (same owner both sides), "
+                "LAYERED_WASH (circular A->B->C->A), or INTERMEDIARY_WASH "
+                "(using unrelated intermediary). Returns pattern classification "
+                "with confidence level."
             ),
+            expected_format="csv"
         )
-        self.data_dir = data_dir
-        self.relationships_path = os.path.join(
-            data_dir, "wash_trade", "account_relationships.csv"
-        )
-        self.history_path = os.path.join(
-            data_dir, "wash_trade", "related_accounts_history.csv"
-        )
-        self.logger.info(f"CounterpartyAnalysisTool initialized with data_dir: {data_dir}")
+        # Keep data_dir for backward compatibility but log deprecation
+        if data_dir is not None:
+            self.data_dir = str(data_dir) if isinstance(data_dir, Path) else data_dir
+            self.logger.warning(
+                "data_dir parameter is deprecated. In Proactive Info Flow mode, "
+                "data is injected via execute(data=...)."
+            )
+        else:
+            self.data_dir = None
+
+        self.logger.info("CounterpartyAnalysisTool initialized (Proactive Info Flow mode)")
 
     def _validate_input(self, **kwargs: Any) -> Optional[str]:
         """Validate input parameters.
 
+        In Proactive Info Flow mode, data is injected directly.
+        Optional trades parameter can be provided for context.
+
         Args:
-            **kwargs: Must include 'trades' (list of trade dicts)
+            **kwargs: Optional parameters for context
 
         Returns:
             Error message if invalid, None if valid
         """
-        if "trades" not in kwargs:
-            return "trades parameter is required"
-
-        trades = kwargs.get("trades")
-        if not trades:
-            return "trades must be a non-empty list or JSON string"
-
+        # No validation needed in Proactive Info Flow mode
+        # Data validation is handled by execute()
         return None
 
     def _parse_trades(self, trades: Any) -> List[Dict]:

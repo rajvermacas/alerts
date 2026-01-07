@@ -1,9 +1,12 @@
 """A2A AgentExecutor for the Wash Trade Alert Analyzer.
 
-This module wraps the WashTradeAnalyzerAgent as an A2A-compatible
+This module wraps the DeterministicWashTradeAgent as an A2A-compatible
 executor, allowing it to be called via the A2A protocol.
 
 Supports both synchronous execute() and async execute_stream() for SSE streaming.
+
+Uses Proactive Information Flow architecture where data is injected via
+AnalysisRequest rather than loaded from files.
 """
 
 import json
@@ -26,18 +29,26 @@ from a2a.types import (
 from a2a.utils import new_agent_text_message, new_task
 from a2a.utils.errors import ServerError
 
-from alerts.agents.wash_trade import WashTradeAnalyzerAgent
+from alerts.agents.wash_trade import DeterministicWashTradeAgent
 from alerts.models.wash_trade import WashTradeDecision
+from alerts.models.request import AnalysisRequest
 from alerts.a2a.event_mapper import StreamEvent
 
 logger = logging.getLogger(__name__)
 
+# Prefix for Proactive Info Flow requests
+PROACTIVE_INFO_FLOW_PREFIX = "PROACTIVE_INFO_FLOW_REQUEST:"
+
 
 class WashTradeAgentExecutor(AgentExecutor):
-    """A2A AgentExecutor that wraps the WashTradeAnalyzerAgent.
+    """A2A AgentExecutor that wraps the DeterministicWashTradeAgent.
 
     This executor receives wash trade alert analysis requests via A2A protocol
-    and delegates to the WashTradeAnalyzerAgent for processing.
+    and delegates to the deterministic agent for processing.
+
+    Expects requests in Proactive Info Flow format:
+    - Message starts with PROACTIVE_INFO_FLOW_REQUEST:
+    - Followed by JSON AnalysisRequest payload
     """
 
     def __init__(self, llm: Any, data_dir: Path, output_dir: Path) -> None:
@@ -51,23 +62,52 @@ class WashTradeAgentExecutor(AgentExecutor):
         self.llm = llm
         self.data_dir = data_dir
         self.output_dir = output_dir
-        self._agent: WashTradeAnalyzerAgent | None = None
+        self._agent: DeterministicWashTradeAgent | None = None
         logger.info("WashTradeAgentExecutor initialized")
 
-    def _get_agent(self) -> WashTradeAnalyzerAgent:
-        """Get or create the WashTradeAnalyzerAgent instance.
+    def _get_agent(self) -> DeterministicWashTradeAgent:
+        """Get or create the deterministic agent.
 
         Returns:
-            WashTradeAnalyzerAgent instance
+            DeterministicWashTradeAgent instance
         """
         if self._agent is None:
-            logger.info("Creating WashTradeAnalyzerAgent instance")
-            self._agent = WashTradeAnalyzerAgent(
+            logger.info("Creating DeterministicWashTradeAgent instance")
+            self._agent = DeterministicWashTradeAgent(
                 llm=self.llm,
                 data_dir=self.data_dir,
                 output_dir=self.output_dir,
             )
         return self._agent
+
+    def _is_proactive_info_flow_request(self, user_input: str) -> bool:
+        """Check if the request is a Proactive Info Flow request.
+
+        Args:
+            user_input: Raw user input string
+
+        Returns:
+            True if this is a Proactive Info Flow request
+        """
+        return user_input.startswith(PROACTIVE_INFO_FLOW_PREFIX)
+
+    def _parse_analysis_request(self, user_input: str) -> AnalysisRequest:
+        """Parse AnalysisRequest from Proactive Info Flow message.
+
+        Args:
+            user_input: Message starting with PROACTIVE_INFO_FLOW_REQUEST:
+
+        Returns:
+            Parsed AnalysisRequest
+
+        Raises:
+            ValueError: If parsing fails
+        """
+        json_str = user_input[len(PROACTIVE_INFO_FLOW_PREFIX):]
+        try:
+            return AnalysisRequest.model_validate_json(json_str)
+        except Exception as e:
+            raise ValueError(f"Failed to parse AnalysisRequest: {e}") from e
 
     async def execute(
         self,
@@ -86,9 +126,9 @@ class WashTradeAgentExecutor(AgentExecutor):
         if self._validate_request(context):
             raise ServerError(error=InvalidParamsError())
 
-        # Get user input (alert file path)
+        # Get user input
         user_input = context.get_user_input()
-        logger.info(f"Received request to analyze wash trade alert: {user_input}")
+        logger.info(f"Received request: {user_input[:100]}...")
 
         # Create or get task
         task = context.current_task
@@ -99,63 +139,27 @@ class WashTradeAgentExecutor(AgentExecutor):
         updater = TaskUpdater(event_queue, task.id, task.context_id)
 
         try:
-            # Update status to working
-            await updater.update_status(
-                TaskState.working,
-                new_agent_text_message(
-                    "Starting wash trade alert analysis...",
-                    task.context_id,
-                    task.id,
-                ),
-            )
-
-            # Parse alert file path from input
-            alert_path = self._extract_alert_path(user_input)
-            if not alert_path:
+            # Validate this is a Proactive Info Flow request
+            if not self._is_proactive_info_flow_request(user_input):
+                error_msg = (
+                    "Invalid request format. Expected PROACTIVE_INFO_FLOW_REQUEST: prefix. "
+                    "Legacy file-path mode is no longer supported."
+                )
+                logger.error(error_msg)
                 await updater.update_status(
                     TaskState.input_required,
-                    new_agent_text_message(
-                        "Please provide the path to the wash trade alert XML file to analyze.",
-                        task.context_id,
-                        task.id,
-                    ),
+                    new_agent_text_message(error_msg, task.context_id, task.id),
                     final=True,
                 )
                 return
 
-            # Verify file exists
-            alert_file = Path(alert_path)
-            if not alert_file.exists():
-                # Try relative to data_dir
-                alert_file = self.data_dir / alert_path
-                if not alert_file.exists():
-                    # Try in wash_trade subdirectory
-                    alert_file = self.data_dir / "alerts" / "wash_trade" / Path(alert_path).name
-                    if not alert_file.exists():
-                        await updater.update_status(
-                            TaskState.input_required,
-                            new_agent_text_message(
-                                f"Alert file not found: {alert_path}. Please provide a valid path.",
-                                task.context_id,
-                                task.id,
-                            ),
-                            final=True,
-                        )
-                        return
-
-            # Update status - analyzing
-            await updater.update_status(
-                TaskState.working,
-                new_agent_text_message(
-                    f"Analyzing wash trade alert file: {alert_file}",
-                    task.context_id,
-                    task.id,
-                ),
+            decision = await self._execute_proactive_info_flow(
+                user_input, updater, task
             )
 
-            # Get agent and analyze
-            agent = self._get_agent()
-            decision: WashTradeDecision = agent.analyze(alert_file)
+            if decision is None:
+                # Execution path that doesn't return a decision (e.g., input_required)
+                return
 
             # Format result as text
             result = self._format_decision(decision)
@@ -177,18 +181,6 @@ class WashTradeAgentExecutor(AgentExecutor):
             # Complete the task
             await updater.complete()
             logger.info(f"Wash trade analysis completed: {decision.determination}")
-
-        except FileNotFoundError as e:
-            logger.error(f"File not found: {e}")
-            await updater.update_status(
-                TaskState.input_required,
-                new_agent_text_message(
-                    f"Error: {str(e)}. Please provide a valid alert file path.",
-                    task.context_id,
-                    task.id,
-                ),
-                final=True,
-            )
 
         except Exception as e:
             logger.error(f"Wash trade analysis failed: {e}", exc_info=True)
@@ -221,46 +213,77 @@ class WashTradeAgentExecutor(AgentExecutor):
 
         return False  # Valid
 
-    def _extract_alert_path(self, user_input: str) -> str | None:
-        """Extract alert file path from user input.
+    async def _execute_proactive_info_flow(
+        self,
+        user_input: str,
+        updater: TaskUpdater,
+        task: Any,
+    ) -> WashTradeDecision | None:
+        """Execute analysis in Proactive Info Flow mode.
+
+        Uses the deterministic agent with pre-aggregated data.
 
         Args:
-            user_input: Raw user input string
+            user_input: Raw input containing PROACTIVE_INFO_FLOW_REQUEST:...
+            updater: Task updater for status updates
+            task: Current task
 
         Returns:
-            Alert file path or None if not found
+            WashTradeDecision or None if error handled
         """
-        if not user_input:
+        logger.info("Executing in Proactive Info Flow mode")
+
+        await updater.update_status(
+            TaskState.working,
+            new_agent_text_message(
+                "Processing Proactive Info Flow request...",
+                task.context_id,
+                task.id,
+            ),
+        )
+
+        # Parse the AnalysisRequest
+        try:
+            request = self._parse_analysis_request(user_input)
+            logger.info(f"Parsed AnalysisRequest for agent_type: {request.agent_type}")
+        except ValueError as e:
+            logger.error(f"Failed to parse AnalysisRequest: {e}")
+            await updater.update_status(
+                TaskState.input_required,
+                new_agent_text_message(
+                    f"Invalid AnalysisRequest: {str(e)}",
+                    task.context_id,
+                    task.id,
+                ),
+                final=True,
+            )
             return None
 
-        # Check if input contains a file path
-        input_lower = user_input.lower()
+        # Validate agent type
+        if request.agent_type != "wash_trade":
+            error_msg = f"Invalid agent_type '{request.agent_type}' for WashTradeAgent"
+            logger.error(error_msg)
+            await updater.update_status(
+                TaskState.input_required,
+                new_agent_text_message(error_msg, task.context_id, task.id),
+                final=True,
+            )
+            return None
 
-        # Look for common patterns
-        if ".xml" in input_lower:
-            # Extract path containing .xml
-            words = user_input.split()
-            for word in words:
-                if ".xml" in word.lower():
-                    # Clean up the path
-                    path = word.strip("'\"")
-                    return path
+        await updater.update_status(
+            TaskState.working,
+            new_agent_text_message(
+                "Running deterministic analysis with pre-aggregated data...",
+                task.context_id,
+                task.id,
+            ),
+        )
 
-        # If the entire input looks like a path
-        if "/" in user_input or user_input.endswith(".xml"):
-            return user_input.strip()
+        # Get deterministic agent and analyze
+        agent = self._get_agent()
+        decision = agent.analyze(request)
 
-        # Check if it's just asking to analyze with a specific alert
-        for keyword in ["analyze", "check", "review"]:
-            if keyword in input_lower:
-                # Look for path after the keyword
-                parts = user_input.split(keyword)
-                if len(parts) > 1:
-                    remaining = parts[1].strip()
-                    if remaining:
-                        return remaining.split()[0].strip("'\"")
-
-        return user_input.strip() if user_input.strip() else None
+        return decision
 
     def _format_decision(self, decision: WashTradeDecision) -> str:
         """Format the wash trade decision as a readable string.
@@ -355,74 +378,99 @@ class WashTradeAgentExecutor(AgentExecutor):
     async def execute_stream(
         self,
         task_id: str,
-        alert_path: str,
+        message: str,
     ) -> AsyncIterator[Dict[str, Any]]:
         """Execute wash trade analysis with streaming events.
 
         This method streams progress events as the analysis progresses,
         yielding A2A-formatted events that can be sent via SSE.
 
+        Expects Proactive Info Flow mode (AnalysisRequest JSON prefixed
+        with PROACTIVE_INFO_FLOW_REQUEST:).
+
         Args:
             task_id: Task ID for event correlation
-            alert_path: Path to the alert XML file
+            message: Message containing PROACTIVE_INFO_FLOW_REQUEST:...
 
         Yields:
             Dict containing A2A-formatted streaming events
 
         Raises:
-            FileNotFoundError: If alert file doesn't exist
+            ValueError: If AnalysisRequest is invalid
             Exception: If analysis fails
         """
-        logger.info(f"Starting streaming wash trade analysis for task {task_id}: {alert_path}")
+        logger.info(f"Starting streaming wash trade analysis for task {task_id}")
 
-        # Resolve alert file path
-        alert_file = Path(alert_path)
-        if not alert_file.exists():
-            alert_file = self.data_dir / alert_path
-            if not alert_file.exists():
-                alert_file = self.data_dir / "alerts" / "wash_trade" / Path(alert_path).name
-                if not alert_file.exists():
-                    error_event = {
-                        "event_type": "error",
-                        "task_id": task_id,
-                        "agent": "wash_trade",
-                        "payload": {
-                            "message": f"Alert file not found: {alert_path}",
-                            "stage": "initialization",
-                        },
-                        "final": True,
-                    }
-                    yield self._wrap_event_for_a2a(error_event, task_id, "failed")
-                    return
+        # Validate this is a Proactive Info Flow request
+        if not self._is_proactive_info_flow_request(message):
+            error_msg = (
+                "Invalid request format. Expected PROACTIVE_INFO_FLOW_REQUEST: prefix. "
+                "Legacy file-path mode is no longer supported."
+            )
+            logger.error(error_msg)
+            error_event = {
+                "event_type": "error",
+                "task_id": task_id,
+                "agent": "wash_trade",
+                "payload": {
+                    "message": error_msg,
+                    "stage": "initialization",
+                },
+                "final": True,
+            }
+            yield self._wrap_event_for_a2a(error_event, task_id, "failed")
+            return
 
-        # Get or create agent
+        # Parse the AnalysisRequest
+        try:
+            request = self._parse_analysis_request(message)
+            logger.info(f"Parsed AnalysisRequest for agent_type: {request.agent_type}")
+        except ValueError as e:
+            logger.error(f"Failed to parse AnalysisRequest: {e}")
+            error_event = {
+                "event_type": "error",
+                "task_id": task_id,
+                "agent": "wash_trade",
+                "payload": {
+                    "message": f"Invalid AnalysisRequest: {str(e)}",
+                    "stage": "initialization",
+                },
+                "final": True,
+            }
+            yield self._wrap_event_for_a2a(error_event, task_id, "failed")
+            return
+
+        # Validate agent type
+        if request.agent_type != "wash_trade":
+            error_msg = f"Invalid agent_type '{request.agent_type}' for WashTradeAgent"
+            logger.error(error_msg)
+            error_event = {
+                "event_type": "error",
+                "task_id": task_id,
+                "agent": "wash_trade",
+                "payload": {
+                    "message": error_msg,
+                    "stage": "initialization",
+                },
+                "final": True,
+            }
+            yield self._wrap_event_for_a2a(error_event, task_id, "failed")
+            return
+
+        # Get deterministic agent
         agent = self._get_agent()
 
-        # Stream events from agent
+        # Stream events from deterministic agent
         try:
-            async for event in agent.astream_analyze(alert_file, task_id):
+            async for event in agent.astream_analyze(request, task_id):
                 # Convert StreamEvent to A2A format
                 a2a_event = event.to_a2a_format(
                     task_state="completed" if event.final else "working"
                 )
                 yield a2a_event
 
-        except FileNotFoundError as e:
-            logger.error(f"File not found during streaming: {e}")
-            error_event = {
-                "event_type": "error",
-                "task_id": task_id,
-                "agent": "wash_trade",
-                "payload": {
-                    "message": str(e),
-                    "stage": "analysis",
-                },
-                "final": True,
-            }
-            yield self._wrap_event_for_a2a(error_event, task_id, "failed")
-
         except Exception as e:
-            logger.error(f"Streaming wash trade analysis failed: {e}", exc_info=True)
+            logger.error(f"Proactive Info Flow streaming failed: {e}", exc_info=True)
             error_event = {
                 "event_type": "error",
                 "task_id": task_id,

@@ -1,139 +1,100 @@
 """Market news tool for Insider Trading Analyzer.
 
-This tool queries market news to establish what public information
+This tool analyzes market news to establish what public information
 was available around the time of the suspicious trade. This is specific
 to insider trading analysis.
+
+In Proactive Info Flow mode, text content is injected via execute(data=...).
 """
 
 import logging
 from pathlib import Path
 from typing import Any, Optional
 
-from alerts.tools.common.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool, DataLoadingMixin, DataFormat
 
 logger = logging.getLogger(__name__)
 
 
 class MarketNewsTool(BaseTool, DataLoadingMixin):
-    """Tool to query and analyze market news around a trade date.
+    """Tool to analyze market news around a trade date.
 
-    This tool retrieves news items for a symbol within a date range
-    and uses the LLM to interpret whether public information could
-    have justified the trading decision.
+    This tool takes text data (injected in Proactive Info Flow mode)
+    containing news items and uses the LLM to interpret whether public
+    information could have justified the trading decision.
+
+    Expected format: txt
     """
 
-    def __init__(self, llm: Any, data_dir: Path) -> None:
+    # Expected data format for this tool
+    expected_format: DataFormat = "txt"
+
+    def __init__(self, llm: Any, data_dir: Path | None = None) -> None:
         """Initialize the market news tool.
 
         Args:
             llm: LangChain LLM instance
-            data_dir: Path to data directory
+            data_dir: DEPRECATED - kept for backward compatibility only
         """
         super().__init__(
             llm=llm,
             name="query_market_news",
             description=(
-                "Query market news for a symbol within a date range. "
-                "Input: symbol, start_date, end_date. "
+                "Analyze market news for a symbol. "
                 "Returns LLM-interpreted news timeline analysis showing what public "
                 "information was available before, during, and after the trade date."
-            )
+            ),
+            expected_format="txt"
         )
-        self.data_dir = data_dir
-        self.news_file = data_dir / "market_news.txt"
-        self.logger.info(f"Market news tool initialized with file: {self.news_file}")
+        # Keep data_dir for backward compatibility but log deprecation
+        if data_dir is not None:
+            self.data_dir = data_dir
+            self.news_file = data_dir / "market_news.txt"
+            self.logger.warning(
+                "data_dir parameter is deprecated. In Proactive Info Flow mode, "
+                "data is injected via execute(data=...)."
+            )
+        else:
+            self.data_dir = None
+            self.news_file = None
+
+        self.logger.info("Market news tool initialized (Proactive Info Flow mode)")
 
     def _validate_input(self, **kwargs: Any) -> Optional[str]:
         """Validate input parameters.
 
+        In Proactive Info Flow mode, data is injected directly.
+        Optional symbol, start_date, end_date can be provided for context.
+
         Args:
-            **kwargs: Must contain 'symbol', 'start_date', 'end_date'
+            **kwargs: Optional parameters for context
 
         Returns:
             Error message if invalid, None if valid
         """
-        required = ["symbol", "start_date", "end_date"]
-        for field in required:
-            if not kwargs.get(field):
-                return f"{field} is required"
-
-        if not self.news_file.exists():
-            return f"Market news file not found: {self.news_file}"
-
+        # No validation needed in Proactive Info Flow mode
+        # Data validation is handled by execute()
         return None
-
-    def _load_data(self, **kwargs: Any) -> str:
-        """Load market news for the symbol.
-
-        Args:
-            **kwargs: Must contain 'symbol', 'start_date', 'end_date'
-
-        Returns:
-            Relevant news content
-        """
-        symbol = kwargs["symbol"]
-        start_date = kwargs["start_date"]
-        end_date = kwargs["end_date"]
-
-        self.logger.info(
-            f"Loading news for {symbol} from {start_date} to {end_date}"
-        )
-
-        # Load full news file
-        news_content = self.load_text_file(str(self.news_file))
-
-        # Find the section for this symbol
-        # The news file has sections marked with "===== SYMBOL News Timeline ====="
-        symbol_section = ""
-        in_section = False
-        section_marker = f"===== {symbol}"
-
-        for line in news_content.split("\n"):
-            if section_marker in line.upper():
-                in_section = True
-                symbol_section = line + "\n"
-            elif in_section:
-                if line.startswith("=====") and section_marker not in line.upper():
-                    break
-                symbol_section += line + "\n"
-
-        if not symbol_section.strip():
-            self.logger.warning(f"No news section found for symbol {symbol}")
-            return f"No news found for {symbol}"
-
-        # Filter by date range
-        filtered_lines = []
-        for line in symbol_section.split("\n"):
-            # Check if line starts with a date (YYYY-MM-DD format)
-            if len(line) >= 10 and line[4] == "-" and line[7] == "-":
-                line_date = line[:10]
-                if start_date <= line_date <= end_date:
-                    filtered_lines.append(line)
-            elif not line.startswith("20"):  # Keep non-dated lines (headers)
-                filtered_lines.append(line)
-
-        result = "\n".join(filtered_lines)
-        self.logger.debug(f"Filtered news: {len(filtered_lines)} lines")
-
-        return result
 
     def _build_interpretation_prompt(self, raw_data: str, **kwargs: Any) -> str:
         """Build prompt for LLM to interpret market news.
 
         Args:
-            raw_data: Filtered news content
-            **kwargs: Contains 'symbol', 'start_date', 'end_date'
+            raw_data: News content as text
+            **kwargs: Optional 'symbol', 'start_date', 'end_date' for context
 
         Returns:
             Interpretation prompt
         """
-        symbol = kwargs["symbol"]
-        start_date = kwargs["start_date"]
-        end_date = kwargs["end_date"]
+        symbol = kwargs.get("symbol", "the flagged security")
+        start_date = kwargs.get("start_date", "the relevant period")
+        end_date = kwargs.get("end_date", "")
+
+        date_range = f"from {start_date} to {end_date}" if end_date else f"around {start_date}"
 
         return f"""You are a compliance analyst reviewing market news for an insider trading investigation.
 
-Analyze the following news timeline for {symbol} from {start_date} to {end_date}.
+Analyze the following news timeline for {symbol} {date_range}.
 
 **Your Task:**
 1. Create a CHRONOLOGICAL timeline of significant news events

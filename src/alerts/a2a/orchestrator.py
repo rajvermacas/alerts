@@ -2,6 +2,10 @@
 
 This module implements an orchestrator that reads alerts and routes them
 to specialized agents (Insider Trading or Wash Trade) using the A2A protocol.
+
+Supports two modes:
+1. Legacy Mode: Accept file path, route via A2A with file paths
+2. Proactive Info Flow Mode: Accept AnalysisRequest with pre-aggregated data
 """
 
 import logging
@@ -9,12 +13,14 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, Union
 from uuid import uuid4
 
 import httpx
 from a2a.client import A2ACardResolver, A2AClient
 from a2a.types import MessageSendParams, SendMessageRequest
+
+from alerts.models.request import AnalysisRequest, AnalysisError
 
 logger = logging.getLogger(__name__)
 
@@ -452,7 +458,7 @@ class OrchestratorAgent:
                 }
 
     async def analyze_alert(self, alert_path: str | Path) -> dict[str, Any]:
-        """Main entry point to analyze an alert.
+        """Main entry point to analyze an alert (Legacy Mode).
 
         This method reads the alert, determines its type, and routes it
         to the appropriate specialized agent.
@@ -471,3 +477,283 @@ class OrchestratorAgent:
         logger.info("=" * 60)
 
         return await self.route_alert(alert_path)
+
+    def determine_agent_type_from_xml(
+        self, alert_xml: str
+    ) -> Literal["insider_trading", "wash_trade"]:
+        """Determine agent type from alert XML content.
+
+        This method parses the XML content and determines which agent
+        should handle the alert based on alert type and rule codes.
+
+        Args:
+            alert_xml: Raw XML content as string
+
+        Returns:
+            Agent type ("insider_trading" or "wash_trade")
+
+        Raises:
+            ValueError: If alert type cannot be determined or is unsupported
+        """
+        if not alert_xml or not alert_xml.strip():
+            raise ValueError("Empty alert XML content")
+
+        try:
+            root = ET.fromstring(alert_xml)
+
+            alert_type = self._get_text(root, ".//AlertType", "")
+            rule_violated = self._get_text(root, ".//RuleViolated", "")
+
+            category = self._categorize_alert(alert_type, rule_violated)
+
+            if category == AlertCategory.INSIDER_TRADING:
+                logger.info(
+                    f"Determined agent type: insider_trading "
+                    f"(AlertType={alert_type}, Rule={rule_violated})"
+                )
+                return "insider_trading"
+            elif category == AlertCategory.WASH_TRADE:
+                logger.info(
+                    f"Determined agent type: wash_trade "
+                    f"(AlertType={alert_type}, Rule={rule_violated})"
+                )
+                return "wash_trade"
+            else:
+                raise ValueError(
+                    f"Unsupported alert type: AlertType='{alert_type}', "
+                    f"RuleViolated='{rule_violated}'"
+                )
+
+        except ET.ParseError as e:
+            raise ValueError(f"Failed to parse alert XML: {e}") from e
+
+    def validate_analysis_request(
+        self, request: AnalysisRequest
+    ) -> Union[AnalysisRequest, AnalysisError]:
+        """Validate an AnalysisRequest from the Big Data Layer.
+
+        This method validates the request structure and ensures all
+        required tool data is present and in the correct format.
+
+        The Pydantic model already performs most validation, but this
+        method provides additional orchestrator-level checks.
+
+        Args:
+            request: AnalysisRequest from Big Data Layer
+
+        Returns:
+            The validated request, or AnalysisError if validation fails
+        """
+        logger.info(f"Validating AnalysisRequest for agent_type: {request.agent_type}")
+        logger.info(f"Tools provided: {list(request.tool_data.keys())}")
+
+        # The Pydantic model has already validated required tools and formats
+        # This method can add orchestrator-level validation if needed
+
+        # Verify alert_xml matches agent_type (optional consistency check)
+        try:
+            detected_type = self.determine_agent_type_from_xml(request.alert_xml)
+            if detected_type != request.agent_type:
+                logger.warning(
+                    f"Agent type mismatch: request says '{request.agent_type}', "
+                    f"but XML suggests '{detected_type}'. Using request agent_type."
+                )
+        except ValueError as e:
+            logger.warning(f"Could not verify agent_type from XML: {e}")
+
+        logger.info("AnalysisRequest validation passed")
+        return request
+
+    async def route_analysis_request(
+        self, request: AnalysisRequest
+    ) -> dict[str, Any]:
+        """Route an AnalysisRequest to the appropriate agent (Proactive Info Flow Mode).
+
+        This method validates the request and sends it to the appropriate
+        specialized agent. The request contains pre-aggregated tool data
+        from the Big Data Layer.
+
+        Args:
+            request: AnalysisRequest with pre-aggregated tool data
+
+        Returns:
+            Dictionary with routing result and agent response
+        """
+        logger.info("=" * 60)
+        logger.info("Orchestrator: Processing AnalysisRequest (Proactive Info Flow)")
+        logger.info(f"Agent type: {request.agent_type}")
+        logger.info(f"Tools: {list(request.tool_data.keys())}")
+        logger.info("=" * 60)
+
+        # Validate the request
+        validation_result = self.validate_analysis_request(request)
+        if isinstance(validation_result, AnalysisError):
+            return {
+                "status": "error",
+                "error": validation_result.model_dump(mode="json"),
+            }
+
+        result = {
+            "agent_type": request.agent_type,
+            "tools_provided": list(request.tool_data.keys()),
+        }
+
+        if request.agent_type == "insider_trading":
+            logger.info("Routing to Insider Trading Agent")
+            result["routed_to"] = "insider_trading_agent"
+            response = await self._send_request_to_insider_trading_agent(request)
+            result["agent_response"] = response
+
+        elif request.agent_type == "wash_trade":
+            logger.info("Routing to Wash Trade Agent")
+            result["routed_to"] = "wash_trade_agent"
+            response = await self._send_request_to_wash_trade_agent(request)
+            result["agent_response"] = response
+
+        else:
+            # This shouldn't happen due to Pydantic Literal type
+            result["status"] = "error"
+            result["error"] = f"Unknown agent_type: {request.agent_type}"
+
+        return result
+
+    async def _send_request_to_insider_trading_agent(
+        self, request: AnalysisRequest
+    ) -> dict[str, Any]:
+        """Send an AnalysisRequest to the insider trading agent via A2A.
+
+        This sends the complete request with pre-aggregated tool data,
+        enabling deterministic agent execution.
+
+        Args:
+            request: AnalysisRequest with all tool data
+
+        Returns:
+            Response from the insider trading agent
+        """
+        logger.info("Sending AnalysisRequest to insider trading agent")
+
+        async with httpx.AsyncClient(timeout=300.0) as httpx_client:
+            resolver = A2ACardResolver(
+                httpx_client=httpx_client,
+                base_url=self.insider_trading_agent_url,
+            )
+
+            try:
+                agent_card = await resolver.get_agent_card()
+                logger.info(f"Connected to agent: {agent_card.name}")
+            except Exception as e:
+                logger.error(f"Failed to connect to insider trading agent: {e}")
+                return {
+                    "status": "error",
+                    "error": f"Failed to connect to insider trading agent: {str(e)}",
+                }
+
+            client = A2AClient(httpx_client=httpx_client, agent_card=agent_card)
+
+            # Serialize request to JSON and send as text part
+            # The agent executor will deserialize and use AnalysisRequest
+            request_json = request.model_dump_json()
+
+            message_payload = {
+                "message": {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "kind": "text",
+                            "text": f"PROACTIVE_INFO_FLOW_REQUEST:{request_json}",
+                        }
+                    ],
+                    "messageId": uuid4().hex,
+                },
+            }
+
+            send_request = SendMessageRequest(
+                id=str(uuid4()),
+                params=MessageSendParams(**message_payload),
+            )
+
+            try:
+                response = await client.send_message(send_request)
+                response_data = response.model_dump(mode="json", exclude_none=True)
+                logger.info("Received response from insider trading agent")
+                return {
+                    "status": "success",
+                    "response": response_data,
+                }
+            except Exception as e:
+                logger.error(f"Failed to send request to insider trading agent: {e}")
+                return {
+                    "status": "error",
+                    "error": f"Failed to communicate with insider trading agent: {str(e)}",
+                }
+
+    async def _send_request_to_wash_trade_agent(
+        self, request: AnalysisRequest
+    ) -> dict[str, Any]:
+        """Send an AnalysisRequest to the wash trade agent via A2A.
+
+        This sends the complete request with pre-aggregated tool data,
+        enabling deterministic agent execution.
+
+        Args:
+            request: AnalysisRequest with all tool data
+
+        Returns:
+            Response from the wash trade agent
+        """
+        logger.info("Sending AnalysisRequest to wash trade agent")
+
+        async with httpx.AsyncClient(timeout=300.0) as httpx_client:
+            resolver = A2ACardResolver(
+                httpx_client=httpx_client,
+                base_url=self.wash_trade_agent_url,
+            )
+
+            try:
+                agent_card = await resolver.get_agent_card()
+                logger.info(f"Connected to agent: {agent_card.name}")
+            except Exception as e:
+                logger.error(f"Failed to connect to wash trade agent: {e}")
+                return {
+                    "status": "error",
+                    "error": f"Failed to connect to wash trade agent: {str(e)}",
+                }
+
+            client = A2AClient(httpx_client=httpx_client, agent_card=agent_card)
+
+            # Serialize request to JSON and send as text part
+            request_json = request.model_dump_json()
+
+            message_payload = {
+                "message": {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "kind": "text",
+                            "text": f"PROACTIVE_INFO_FLOW_REQUEST:{request_json}",
+                        }
+                    ],
+                    "messageId": uuid4().hex,
+                },
+            }
+
+            send_request = SendMessageRequest(
+                id=str(uuid4()),
+                params=MessageSendParams(**message_payload),
+            )
+
+            try:
+                response = await client.send_message(send_request)
+                response_data = response.model_dump(mode="json", exclude_none=True)
+                logger.info("Received response from wash trade agent")
+                return {
+                    "status": "success",
+                    "response": response_data,
+                }
+            except Exception as e:
+                logger.error(f"Failed to send request to wash trade agent: {e}")
+                return {
+                    "status": "error",
+                    "error": f"Failed to communicate with wash trade agent: {str(e)}",
+                }

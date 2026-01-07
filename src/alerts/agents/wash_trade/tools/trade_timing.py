@@ -2,14 +2,16 @@
 
 This tool analyzes temporal patterns of flagged trades to identify
 pre-arranged execution indicative of wash trading.
+
+In Proactive Info Flow mode, CSV content is injected via execute(data=...).
 """
 
 import logging
-import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Optional
 
-from alerts.tools.common.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool, DataLoadingMixin, DataFormat
 
 logger = logging.getLogger(__name__)
 
@@ -17,54 +19,70 @@ logger = logging.getLogger(__name__)
 class TradeTimingTool(BaseTool, DataLoadingMixin):
     """Tool to analyze temporal patterns of flagged trades.
 
-    This tool examines the timing of trades to determine if they appear
-    to be pre-arranged or coordinated, which is a key indicator of wash trading.
+    This tool takes CSV data (injected in Proactive Info Flow mode)
+    containing trade timing data and examines patterns to determine
+    if trades appear pre-arranged or coordinated, a key indicator
+    of wash trading.
 
-    The tool analyzes:
-    - Time delta between trades (sub-second is highly suspicious)
-    - Market phase (opening, regular session, closing, after-hours)
-    - Liquidity assessment at the time of trades
-    - Comparison to normal execution times for similar volumes
+    Expected format: csv
 
-    Data Source: Computed from alert data + test_data/market_data.csv for context
+    CSV Fields (expected by Big Data Layer):
+        - trade_id: Trade identifier
+        - timestamp_ms: Timestamp in milliseconds
+        - account_id: Account that executed the trade
+        - symbol: Trading symbol
+        - side: BUY or SELL
+        - quantity: Number of shares
+        - price: Trade price
     """
 
-    def __init__(self, llm: Any, data_dir: str) -> None:
+    # Expected data format for this tool
+    expected_format: DataFormat = "csv"
+
+    def __init__(self, llm: Any, data_dir: str | Path | None = None) -> None:
         """Initialize the TradeTimingTool.
 
         Args:
             llm: LangChain LLM instance
-            data_dir: Path to the data directory
+            data_dir: DEPRECATED - kept for backward compatibility only
         """
         super().__init__(
             llm=llm,
             name="trade_timing",
             description=(
                 "Analyze temporal patterns of flagged trades. "
-                "Use this tool to assess if trades appear to be pre-arranged "
-                "based on timing. Examines time delta between trades, market phase, "
-                "and liquidity conditions. Sub-second execution is highly suspicious."
+                "Assesses if trades appear to be pre-arranged based on timing. "
+                "Examines time delta between trades, market phase, and liquidity conditions. "
+                "Sub-second execution is highly suspicious."
             ),
+            expected_format="csv"
         )
-        self.data_dir = data_dir
-        self.market_data_path = os.path.join(data_dir, "market_data.csv")
-        self.logger.info(f"TradeTimingTool initialized with data_dir: {data_dir}")
+        # Keep data_dir for backward compatibility but log deprecation
+        if data_dir is not None:
+            self.data_dir = str(data_dir) if isinstance(data_dir, Path) else data_dir
+            self.logger.warning(
+                "data_dir parameter is deprecated. In Proactive Info Flow mode, "
+                "data is injected via execute(data=...)."
+            )
+        else:
+            self.data_dir = None
+
+        self.logger.info("TradeTimingTool initialized (Proactive Info Flow mode)")
 
     def _validate_input(self, **kwargs: Any) -> Optional[str]:
         """Validate input parameters.
 
+        In Proactive Info Flow mode, data is injected directly.
+        Optional parameters can be provided for context.
+
         Args:
-            **kwargs: Must include 'trade1_timestamp' and 'trade2_timestamp',
-                     optionally 'symbol' and 'trade_quantity'
+            **kwargs: Optional parameters for context
 
         Returns:
             Error message if invalid, None if valid
         """
-        if "trade1_timestamp" not in kwargs:
-            return "trade1_timestamp is required"
-        if "trade2_timestamp" not in kwargs:
-            return "trade2_timestamp is required"
-
+        # No validation needed in Proactive Info Flow mode
+        # Data validation is handled by execute()
         return None
 
     def _parse_timestamp(self, ts: str) -> Optional[datetime]:

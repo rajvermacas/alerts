@@ -1,7 +1,9 @@
-"""Event Mapper for converting LangGraph events to A2A format.
+"""Event Mapper for converting streaming events to A2A format.
 
-This module provides utilities for converting LangGraph streaming events
+This module provides utilities for converting tool and agent streaming events
 to A2A TaskStatusUpdateEvent format for real-time progress streaming.
+
+Used by deterministic agents for Proactive Information Flow architecture.
 """
 
 import json
@@ -16,7 +18,7 @@ logger = logging.getLogger(__name__)
 class StreamEvent:
     """Represents a streaming event in the pipeline.
 
-    This is the intermediate format used between LangGraph events
+    This is the intermediate format used between deterministic agent events
     and A2A TaskStatusUpdateEvent format.
     """
 
@@ -139,7 +141,6 @@ class EventMapper:
     """Maps events between different formats in the streaming pipeline.
 
     Handles conversion from:
-    - LangGraph events -> StreamEvent
     - Tool events -> StreamEvent
     - StreamEvent -> A2A TaskStatusUpdateEvent
     """
@@ -221,104 +222,6 @@ class EventMapper:
             event_type=event_type,
             payload=enriched_payload,
             final=False,  # Tool events are never final
-        )
-
-    def map_langgraph_event(
-        self,
-        lg_event: Dict[str, Any],
-        event_name: str,
-    ) -> Optional[StreamEvent]:
-        """Map a LangGraph event to StreamEvent format.
-
-        LangGraph events from astream_events() have this structure:
-        {
-            "event": "on_chain_start|on_chain_end|on_tool_start|on_tool_end|...",
-            "data": {...},
-            "name": "node_name",
-            "run_id": "...",
-            "tags": [...],
-            "metadata": {...}
-        }
-
-        Args:
-            lg_event: Event from LangGraph's astream_events()
-            event_name: The event name (e.g., "on_chain_start")
-
-        Returns:
-            StreamEvent or None if event should be skipped
-        """
-        # Map LangGraph event types to our event types
-        event_type_map = {
-            "on_chain_start": "node_started",
-            "on_chain_end": "node_completed",
-            "on_tool_start": "tool_started",
-            "on_tool_end": "tool_completed",
-            "on_chat_model_start": "llm_started",
-            "on_chat_model_end": "llm_completed",
-            "on_chat_model_stream": "llm_token",
-        }
-
-        mapped_type = event_type_map.get(event_name)
-        if not mapped_type:
-            self.logger.debug(f"Skipping unmapped LangGraph event: {event_name}")
-            return None
-
-        # Extract relevant data
-        data = lg_event.get("data", {})
-        name = lg_event.get("name", "unknown")
-        run_id = lg_event.get("run_id", "")
-
-        self.logger.debug(f"Mapping LangGraph event: {event_name} -> {mapped_type}, name={name}")
-
-        # Build payload based on event type
-        if event_name in ("on_chain_start", "on_chain_end"):
-            payload = {
-                "node_name": name,
-                "message": f"{'Starting' if 'start' in event_name else 'Completed'} {name}",
-            }
-        elif event_name in ("on_tool_start", "on_tool_end"):
-            tool_input = data.get("input", {})
-            tool_output = data.get("output", "")
-            run_id_str = str(run_id) if run_id else name  # Use run_id to track unique tool invocations
-
-            payload = {
-                "tool_name": name,
-                "message": f"{'Starting' if 'start' in event_name else 'Completed'} tool: {name}",
-            }
-
-            if event_name == "on_tool_start":
-                # Record start time for duration calculation
-                self._tool_start_times[run_id_str] = datetime.now(timezone.utc)
-            elif event_name == "on_tool_end":
-                # Calculate duration if we have the start time
-                start_time = self._tool_start_times.pop(run_id_str, None)
-                if start_time:
-                    duration = (datetime.now(timezone.utc) - start_time).total_seconds()
-                    payload["duration_seconds"] = round(duration, 2)
-
-            if tool_input:
-                payload["input"] = str(tool_input)[:200]
-            if tool_output:
-                payload["output_summary"] = str(tool_output)
-            self.logger.debug(f"Created tool event payload: {event_name}, tool={name}")
-        elif event_name in ("on_chat_model_start", "on_chat_model_end"):
-            payload = {
-                "model": name,
-                "message": f"{'Starting' if 'start' in event_name else 'Completed'} LLM call",
-            }
-        elif event_name == "on_chat_model_stream":
-            # Token streaming - typically skip these for high-level progress
-            return None
-        else:
-            payload = {
-                "message": f"Event: {event_name}",
-                "raw_data": str(data)[:500],
-            }
-
-        return self.create_event(
-            event_type=mapped_type,
-            payload=payload,
-            final=False,
         )
 
     def create_analysis_started_event(self, alert_file: str) -> StreamEvent:

@@ -521,10 +521,10 @@ class TestHTMLReportGeneratorXMLParsing:
             )
 
     def test_parse_alert_xml_extracts_all_fields(self, test_data_dir: Path):
-        """Test that _parse_alert_xml extracts all expected fields."""
+        """Test that _parse_alert_xml_file extracts all expected fields."""
         xml_path = test_data_dir / "alerts" / "alert_genuine.xml"
 
-        summary = HTMLReportGenerator._parse_alert_xml(xml_path)
+        summary = HTMLReportGenerator._parse_alert_xml_file(xml_path)
 
         assert summary.alert_id == "ITA-2024-001847"
         assert summary.alert_type == "Pre-Announcement Trading"

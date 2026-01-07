@@ -1,34 +1,31 @@
 """Related Accounts History Tool for wash trade analysis.
 
-This tool queries trade history for ALL related accounts (not just one trader)
+This tool analyzes trade history for ALL related accounts (not just one trader)
 to identify patterns of offsetting trades that may indicate wash trading.
+
+In Proactive Info Flow mode, CSV content is injected via execute(data=...).
 """
 
 import logging
-import os
+from pathlib import Path
 from typing import Any, List, Optional
 
-from alerts.tools.common.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool, DataLoadingMixin, DataFormat
 
 logger = logging.getLogger(__name__)
 
 
 class RelatedAccountsHistoryTool(BaseTool, DataLoadingMixin):
-    """Tool to query trade history for all related accounts.
+    """Tool to analyze trade history for all related accounts.
 
-    Unlike the single-trader TraderHistoryTool used for insider trading,
-    this tool analyzes trade patterns across multiple related accounts
-    to detect coordinated trading activity indicative of wash trading.
+    This tool takes CSV data (injected in Proactive Info Flow mode)
+    containing trade history and analyzes patterns across multiple
+    related accounts to detect coordinated trading activity
+    indicative of wash trading.
 
-    The tool looks for:
-    - Offsetting trades (buy/sell of same quantity)
-    - Trades between related accounts
-    - Pattern frequency and recurrence
-    - Historical wash trade signatures
+    Expected format: csv
 
-    Data Source: test_data/wash_trade/related_accounts_history.csv
-
-    CSV Fields:
+    CSV Fields (expected by Big Data Layer):
         - account_id: Account that executed the trade
         - trade_date: Date of trade (YYYY-MM-DD)
         - trade_time: Time of trade (HH:MM:SS.mmm)
@@ -40,51 +37,53 @@ class RelatedAccountsHistoryTool(BaseTool, DataLoadingMixin):
         - order_id: Order identifier
     """
 
-    def __init__(self, llm: Any, data_dir: str) -> None:
+    # Expected data format for this tool
+    expected_format: DataFormat = "csv"
+
+    def __init__(self, llm: Any, data_dir: str | Path | None = None) -> None:
         """Initialize the RelatedAccountsHistoryTool.
 
         Args:
             llm: LangChain LLM instance
-            data_dir: Path to the data directory containing wash_trade subdirectory
+            data_dir: DEPRECATED - kept for backward compatibility only
         """
         super().__init__(
             llm=llm,
             name="related_accounts_history",
             description=(
-                "Query trade history for multiple related accounts. "
-                "Use this tool to find patterns of offsetting trades between "
-                "accounts that share beneficial ownership. Analyzes trade frequency, "
-                "timing patterns, and historical recurrence of similar trading behavior."
+                "Analyze trade history for multiple related accounts. "
+                "Finds patterns of offsetting trades between accounts that share "
+                "beneficial ownership. Analyzes trade frequency, timing patterns, "
+                "and historical recurrence of similar trading behavior."
             ),
+            expected_format="csv"
         )
-        self.data_dir = data_dir
-        self.csv_path = os.path.join(
-            data_dir, "wash_trade", "related_accounts_history.csv"
-        )
-        self.logger.info(f"RelatedAccountsHistoryTool initialized with data_dir: {data_dir}")
+        # Keep data_dir for backward compatibility but log deprecation
+        if data_dir is not None:
+            self.data_dir = str(data_dir) if isinstance(data_dir, Path) else data_dir
+            self.logger.warning(
+                "data_dir parameter is deprecated. In Proactive Info Flow mode, "
+                "data is injected via execute(data=...)."
+            )
+        else:
+            self.data_dir = None
+
+        self.logger.info("RelatedAccountsHistoryTool initialized (Proactive Info Flow mode)")
 
     def _validate_input(self, **kwargs: Any) -> Optional[str]:
         """Validate input parameters.
 
+        In Proactive Info Flow mode, data is injected directly.
+        Optional account_ids, symbol, time_window can be provided for context.
+
         Args:
-            **kwargs: Must include 'account_ids', optionally 'symbol' and 'time_window'
+            **kwargs: Optional parameters for context
 
         Returns:
             Error message if invalid, None if valid
         """
-        if "account_ids" not in kwargs:
-            return "account_ids is required"
-
-        account_ids = kwargs.get("account_ids")
-        if not account_ids:
-            return "account_ids must be a non-empty list"
-
-        if isinstance(account_ids, str):
-            # Allow comma-separated string
-            pass
-        elif not isinstance(account_ids, list):
-            return "account_ids must be a list or comma-separated string"
-
+        # No validation needed in Proactive Info Flow mode
+        # Data validation is handled by execute()
         return None
 
     def _parse_account_ids(self, account_ids: Any) -> List[str]:
@@ -98,77 +97,7 @@ class RelatedAccountsHistoryTool(BaseTool, DataLoadingMixin):
         """
         if isinstance(account_ids, str):
             return [aid.strip() for aid in account_ids.split(",")]
-        return list(account_ids)
-
-    def _load_data(self, **kwargs: Any) -> str:
-        """Load trade history data for related accounts.
-
-        Args:
-            **kwargs: Must include 'account_ids', optionally 'symbol' and 'time_window'
-
-        Returns:
-            Filtered CSV content for the specified accounts
-
-        Raises:
-            FileNotFoundError: If CSV file doesn't exist
-        """
-        account_ids = self._parse_account_ids(kwargs.get("account_ids", []))
-        symbol = kwargs.get("symbol", None)
-        time_window = kwargs.get("time_window", "30d")
-
-        self.logger.info(
-            f"Loading trade history for accounts: {account_ids}, "
-            f"symbol: {symbol}, window: {time_window}"
-        )
-
-        # Load full CSV
-        csv_content = self.load_csv_as_string(self.csv_path)
-
-        # Parse CSV header
-        lines = csv_content.strip().split("\n")
-        header = lines[0]
-        columns = header.split(",")
-
-        # Find column indices
-        try:
-            account_idx = columns.index("account_id")
-        except ValueError:
-            self.logger.error("account_id column not found in CSV")
-            raise ValueError("Invalid CSV format: account_id column required")
-
-        # Optional symbol filtering
-        symbol_idx = None
-        if symbol and "symbol" in columns:
-            symbol_idx = columns.index("symbol")
-
-        # Filter rows for specified accounts and optional symbol
-        filtered_rows = [header]
-
-        for line in lines[1:]:
-            parts = line.split(",")
-            if len(parts) <= account_idx:
-                continue
-
-            row_account = parts[account_idx]
-
-            # Check if account matches
-            if row_account not in account_ids:
-                continue
-
-            # Check if symbol matches (if specified)
-            if symbol and symbol_idx is not None:
-                if len(parts) <= symbol_idx:
-                    continue
-                row_symbol = parts[symbol_idx]
-                if row_symbol != symbol:
-                    continue
-
-            filtered_rows.append(line)
-
-        filtered_csv = "\n".join(filtered_rows)
-        self.logger.debug(f"Found {len(filtered_rows) - 1} trade records for related accounts")
-
-        return filtered_csv
+        return list(account_ids) if account_ids else []
 
     def _build_interpretation_prompt(self, raw_data: str, **kwargs: Any) -> str:
         """Build prompt for LLM interpretation of trade history.

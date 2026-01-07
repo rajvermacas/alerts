@@ -1,32 +1,27 @@
-"""LangGraph agent for SMARTS Alert Analyzer.
+"""Agent module for SMARTS Alert Analyzer.
 
-This module re-exports the InsiderTradingAnalyzerAgent for backward
+This module re-exports the DeterministicInsiderTradingAgent for backward
 compatibility. New code should import from alerts.agents.
 
 Agent structure:
-- alerts.agents.insider_trading: Insider trading analyzer agent
-- alerts.agents.wash_trade: Wash trade analyzer agent (coming soon)
+- alerts.agents.insider_trading: Insider trading analyzer agent (deterministic)
+- alerts.agents.wash_trade: Wash trade analyzer agent (deterministic)
+
+Note: Legacy LangGraph-based agents have been removed in favor of
+deterministic agents for Proactive Information Flow architecture.
 """
 
 # Re-export from new location for backward compatibility
-from alerts.agents.insider_trading.agent import (
-    InsiderTradingAnalyzerAgent,
-    AlertAnalyzerAgent,  # Backward compatibility alias
-    ReadAlertArgs,
-    QueryTraderHistoryArgs,
-    QueryTraderProfileArgs,
-    QueryMarketNewsArgs,
-    QueryMarketDataArgs,
-    QueryPeerTradesArgs,
+from alerts.agents.insider_trading import (
+    DeterministicInsiderTradingAgent,
+    InsiderTradingAnalyzerAgent,  # Backward compatibility alias (same as Deterministic)
 )
 
+# Backward compatibility alias
+AlertAnalyzerAgent = InsiderTradingAnalyzerAgent
+
 __all__ = [
+    "DeterministicInsiderTradingAgent",
     "InsiderTradingAnalyzerAgent",
     "AlertAnalyzerAgent",
-    "ReadAlertArgs",
-    "QueryTraderHistoryArgs",
-    "QueryTraderProfileArgs",
-    "QueryMarketNewsArgs",
-    "QueryMarketDataArgs",
-    "QueryPeerTradesArgs",
 ]

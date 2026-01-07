@@ -1,34 +1,31 @@
 """Account Relationships Tool for wash trade analysis.
 
-This tool queries beneficial ownership data and finds linked accounts
+This tool analyzes beneficial ownership data and finds linked accounts
 to identify potential wash trading relationships.
+
+In Proactive Info Flow mode, CSV content is injected via execute(data=...).
 """
 
-import json
 import logging
-import os
+from pathlib import Path
 from typing import Any, Optional
 
-from alerts.tools.common.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool, DataLoadingMixin, DataFormat
 
 logger = logging.getLogger(__name__)
 
 
 class AccountRelationshipsTool(BaseTool, DataLoadingMixin):
-    """Tool to query beneficial ownership and find linked accounts.
+    """Tool to analyze beneficial ownership and find linked accounts.
 
-    This tool queries the account relationships database to find:
-    - Beneficial owner information for an account
-    - Related/linked accounts under the same beneficial owner
-    - Relationship types (direct, family trust, corporate, nominee, etc.)
-    - Relationship degrees (1st degree = direct, 2nd = through intermediary)
+    This tool takes CSV data (injected in Proactive Info Flow mode)
+    containing account relationships and uses the LLM to identify
+    relationships and potential wash trading risk based on
+    beneficial ownership patterns.
 
-    The tool uses an LLM to interpret the relationships and identify
-    potential wash trading risk based on beneficial ownership patterns.
+    Expected format: csv
 
-    Data Source: test_data/wash_trade/account_relationships.csv
-
-    CSV Fields:
+    CSV Fields (expected by Big Data Layer):
         - account_id: Account identifier
         - beneficial_owner_id: ID of the beneficial owner
         - beneficial_owner_name: Name of the beneficial owner
@@ -37,134 +34,72 @@ class AccountRelationshipsTool(BaseTool, DataLoadingMixin):
         - relationship_degree: 1 = direct, 2 = through intermediary
     """
 
-    def __init__(self, llm: Any, data_dir: str) -> None:
+    # Expected data format for this tool
+    expected_format: DataFormat = "csv"
+
+    def __init__(self, llm: Any, data_dir: str | Path | None = None) -> None:
         """Initialize the AccountRelationshipsTool.
 
         Args:
             llm: LangChain LLM instance
-            data_dir: Path to the data directory containing wash_trade subdirectory
+            data_dir: DEPRECATED - kept for backward compatibility only
         """
         super().__init__(
             llm=llm,
             name="account_relationships",
             description=(
-                "Query beneficial ownership information and find linked accounts. "
-                "Use this tool to identify relationships between accounts and "
-                "determine if the same beneficial owner controls multiple accounts "
-                "involved in trades. Returns relationship analysis and linked accounts."
+                "Analyze beneficial ownership information and find linked accounts. "
+                "Identifies relationships between accounts and determines if the same "
+                "beneficial owner controls multiple accounts involved in trades. "
+                "Returns relationship analysis and linked accounts."
             ),
+            expected_format="csv"
         )
-        self.data_dir = data_dir
-        self.csv_path = os.path.join(
-            data_dir, "wash_trade", "account_relationships.csv"
-        )
-        self.logger.info(f"AccountRelationshipsTool initialized with data_dir: {data_dir}")
+        # Keep data_dir for backward compatibility but log deprecation
+        if data_dir is not None:
+            self.data_dir = str(data_dir) if isinstance(data_dir, Path) else data_dir
+            self.logger.warning(
+                "data_dir parameter is deprecated. In Proactive Info Flow mode, "
+                "data is injected via execute(data=...)."
+            )
+        else:
+            self.data_dir = None
+
+        self.logger.info("AccountRelationshipsTool initialized (Proactive Info Flow mode)")
 
     def _validate_input(self, **kwargs: Any) -> Optional[str]:
         """Validate input parameters.
 
+        In Proactive Info Flow mode, data is injected directly.
+        Optional account_ids can be provided for context.
+
         Args:
-            **kwargs: Must include 'account_ids' (comma-separated list or single ID)
+            **kwargs: Optional parameters for context
 
         Returns:
             Error message if invalid, None if valid
         """
-        # Support both 'account_ids' (new) and 'account_id' (legacy) for backward compatibility
-        account_ids = kwargs.get("account_ids") or kwargs.get("account_id")
-        if not account_ids:
-            return "account_ids is required"
-
-        if not isinstance(account_ids, str):
-            return "account_ids must be a non-empty string"
-
+        # No validation needed in Proactive Info Flow mode
+        # Data validation is handled by execute()
         return None
-
-    def _load_data(self, **kwargs: Any) -> str:
-        """Load account relationship data from CSV.
-
-        Args:
-            **kwargs: Must include 'account_ids' (comma-separated list or single ID)
-
-        Returns:
-            Filtered CSV content for the accounts and their related accounts
-
-        Raises:
-            FileNotFoundError: If CSV file doesn't exist
-        """
-        # Support both 'account_ids' (new) and 'account_id' (legacy) for backward compatibility
-        account_ids_str = kwargs.get("account_ids") or kwargs.get("account_id")
-        # Parse comma-separated list of account IDs
-        requested_account_ids = [aid.strip() for aid in account_ids_str.split(",")]
-        self.logger.info(f"Loading relationship data for accounts: {requested_account_ids}")
-
-        # Load full CSV
-        csv_content = self.load_csv_as_string(self.csv_path)
-
-        # Parse CSV to find account and all related accounts
-        lines = csv_content.strip().split("\n")
-        header = lines[0]
-        columns = header.split(",")
-
-        # Find column indices
-        try:
-            account_idx = columns.index("account_id")
-            linked_accounts_idx = columns.index("linked_accounts")
-        except ValueError as e:
-            self.logger.error(f"Required column not found: {e}")
-            raise ValueError(f"Invalid CSV format: {e}")
-
-        # Find all requested accounts and collect all related account IDs
-        related_account_ids = set(requested_account_ids)
-        relevant_rows = [header]
-
-        for line in lines[1:]:
-            parts = line.split(",")
-            if len(parts) <= max(account_idx, linked_accounts_idx):
-                continue
-
-            row_account_id = parts[account_idx]
-
-            if row_account_id in requested_account_ids:
-                relevant_rows.append(line)
-                # Parse linked accounts (JSON array format)
-                try:
-                    linked_str = parts[linked_accounts_idx].strip('"')
-                    # Handle JSON array format: ["ACC-002","ACC-003"]
-                    if linked_str.startswith("["):
-                        linked = json.loads(linked_str.replace("'", '"'))
-                        related_account_ids.update(linked)
-                except (json.JSONDecodeError, IndexError):
-                    self.logger.warning(f"Could not parse linked_accounts for {row_account_id}")
-
-        # Now also get rows for all related accounts
-        for line in lines[1:]:
-            parts = line.split(",")
-            if len(parts) <= account_idx:
-                continue
-
-            row_account_id = parts[account_idx]
-            if row_account_id in related_account_ids and line not in relevant_rows:
-                relevant_rows.append(line)
-
-        filtered_csv = "\n".join(relevant_rows)
-        self.logger.debug(f"Found {len(relevant_rows) - 1} related account records")
-
-        return filtered_csv
 
     def _build_interpretation_prompt(self, raw_data: str, **kwargs: Any) -> str:
         """Build prompt for LLM interpretation of relationship data.
 
         Args:
-            raw_data: Filtered CSV content with relationship data
-            **kwargs: Must include 'account_ids' (comma-separated list or single ID)
+            raw_data: CSV content with relationship data
+            **kwargs: Optional 'account_ids' for context
 
         Returns:
             Prompt for LLM interpretation
         """
-        # Support both 'account_ids' (new) and 'account_id' (legacy) for backward compatibility
-        account_ids_str = kwargs.get("account_ids") or kwargs.get("account_id")
-        account_ids = [aid.strip() for aid in account_ids_str.split(",")]
-        accounts_display = ", ".join(account_ids)
+        # Get account_ids if provided for context
+        account_ids_str = kwargs.get("account_ids") or kwargs.get("account_id", "")
+        if account_ids_str:
+            account_ids = [aid.strip() for aid in account_ids_str.split(",")]
+            accounts_display = ", ".join(account_ids)
+        else:
+            accounts_display = "the flagged accounts"
 
         prompt = f"""You are analyzing account relationship data for potential wash trade detection.
 

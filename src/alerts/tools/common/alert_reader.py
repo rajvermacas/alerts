@@ -1,81 +1,78 @@
 """Alert reader tool for SMARTS Alert Analyzer.
 
-This tool reads and parses alert XML files, extracting key information
+This tool reads and parses alert XML content, extracting key information
 for the agent to analyze. This is a shared tool used by all agent types.
+
+In Proactive Info Flow mode, XML content is injected via execute(data=...).
 """
 
 import logging
 from pathlib import Path
 from typing import Any, Optional
 
-from alerts.tools.common.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool, DataLoadingMixin, DataFormat
 
 logger = logging.getLogger(__name__)
 
 
 class AlertReaderTool(BaseTool, DataLoadingMixin):
-    """Tool to read and summarize SMARTS alert XML files.
+    """Tool to read and summarize SMARTS alert XML content.
 
-    This tool reads the full XML content and uses the LLM to
-    extract and summarize the key alert information.
+    This tool takes XML content (injected in Proactive Info Flow mode)
+    and uses the LLM to extract and summarize the key alert information.
+
+    Expected format: xml
     """
 
-    def __init__(self, llm: Any, data_dir: Path) -> None:
+    # Expected data format for this tool
+    expected_format: DataFormat = "xml"
+
+    def __init__(self, llm: Any, data_dir: Path | None = None) -> None:
         """Initialize the alert reader tool.
 
         Args:
             llm: LangChain LLM instance
-            data_dir: Path to data directory containing alerts
+            data_dir: DEPRECATED - kept for backward compatibility only
         """
         super().__init__(
             llm=llm,
             name="read_alert",
             description=(
-                "Read and parse a SMARTS alert XML file. "
+                "Read and parse a SMARTS alert XML. "
                 "Returns a structured summary of the alert including trader info, "
                 "suspicious activity details, anomaly indicators, and related events."
-            )
+            ),
+            expected_format="xml"
         )
-        self.data_dir = data_dir
-        self.alerts_dir = data_dir / "alerts"
-        self.logger.info(f"Alert reader initialized with alerts dir: {self.alerts_dir}")
+        # Keep data_dir for backward compatibility but log deprecation
+        if data_dir is not None:
+            self.data_dir = data_dir
+            self.alerts_dir = data_dir / "alerts"
+            self.logger.warning(
+                "data_dir parameter is deprecated. In Proactive Info Flow mode, "
+                "data is injected via execute(data=...)."
+            )
+        else:
+            self.data_dir = None
+            self.alerts_dir = None
+
+        self.logger.info("Alert reader initialized (Proactive Info Flow mode)")
 
     def _validate_input(self, **kwargs: Any) -> Optional[str]:
         """Validate input parameters.
 
+        In Proactive Info Flow mode, no file path validation is needed
+        as data is injected directly.
+
         Args:
-            **kwargs: Must contain 'alert_file_path'
+            **kwargs: Additional parameters (unused in new mode)
 
         Returns:
             Error message if invalid, None if valid
         """
-        alert_file_path = kwargs.get("alert_file_path")
-
-        if not alert_file_path:
-            return "alert_file_path is required"
-
-        path = Path(alert_file_path)
-        if not path.exists():
-            return f"Alert file not found: {alert_file_path}"
-
-        if not path.suffix.lower() == ".xml":
-            return f"Alert file must be XML: {alert_file_path}"
-
+        # No validation needed in Proactive Info Flow mode
+        # Data validation is handled by execute()
         return None
-
-    def _load_data(self, **kwargs: Any) -> str:
-        """Load alert XML file.
-
-        Args:
-            **kwargs: Must contain 'alert_file_path'
-
-        Returns:
-            XML content as string
-        """
-        alert_file_path = kwargs["alert_file_path"]
-        self.logger.info(f"Loading alert XML from: {alert_file_path}")
-
-        return self.load_xml_file(str(alert_file_path))
 
     def _build_interpretation_prompt(self, raw_data: str, **kwargs: Any) -> str:
         """Build prompt for LLM to interpret the alert XML.
