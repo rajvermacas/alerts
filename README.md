@@ -8,43 +8,32 @@ This system supports multiple alert types through a multi-agent architecture:
 - **Insider Trading Alerts**: Analyzes pre-announcement trading, MNPI-based trades
 - **Wash Trade Alerts**: Detects same beneficial ownership, pre-arranged execution, circular trade flows
 
-The POC system automates the initial analysis of surveillance alerts by:
+The POC automates initial analysis of surveillance alerts by:
 - Reading SMARTS alert XML files
-- Gathering evidence from multiple data sources (trader history, profiles, market data, news, peer activity)
-- Using LLM interpretation at each tool to extract insights (not raw data)
-- Applying "case law" reasoning by comparing to few-shot precedent examples
+- Gathering evidence from multiple data sources using specialized tools
+- Using LLM interpretation at each step to extract insights
+- Applying "case law" reasoning by comparing to precedent examples
 - Producing structured decisions with detailed reasoning
 
 ## Features
 
 - **Fully Agentic**: Pure LLM reasoning without deterministic scoring
-- **Multi-Agent Architecture**: Specialized agents for different alert types (insider trading, wash trade)
-- **A2A Protocol**: Google's Agent-to-Agent protocol for inter-agent communication
-- **10 Specialized Tools**: 3 common tools + 3 IT-specific + 4 WT-specific, each calling LLM internally
+- **Multi-Agent Architecture**: Specialized agents for different alert types
+- **Real-Time Web UI**: Live execution DAG with SSE streaming progress
+- **10 Specialized Tools**: Each tool calls LLM internally for interpretation
 - **Few-Shot Learning**: Examples stored in external JSON for easy tuning
-- **Structured Output**: Pydantic models ensure consistent, parseable decisions
-- **Real-Time Execution DAG**: Live visualization of multi-agent workflow (User → Orchestrator → Agent → Tools → Output)
-- **Relationship Network Visualization**: SVG network graphs for wash trade analysis
+- **Professional Reports**: JSON + HTML (Tailwind CSS) with network visualizations
 - **Audit Trail**: All decisions logged for compliance tracking
-- **Fail-Fast**: No graceful degradation; errors crash loudly for debugging
-- **APAC Regulatory Framework**: Supports MAS SFA, SFC SFO, ASIC, FSA FIEA compliance
+- **APAC Regulatory Framework**: Supports MAS SFA, SFC SFO, ASIC, FSA FIEA
 
-## Decision Outcomes
-
-| Determination | Condition | Action |
-|---------------|-----------|--------|
-| `ESCALATE` | High confidence of genuine violation (insider trading or wash trade) | Route to compliance analyst |
-| `CLOSE` | High confidence of false positive | Auto-close with documentation |
-| `NEEDS_HUMAN_REVIEW` | Conflicting signals, cannot decide | Route for human judgment |
-
-## Installation
+## Quick Start
 
 ### Prerequisites
 
 - Python 3.10+
-- OpenAI API key (or Azure OpenAI)
+- OpenAI API key (or Azure OpenAI, OpenRouter, Google Gemini)
 
-### Setup
+### Installation
 
 ```bash
 # Clone the repository
@@ -62,10 +51,10 @@ pip install -e ".[dev]"
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your API key
+# Edit .env with your API key and model
 ```
 
-## Configuration
+### Configuration
 
 Edit `.env` file:
 
@@ -77,22 +66,6 @@ LLM_PROVIDER=openai
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o
 
-# Azure OpenAI Configuration (if using Azure)
-AZURE_OPENAI_API_KEY=
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_DEPLOYMENT=gpt-4o
-AZURE_OPENAI_API_VERSION=2024-02-15-preview
-
-# OpenRouter Configuration (if using OpenRouter)
-OPENROUTER_API_KEY=
-OPENROUTER_MODEL=openai/gpt-4o
-OPENROUTER_SITE_URL=  # Optional
-OPENROUTER_SITE_NAME=  # Optional
-
-# Google Gemini Configuration (if using Gemini)
-GOOGLE_API_KEY=
-GEMINI_MODEL=gemini-2.0-flash
-
 # Paths
 DATA_DIR=test_data
 OUTPUT_DIR=resources/reports
@@ -103,7 +76,7 @@ LOG_LEVEL=INFO
 
 ## Usage
 
-### Analyze an Alert
+### Option 1: CLI (Single Alert Analysis)
 
 ```bash
 # Analyze the default genuine insider trading case
@@ -112,27 +85,54 @@ python -m alerts.main
 # Analyze a specific alert file
 python -m alerts.main --alert test_data/alerts/alert_genuine.xml
 
+# Analyze wash trade alert
+python -m alerts.main --alert test_data/alerts/wash_trade/wash_genuine.xml
+
 # Run with verbose logging
 python -m alerts.main --verbose
-
-# Analyze the false positive test case
-python -m alerts.main --alert test_data/alerts/alert_false_positive.xml
-
-# Analyze the ambiguous case
-python -m alerts.main --alert test_data/alerts/alert_ambiguous.xml
 ```
 
-### Output
+**Output**:
+- `resources/reports/decision_{alert_id}.json` - Full decision JSON
+- `resources/reports/decision_{alert_id}.html` - Professional HTML report
+- `resources/reports/audit_log.jsonl` - Append-only audit trail
 
-The analyzer produces:
-1. **Decision file**: `resources/reports/decision_{alert_id}.json`
-2. **Audit log**: `resources/reports/audit_log.jsonl` (appended)
+### Option 2: Web UI (Multi-Agent with Real-Time Streaming)
 
-## Multi-Agent Orchestration (A2A Protocol)
+**Quick Start - All Servers in Background**:
+```bash
+bash scripts/start_all_servers.sh
+# Open browser: http://localhost:8080
+# Logs: logs/{insider_trading,wash_trade,orchestrator,frontend}.log
+```
 
-The system supports multi-agent orchestration using Google's Agent-to-Agent (A2A) protocol. An orchestrator agent routes alerts to specialized agents based on alert type.
+**Manual Setup (4 terminals)**:
 
-### Architecture
+```bash
+# Terminal 1 - Insider Trading Agent
+python -m alerts.a2a.insider_trading_server --port 10001
+
+# Terminal 2 - Wash Trade Agent
+python -m alerts.a2a.wash_trade_server --port 10002
+
+# Terminal 3 - Orchestrator
+python -m alerts.a2a.orchestrator_server --port 10000
+
+# Terminal 4 - Frontend UI
+python -m frontend.app --port 8080
+```
+
+Then open `http://localhost:8080` in your browser.
+
+**Web UI Features**:
+- Drag-and-drop XML alert upload
+- Real-time execution DAG (User → Orchestrator → Agent → Tools → Output)
+- SSE-based progress timeline with tool execution events
+- Dynamic results rendering with confidence scores
+- Interactive Cytoscape.js network graphs for wash trade analysis
+- Download JSON and HTML reports
+
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -146,221 +146,37 @@ The system supports multi-agent orchestration using Google's Agent-to-Agent (A2A
 ┌───────────────────────────┐   ┌───────────────────────────────┐
 │   Insider Trading Agent   │   │     Wash Trade Agent          │
 │      (Port 10001)         │   │       (Port 10002)            │
+│   6 tools (3 + 3)         │   │   7 tools (3 + 4)             │
 └───────────────────────────┘   └───────────────────────────────┘
 ```
 
-### Running Multi-Agent Setup
+### Decision Outcomes
 
-**Terminal 1** - Start the Insider Trading Agent server:
-```bash
-python -m alerts.a2a.insider_trading_server --port 10001
+| Determination | Condition | Action |
+|---------------|-----------|--------|
+| `ESCALATE` | High confidence of genuine violation | Route to compliance analyst |
+| `CLOSE` | High confidence of false positive | Auto-close with documentation |
+| `NEEDS_HUMAN_REVIEW` | Conflicting signals, cannot decide | Route for human judgment |
 
-# Or using the console script:
-alerts-insider-trading-server --port 10001
-```
+### Tools
 
-**Terminal 2** - Start the Wash Trade Agent server:
-```bash
-python -m alerts.a2a.wash_trade_server --port 10002
+**Common Tools** (used by all agents):
+- `alert_reader` - Parse alert XML
+- `trader_profile` - Role and MNPI access level
+- `market_data` - Price/volume data analysis
 
-# Or using the console script:
-alerts-wash-trade-server --port 10002
-```
+**Insider Trading Tools**:
+- `trader_history` - 1-year trade baseline
+- `market_news` - News timeline
+- `peer_trades` - Peer activity comparison
 
-**Terminal 3** - Start the Orchestrator server:
-```bash
-python -m alerts.a2a.orchestrator_server --port 10000
+**Wash Trade Tools**:
+- `account_relationships` - Ownership network
+- `related_accounts_history` - Cross-account patterns
+- `trade_timing` - Sub-second timing analysis
+- `counterparty_analysis` - Beneficial ownership overlap
 
-# Or using the console script:
-alerts-orchestrator-server --port 10000 \
-    --insider-trading-url http://localhost:10001 \
-    --wash-trade-url http://localhost:10002
-```
-
-**Terminal 4** - Test with the client:
-```bash
-# Test insider trading alert
-python -m alerts.a2a.test_client \
-    --server-url http://localhost:10000 \
-    --alert test_data/alerts/alert_genuine.xml
-
-# Test wash trade alert
-python -m alerts.a2a.test_client \
-    --server-url http://localhost:10000 \
-    --alert test_data/alerts/wash_trade/wash_genuine.xml
-```
-
-### Agent Communication
-
-The orchestrator reads alert XML files and determines alert type by checking:
-
-**Insider Trading Detection:**
-- Alert type (e.g., "Pre-Announcement Trading", "Insider Trading")
-- Rule code (e.g., "SMARTS-IT-001", "SMARTS-PAT-001")
-- Keywords (e.g., "insider", "pre-announcement", "mnpi", "material")
-
-**Wash Trade Detection:**
-- Alert type (e.g., "WashTrade", "Self-Trade", "Matched Orders", "Circular Trading")
-- Rule code (e.g., "SMARTS-WT-001", "WT-001", "WASH_TRADE", "SELF_TRADE")
-- Keywords (e.g., "wash", "self-trade", "matched order", "circular")
-
-### Configuration
-
-Server URLs can be configured via command-line options:
-```bash
-alerts-orchestrator-server --port 10000 \
-    --insider-trading-url http://remote-host:10001 \
-    --wash-trade-url http://remote-host:10002
-```
-
-For production deployments, consider setting environment variables:
-```bash
-# .env configuration (future enhancement)
-INSIDER_TRADING_AGENT_URL=http://localhost:10001
-WASH_TRADE_AGENT_URL=http://localhost:10002
-ORCHESTRATOR_HOST=localhost
-ORCHESTRATOR_PORT=10000
-```
-
-## Project Structure
-
-```
-alerts/
-├── pyproject.toml
-├── .env.example
-├── README.md
-│
-├── src/alerts/
-│   ├── __init__.py
-│   ├── main.py              # Entry point
-│   ├── config.py            # Config loader (env-based)
-│   ├── models/
-│   │   ├── __init__.py
-│   │   ├── base.py          # BaseAlertDecision
-│   │   ├── insider_trading.py  # InsiderTradingDecision
-│   │   └── wash_trade.py    # WashTradeDecision + RelationshipNetwork
-│   ├── tools/               # Shared tools
-│   │   ├── base.py          # Base tool with LLM helper
-│   │   ├── alert_reader.py
-│   │   ├── trader_history.py
-│   │   ├── trader_profile.py
-│   │   ├── market_news.py
-│   │   ├── market_data.py
-│   │   └── peer_trades.py
-│   ├── agents/
-│   │   ├── insider_trading/ # Insider trading agent
-│   │   │   ├── __init__.py
-│   │   │   ├── agent.py     # AlertAnalyzerAgent
-│   │   │   └── prompts/
-│   │   │       └── system_prompt.py
-│   │   └── wash_trade/      # Wash trade agent
-│   │       ├── __init__.py
-│   │       ├── agent.py     # WashTradeAnalyzerAgent
-│   │       ├── prompts/
-│   │       │   └── system_prompt.py
-│   │       └── tools/       # Wash-trade-specific tools
-│   │           ├── account_relationships.py
-│   │           ├── related_accounts_history.py
-│   │           ├── trade_timing.py
-│   │           └── counterparty_analysis.py
-│   ├── reports/
-│   │   ├── html_generator.py        # Insider trading HTML report
-│   │   └── wash_trade_report.py     # Wash trade HTML with SVG network
-│   └── a2a/                 # A2A protocol integration
-│       ├── __init__.py
-│       ├── insider_trading_executor.py
-│       ├── insider_trading_server.py
-│       ├── wash_trade_executor.py   # NEW: A2A executor for wash trade
-│       ├── wash_trade_server.py     # NEW: A2A server for wash trade
-│       ├── orchestrator.py          # Routes alerts to specialized agents
-│       ├── orchestrator_executor.py
-│       ├── orchestrator_server.py
-│       └── test_client.py
-│
-├── test_data/
-│   ├── alerts/
-│   │   ├── alert_genuine.xml        # Insider trading test cases
-│   │   ├── alert_false_positive.xml
-│   │   ├── alert_ambiguous.xml
-│   │   └── wash_trade/              # NEW: Wash trade test cases
-│   │       ├── wash_genuine.xml
-│   │       ├── wash_false_positive.xml
-│   │       ├── wash_ambiguous.xml
-│   │       └── wash_layered.xml
-│   ├── trader_history.csv
-│   ├── trader_profiles.csv
-│   ├── market_news.txt
-│   ├── market_data.csv
-│   ├── peer_trades.csv
-│   ├── few_shot_examples.json
-│   ├── wash_trade/                  # NEW: Wash trade data files
-│   │   ├── account_relationships.csv
-│   │   └── related_accounts_history.csv
-│   └── wash_trade_few_shot_examples.json  # NEW: Wash trade precedents
-│
-├── resources/reports/        # Output directory
-│
-└── tests/
-    ├── conftest.py
-    ├── test_tools.py
-    ├── test_models.py
-    ├── test_wash_trade_models.py    # NEW: Wash trade model tests
-    ├── test_a2a_orchestrator.py     # Updated with wash trade routing tests
-    └── test_config.py
-```
-
-## Tools
-
-### Common Tools (Used by All Agents)
-
-The agents use 3 common tools, each calling an LLM internally:
-
-| Tool | Purpose | Returns |
-|------|---------|---------|
-| `read_alert` | Parse alert XML | Structured alert summary |
-| `query_trader_profile` | Role and access level | MNPI access assessment |
-| `query_market_data` | Price/volume data | Market conditions analysis |
-
-### Insider Trading-Specific Tools
-
-The insider trading agent has 3 additional specialized tools:
-
-| Tool | Purpose | Returns |
-|------|---------|---------|
-| `query_trader_history` | 1-year trade history | Baseline deviation analysis |
-| `query_market_news` | News timeline | Public information analysis |
-| `query_peer_trades` | Peer activity | Isolation vs. consensus |
-
-### Wash Trade-Specific Tools
-
-The wash trade agent has 4 additional specialized tools:
-
-| Tool | Purpose | Returns |
-|------|---------|---------|
-| `query_account_relationships` | Discover connected accounts | Relationship network with ownership links |
-| `query_related_accounts_history` | Cross-account trading patterns | Coordinated activity analysis |
-| `query_trade_timing` | Sub-second timing analysis | Pre-arrangement pattern detection |
-| `query_counterparty_analysis` | Counterparty matching | Beneficial ownership overlap assessment |
-
-## Few-Shot Examples
-
-The system uses a "case law" approach where few-shot examples serve as precedents. Each agent type has its own examples file.
-
-### Insider Trading Examples (`test_data/few_shot_examples.json`)
-- Clear genuine insider trading (ESCALATE)
-- Clear false positive (CLOSE)
-- Subtle genuine case (ESCALATE)
-- Subtle false positive (CLOSE)
-- Ambiguous/conflicting signals (NEEDS_HUMAN_REVIEW)
-- Indirect information leak (ESCALATE)
-
-### Wash Trade Examples (`test_data/wash_trade_few_shot_examples.json`)
-- Same beneficial owner - genuine wash trade (ESCALATE)
-- Market maker legitimate activity (CLOSE)
-- Coordinated timing patterns (ESCALATE)
-- Index rebalancing false positive (CLOSE)
-- Layered circular trades A→B→C→A (ESCALATE)
-- Mixed signals with partial ownership (NEEDS_HUMAN_REVIEW)
+Each tool calls an LLM internally to interpret raw data and return insights (not raw data).
 
 ## Testing
 
@@ -375,83 +191,68 @@ pytest --cov=alerts
 pytest tests/test_tools.py -v
 ```
 
-## Architecture
+## LLM Provider Support
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         INPUT                                    │
-│                      alert.xml                                   │
-└─────────────────────────────┬───────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     LANGGRAPH AGENT                              │
-│                                                                  │
-│  TOOLS (each calls LLM internally for interpretation):           │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │ read_alert → query_trader_history → query_trader_profile │    │
-│  │ query_market_news → query_market_data → query_peer_trades│    │
-│  └─────────────────────────────────────────────────────────┘    │
-│                              │                                   │
-│                              ▼                                   │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │              REASONING (with few-shot examples)          │    │
-│  │                                                          │    │
-│  │  "Compare this case to precedents..."                    │    │
-│  │  "This most resembles Example 2 because..."              │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│                              │                                   │
-│                              ▼                                   │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │              STRUCTURED OUTPUT (Pydantic)                │    │
-│  └─────────────────────────────────────────────────────────┘    │
-└─────────────────────────────┬───────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         OUTPUT                                   │
-│  resources/reports/decision_{alert_id}.json                      │
-│  + audit_log.jsonl                                               │
-└─────────────────────────────────────────────────────────────────┘
+Switch between providers by setting `LLM_PROVIDER` in `.env`:
+
+**OpenAI**:
+```bash
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o
 ```
 
-## Output Schema
+**Azure OpenAI**:
+```bash
+LLM_PROVIDER=azure
+AZURE_OPENAI_API_KEY=...
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT=gpt-4o
+AZURE_OPENAI_API_VERSION=2024-02-15-preview
+```
 
-### Insider Trading Decision (`InsiderTradingDecision`)
+**OpenRouter**:
+```bash
+LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_MODEL=openai/gpt-4o  # Or any model in catalog
+```
 
-- `alert_id`: Unique identifier
-- `determination`: ESCALATE | CLOSE | NEEDS_HUMAN_REVIEW
-- `genuine_alert_confidence`: 0-100 score
-- `false_positive_confidence`: 0-100 score
-- `key_findings`: Investigation findings
-- `favorable_indicators`: Factors suggesting genuine insider trading
-- `risk_mitigating_factors`: Factors suggesting false positive
-- `trader_baseline_analysis`: Deviation from normal trading
-- `market_context`: News, volatility, peer activity
-- `reasoning_narrative`: Human-readable explanation
-- `similar_precedent`: Which example case this resembles
-- `recommended_action`: ESCALATE | CLOSE | MONITOR | REQUEST_MORE_DATA
-- `data_gaps`: Missing information
+**Google Gemini**:
+```bash
+LLM_PROVIDER=gemini
+GOOGLE_API_KEY=...
+GEMINI_MODEL=gemini-2.0-flash
+```
 
-### Wash Trade Decision (`WashTradeDecision`)
+## Tuning Agent Behavior
 
-- `alert_id`: Unique identifier
-- `determination`: ESCALATE | CLOSE | NEEDS_HUMAN_REVIEW
-- `genuine_alert_confidence`: 0-100 score
-- `false_positive_confidence`: 0-100 score
-- `key_findings`: Investigation findings
-- `favorable_indicators`: Factors suggesting genuine wash trading
-- `risk_mitigating_factors`: Factors suggesting legitimate activity
-- `relationship_network`: Graph structure with nodes (accounts) and edges (relationships)
-- `timing_patterns`: List of detected timing patterns (timestamp, interval, pattern type)
-- `trade_flows`: Circular trade flow detection results
-- `counterparty_patterns`: Counterparty matching analysis
-- `historical_pattern_summary`: 90-day pattern analysis
-- `regulatory_framework`: Applicable regulations (MAS SFA, SFC SFO, etc.)
-- `reasoning_narrative`: Human-readable explanation
-- `similar_precedent`: Which example case this resembles
-- `recommended_action`: ESCALATE | CLOSE | MONITOR | REQUEST_MORE_DATA
-- `data_gaps`: Missing information
+The system uses a "case law" approach where few-shot examples serve as precedents. To tune behavior:
+
+**No code changes needed** - just edit the examples:
+- Insider Trading: `test_data/few_shot_examples.json`
+- Wash Trade: `test_data/wash_trade_few_shot_examples.json`
+
+Add new example scenarios with detailed reasoning. The agent compares current cases to precedents.
+
+## Project Structure
+
+```
+alerts/
+├── src/alerts/              # Backend analysis engine
+│   ├── agents/              # IT and WT specialized agents
+│   ├── tools/               # Common tools + agent-specific tools
+│   ├── models/              # Pydantic output schemas
+│   ├── reports/             # HTML/JSON report generators
+│   └── a2a/                 # A2A protocol servers
+├── src/frontend/            # FastAPI web UI
+│   ├── templates/           # HTML templates
+│   └── static/              # JavaScript, CSS
+├── test_data/               # Alert XMLs, CSVs, few-shot examples
+├── tests/                   # pytest test suite
+├── scripts/                 # start_all_servers.sh, test scripts
+└── resources/reports/       # Output directory
+```
 
 ## Design Decisions
 
@@ -464,129 +265,16 @@ pytest tests/test_tools.py -v
 | Scoring approach | Pure LLM reasoning | Adaptable via few-shot examples |
 | Error handling | Fail-fast | Crash loudly for debugging |
 | LLM provider | Config-driven | Flexibility for enterprise deployment |
-| Regulatory framework | APAC-focused | Supports MAS SFA, SFC SFO, ASIC, FSA FIEA |
 
-## Web UI Frontend
+## Development
 
-The system includes a web-based user interface for uploading and analyzing alerts.
+See `CLAUDE.md` for:
+- Detailed architecture documentation
+- Development patterns (adding tools, agents, events)
+- Directory index with file purposes
+- Integration points and configuration
+- Testing strategy
 
-### Starting the Web UI
+## License
 
-**Step 1: Start the A2A Agent Servers**
-
-Follow the multi-agent orchestrator setup above (Terminals 1-3).
-
-**Step 2: Start the Frontend Server**
-
-```bash
-# Terminal 5 - Frontend UI
-python -m frontend.app --port 8080
-
-# Or using the console script:
-alerts-frontend --port 8080
-
-# With custom orchestrator URL:
-alerts-frontend --port 8080 --orchestrator-url http://localhost:10000
-```
-
-**Step 3: Open in Browser**
-
-Navigate to `http://localhost:8080`
-
-### Web UI Features
-
-- **Drag-and-Drop Upload**: Upload XML alert files via drag-and-drop or file browser
-- **XML Preview**: Collapsible preview of uploaded XML content
-- **Real-Time Execution DAG**: Live visualization of multi-agent workflow using Cytoscape.js
-  - Shows: User → Orchestrator → Agent → Tools (dynamically added) → Output
-  - Node states: Pending, Active, Completed, Error
-  - Maximize/minimize controls for detailed inspection
-- **Progress Timeline**: SSE-based streaming of tool execution events
-- **Results Display**: Dynamic rendering of analysis results including:
-  - Determination badge (ESCALATE/CLOSE/NEEDS_HUMAN_REVIEW)
-  - Confidence score bars
-  - Key findings and indicators
-  - Insider trading: Trader baseline and market context
-  - Wash trade: Interactive Cytoscape.js relationship network graph
-- **Download Reports**: JSON and HTML report downloads
-
-### Configuration
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| UI Port | 8080 | Frontend server port |
-| Orchestrator URL | http://localhost:10000 | A2A orchestrator endpoint |
-
-### Full Startup Sequence
-
-```bash
-# Terminal 1: Insider Trading Agent
-source venv/bin/activate
-python -m alerts.a2a.insider_trading_server --port 10001
-
-# Terminal 2: Wash Trade Agent
-source venv/bin/activate
-python -m alerts.a2a.wash_trade_server --port 10002
-
-# Terminal 3: Orchestrator
-source venv/bin/activate
-python -m alerts.a2a.orchestrator_server --port 10000
-
-# Terminal 4: Frontend UI
-source venv/bin/activate
-python -m frontend.app --port 8080
-
-# Browser: Open http://localhost:8080
-```
-
-## Future Enhancements
-
-- [ ] Feedback loop: Human decisions become new examples
-- [ ] Ground truth validation against labeled data
-- [ ] Calendar events tool for earnings/event correlation
-- [ ] Internal communications tool
-- [ ] Async processing for higher volume
-- [x] Web UI for compliance analysts
-
-## Execution commands
----
-Option 2: Run Multi-Agent Orchestrator (A2A Protocol)
-
-  Uses orchestrator to route alerts to specialized agents:
-
-  Step 1: Start Specialized Agent Servers
-
-  Terminal 1 - Insider Trading Agent:
-  python -m alerts.a2a.insider_trading_server --port 10001
-
-  Terminal 2 - Wash Trade Agent:
-  python -m alerts.a2a.wash_trade_server --port 10002
-
-  Step 2: Start Orchestrator Server
-
-  Terminal 3 - Orchestrator:
-  python -m alerts.a2a.orchestrator_server --port 10000 \
-      --insider-trading-url http://localhost:10001 \
-      --wash-trade-url http://localhost:10002
-
-  Step 3: Send Alert to Orchestrator
-
-  Terminal 4 - Test Client:
-
-  For Insider Trading Alert:
-  python -m alerts.a2a.test_client \
-      --server-url http://localhost:10000 \
-      --alert test_data/alerts/alert_genuine.xml
-
-  For Wash Trade Alert:
-  python -m alerts.a2a.test_client \
-      --server-url http://localhost:10000 \
-      --alert test_data/alerts/wash_trade/wash_genuine.xml
-
-  With streaming mode:
-  python -m alerts.a2a.test_client \
-      --server-url http://localhost:10000 \
-      --alert test_data/alerts/wash_trade/wash_genuine.xml \
-      --streaming
-
-  ---
+MIT

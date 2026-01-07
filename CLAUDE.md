@@ -1,727 +1,460 @@
-# CLAUDE.md
+# SMARTS Alert Analyzer - Developer Reference
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+**Mission**: Intelligent compliance filter using multi-agent LLM architecture to analyze SMARTS surveillance alerts (insider trading, wash trading) and reduce false positives.
 
-## Project Overview
+**Core Philosophy**: Fully agentic reasoning without hardcoded scoring. Behavior tuning via few-shot examples in JSON files (zero code changes).
 
-SMARTS Alert False Positive Analyzer - An intelligent compliance filter that analyzes SMARTS surveillance alerts for potential insider trading and wash trading violations. Uses a fully agentic LLM-based approach with LangGraph, where each tool calls an LLM internally to interpret data rather than returning raw data.
+---
 
-**Core Philosophy**: Fully agentic reasoning without hardcoded scoring weights. Adaptability through few-shot examples stored in external JSON files (not code changes).
+## Quick Navigation
 
-**Supported Alert Types**:
-- **Insider Trading**: Pre-announcement trading, MNPI-based trades
-- **Wash Trading**: Same beneficial ownership, pre-arranged execution, circular trade flows (A→B→C→A)
+| Section | Purpose |
+|---------|---------|
+| [Commands](#commands) | Setup, run, test, deploy |
+| [Architecture](#architecture) | System design, data flow |
+| [Directory Index](#directory-index) | File locations by purpose |
+| [Integration Points](#integration-points) | A2A servers, frontend, tools |
+| [Development Patterns](#development-patterns) | Add features, tune behavior |
+| [Key Constraints](#key-constraints) | Fail-fast, no hardcoded scoring |
 
-## Development Commands
+---
 
-### Environment Setup
+## Commands
+
+### Setup
 ```bash
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Install
+pip install -e .                    # Production
+pip install -e ".[dev]"             # Development + testing
 
-# Install dependencies
-pip install -e .
-
-# Install development dependencies
-pip install -e ".[dev]"
-
-# Configure environment
+# Configure (NEVER commit .env)
 cp .env.example .env
-# Edit .env with your API keys (NEVER commit .env)
+# Edit: LLM_PROVIDER (openai/azure/openrouter/gemini), API keys
 ```
 
-### Running the Application
+### Run Analysis
+
+**CLI (single alert)**:
 ```bash
-# Analyze the default alert (genuine insider trading case)
-python -m alerts.main
-
-# Analyze a specific alert file
-python -m alerts.main --alert test_data/alerts/alert_genuine.xml
-python -m alerts.main --alert test_data/alerts/alert_false_positive.xml
-python -m alerts.main --alert test_data/alerts/alert_ambiguous.xml
-
-# Run with verbose logging
+python -m alerts.main                                      # Default IT alert
+python -m alerts.main --alert test_data/alerts/wash_trade/wash_genuine.xml
 python -m alerts.main --verbose
+```
 
-# Run with minimal output
-python -m alerts.main --quiet
+**Multi-Agent (A2A servers + web UI)**:
+```bash
+# Quick start - all servers in background
+bash scripts/start_all_servers.sh
+# Open: http://localhost:8080
+# Logs: logs/{insider_trading,wash_trade,orchestrator,frontend}.log
 
-# Using installed script entry point
-alerts
+# Manual (4 terminals)
+python -m alerts.a2a.insider_trading_server --port 10001
+python -m alerts.a2a.wash_trade_server --port 10002
+python -m alerts.a2a.orchestrator_server --port 10000
+python -m frontend.app --port 8080
 ```
 
 ### Testing
 ```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=alerts
-
-# Run specific test file
-pytest tests/test_tools.py -v
-
-# Run a single test function
-pytest tests/test_tools.py::test_alert_reader_tool -v
-
-# Run tests matching a keyword
-pytest -k "wash_trade" -v
-
-# Run with verbose output and short traceback
-pytest -v --tb=short
+pytest                              # All tests
+pytest --cov=alerts                 # With coverage
+pytest tests/test_tools.py -v      # Specific file
+pytest -k "wash_trade" -v          # Keyword match
 ```
 
-### Web UI (Frontend)
-```bash
-# Option 1: Use helper script to start all servers in background
-bash scripts/start_all_servers.sh
-# Logs: logs/insider_trading.log, logs/wash_trade.log, logs/orchestrator.log, logs/frontend.log
-# Open browser: http://localhost:8080
-
-# Option 2: Start all required servers manually (4 terminals)
-
-# Terminal 1: Insider Trading Agent
-python -m alerts.a2a.insider_trading_server --port 10001
-
-# Terminal 2: Wash Trade Agent
-python -m alerts.a2a.wash_trade_server --port 10002
-
-# Terminal 3: Orchestrator
-python -m alerts.a2a.orchestrator_server --port 10000
-
-# Terminal 4: Frontend UI
-python -m frontend.app --port 8080
-
-# Open browser: http://localhost:8080
-```
+---
 
 ## Architecture
 
-### High-Level Design Pattern
+### Multi-Agent Flow
+```
+User/Browser
+    ↓ (XML alert)
+Orchestrator (Port 10000) ← detects alert type
+    ↓
+    ├→ Insider Trading Agent (10001) → 6 tools (3 common + 3 IT-specific)
+    └→ Wash Trade Agent (10002) → 7 tools (3 common + 4 WT-specific)
+    ↓
+Decision (JSON + HTML)
+```
 
-**Multi-Agent Architecture** with orchestrator routing to specialized agents:
-- **Orchestrator Agent**: Routes alerts to appropriate specialized agent
-- **Insider Trading Agent**: 3 common tools + 3 IT-specific tools = 6 total
-- **Wash Trade Agent**: 3 common tools + 4 WT-specific tools = 7 total
-- **Common Tools**: 3 shared tools used by all agents (alert_reader, trader_profile, market_data)
+**Alert Detection**:
+- IT: Keywords `insider|pre-announcement|mnpi`, rule codes `SMARTS-IT-*|SMARTS-PAT-*`
+- WT: Keywords `wash|self-trade|circular`, rule codes `SMARTS-WT-*|WT-*|WASH_TRADE`
 
-Each tool:
-1. Reads from a data source (CSV/XML/TXT files in POC)
-2. **Calls LLM internally** to interpret raw data
-3. Returns **insights** (not raw data) to the main agent
+### Tool Architecture (Two-Tier LLM)
 
-This creates a **two-tier LLM architecture**:
-- **Tier 1**: Tool-level LLMs extract insights from raw data
-- **Tier 2**: Main agent LLM makes final determination using tool insights + few-shot examples
+Each tool = Data Source → **LLM Interpretation** → Insights (not raw data)
 
-### Core Components
+**Common Tools** (all agents):
+1. `alert_reader` - Parse XML → alert summary
+2. `trader_profile` - CSV → MNPI access assessment
+3. `market_data` - CSV → market conditions analysis
 
-The codebase is organized into **Backend** (analysis engine) and **Frontend** (web UI):
+**IT-Specific Tools**:
+4. `trader_history` - CSV → baseline deviation
+5. `market_news` - TXT → public info timeline
+6. `peer_trades` - CSV → isolation vs consensus
 
-#### Backend (`src/alerts/`)
+**WT-Specific Tools**:
+4. `account_relationships` - CSV → ownership network
+5. `related_accounts_history` - CSV → coordinated activity
+6. `trade_timing` - CSV → sub-second patterns
+7. `counterparty_analysis` - CSV → beneficial ownership overlap
+
+### LangGraph Workflow
+```
+START → agent → tools? → [tools → agent]* → respond → END
+```
+- `agent`: Main reasoning (calls tools)
+- `tools`: ToolNode executor (parallel execution)
+- `respond`: Structured output (Pydantic model)
+- Recursion limit: 50
+
+### Event Streaming (SSE)
+
+Real-time progress over 5-10 minute analyses:
+
+```
+Browser EventSource (/api/stream/{task_id})
+    ↓ SSE
+Frontend (/message/stream proxy via httpx)
+    ↓ A2A JSON-RPC SSE
+Orchestrator → Agent → LangGraph (astream_events)
+    ↓ Events
+tool_started → tool_progress → tool_completed → analysis_complete
+```
+
+**Event Types**: `analysis_started`, `routing`, `evaluation_started`, `tool_started`, `tool_progress`, `tool_completed`, `analysis_complete`, `error`
+
+**Key Files**:
+- `a2a/event_mapper.py` - LangGraph → A2A event conversion
+- `frontend/static/js/streaming.js` - EventSource client
+- `frontend/static/js/dag-visualization.js` - Live execution DAG
+
+---
+
+## Directory Index
+
+### Backend Core
 ```
 src/alerts/
-├── main.py                      # CLI entry point
-├── config.py                    # Environment-based configuration
-├── llm_factory.py               # LLM provider factory (OpenAI/Azure/OpenRouter/Gemini)
-├── agent.py                     # [Backward-compat shim → agents.insider_trading]
-├── models.py                    # [Backward-compat shim → models/]
-├── models/
-│   ├── base.py                  # BaseAlertDecision
-│   ├── insider_trading.py       # InsiderTradingDecision
-│   └── wash_trade.py            # WashTradeDecision + RelationshipNetwork
-├── prompts/                     # [Backward-compat shim → agents.insider_trading.prompts]
-│   └── system_prompt.py
-├── tools/
-│   ├── base.py                  # [LEGACY] BaseTool - use common/base.py instead
-│   ├── common/                  # 3 shared tools (used by ALL agents)
-│   │   ├── base.py              # BaseTool class with LLM interpretation + streaming
-│   │   ├── alert_reader.py      # AlertReaderTool - parses alert XML
-│   │   ├── trader_profile.py    # TraderProfileTool - role/access level
-│   │   └── market_data.py       # MarketDataTool - price/volume data
-│   ├── alert_reader.py          # [LEGACY] Use common/alert_reader.py
-│   ├── trader_profile.py        # [LEGACY] Use common/trader_profile.py
-│   ├── market_data.py           # [LEGACY] Use common/market_data.py
-│   ├── market_news.py           # [LEGACY] Now in agents/insider_trading/tools/
-│   ├── trader_history.py        # [LEGACY] Now in agents/insider_trading/tools/
-│   └── peer_trades.py           # [LEGACY] Now in agents/insider_trading/tools/
-├── agents/
-│   ├── insider_trading/
-│   │   ├── agent.py             # InsiderTradingAnalyzerAgent
-│   │   ├── prompts/
-│   │   │   └── system_prompt.py
-│   │   └── tools/               # 3 insider-trading-specific tools
-│   │       ├── trader_history.py    # TraderHistoryTool
-│   │       ├── market_news.py       # MarketNewsTool
-│   │       └── peer_trades.py       # PeerTradesTool
-│   └── wash_trade/
-│       ├── agent.py             # WashTradeAnalyzerAgent
-│       ├── prompts/
-│       │   └── system_prompt.py
-│       └── tools/               # 4 wash-trade-specific tools
-│           ├── account_relationships.py
-│           ├── related_accounts_history.py
-│           ├── trade_timing.py
-│           └── counterparty_analysis.py
-├── reports/
-│   ├── html_generator.py        # Insider trading HTML report
-│   ├── wash_trade_report.py     # Wash trade HTML report
-│   └── wash_trade_graph.py      # SVG network graph generator
-└── a2a/                         # A2A (Agent-to-Agent) protocol integration
-    ├── event_mapper.py          # LangGraph → A2A event format conversion
-    ├── insider_trading_executor.py  # execute() + execute_stream()
-    ├── insider_trading_server.py    # /message/stream SSE endpoint
-    ├── wash_trade_executor.py
-    ├── wash_trade_server.py
-    ├── orchestrator.py          # Routes alerts to specialized agents
-    ├── orchestrator_executor.py # Proxies streaming from agents
-    ├── orchestrator_server.py
-    └── test_client.py
+├── main.py                     # CLI entry point
+├── config.py                   # Env-based config (fail-fast validation)
+├── llm_factory.py              # LLM provider factory (4 providers)
+├── agent.py                    # [SHIM → agents.insider_trading]
+└── models.py                   # [SHIM → models/]
 ```
 
-#### Frontend (`src/frontend/`)
+### Models (Output Schemas)
+```
+src/alerts/models/
+├── base.py                     # BaseAlertDecision
+├── insider_trading.py          # InsiderTradingDecision (11 fields)
+└── wash_trade.py               # WashTradeDecision + RelationshipNetwork (14 fields)
+```
+
+### Agents
+```
+src/alerts/agents/
+├── insider_trading/
+│   ├── agent.py                # InsiderTradingAnalyzerAgent
+│   ├── prompts/system_prompt.py # System prompt + few-shot loader
+│   └── tools/                  # 3 IT-specific tools
+│       ├── trader_history.py
+│       ├── market_news.py
+│       └── peer_trades.py
+└── wash_trade/
+    ├── agent.py                # WashTradeAnalyzerAgent
+    ├── prompts/system_prompt.py
+    └── tools/                  # 4 WT-specific tools
+        ├── account_relationships.py
+        ├── related_accounts_history.py
+        ├── trade_timing.py
+        └── counterparty_analysis.py
+```
+
+### Tools (Common)
+```
+src/alerts/tools/
+├── common/                     # 3 shared tools (USE THESE)
+│   ├── base.py                 # BaseTool with LLM + streaming
+│   ├── alert_reader.py
+│   ├── trader_profile.py
+│   └── market_data.py
+├── alert_reader.py             # [LEGACY SHIM]
+├── trader_profile.py           # [LEGACY SHIM]
+└── market_data.py              # [LEGACY SHIM]
+```
+
+### Reports
+```
+src/alerts/reports/
+├── html_generator.py           # IT HTML report (Tailwind CSS)
+├── wash_trade_report.py        # WT HTML report + network graph
+└── wash_trade_graph.py         # SVG network visualization
+```
+
+### A2A (Agent-to-Agent Protocol)
+```
+src/alerts/a2a/
+├── orchestrator.py             # Alert routing logic
+├── orchestrator_executor.py    # Orchestrator A2A executor + streaming proxy
+├── orchestrator_server.py      # Port 10000
+├── insider_trading_executor.py # IT A2A executor (execute/execute_stream)
+├── insider_trading_server.py   # Port 10001
+├── wash_trade_executor.py      # WT A2A executor
+├── wash_trade_server.py        # Port 10002
+├── event_mapper.py             # LangGraph → A2A event mapping + buffer
+└── test_client.py              # CLI test client
+```
+
+### Frontend (Web UI)
 ```
 src/frontend/
-├── app.py                       # FastAPI routes, A2A client, SSE proxy
-├── task_manager.py              # In-memory task tracking (POC)
+├── app.py                      # FastAPI routes + A2A client + SSE proxy
+├── task_manager.py             # In-memory task tracking
 ├── templates/
-│   ├── base.html                # Tailwind CSS base template
-│   └── upload.html              # Upload page with timeline UI
-└── static/
-    ├── css/styles.css           # Custom animations, timeline styles
-    └── js/
-        ├── upload.js            # Drag-drop file upload
-        ├── progress-timeline.js # SSE timeline visualization
-        ├── streaming.js         # EventSource integration (fail-fast)
-        ├── results.js           # Results + Cytoscape.js network graph
-        └── dag-visualization.js # Real-time execution flow DAG with Cytoscape
+│   ├── base.html               # Tailwind CSS base
+│   └── upload.html             # Upload + timeline UI
+└── static/js/
+    ├── upload.js               # Drag-drop file upload
+    ├── streaming.js            # EventSource SSE client
+    ├── progress-timeline.js    # Timeline visualization
+    ├── results.js              # Results + Cytoscape network graph
+    └── dag-visualization.js    # Real-time execution DAG
+
+API Endpoints:
+- POST /api/analyze              # Upload alert
+- GET /api/stream/{task_id}      # SSE progress stream
+- GET /api/status/{task_id}      # Polling fallback
+- GET /api/download/{task_id}/json|html
 ```
 
-#### Supporting Directories
+### Test Data
 ```
-test_data/                       # Test fixtures
-├── alerts/                      # Insider trading alert XMLs
-│   └── wash_trade/              # Wash trade alert XMLs
-├── wash_trade/                  # Wash trade CSV data files
-├── *.csv                        # Market/trader data
-├── few_shot_examples.json       # Insider trading precedents
-└── wash_trade_few_shot_examples.json  # Wash trade precedents
+test_data/
+├── alerts/
+│   ├── alert_genuine.xml        # IT test cases
+│   ├── alert_false_positive.xml
+│   ├── alert_ambiguous.xml
+│   └── wash_trade/              # WT test cases
+│       ├── wash_genuine.xml
+│       ├── wash_ambiguous.xml
+│       └── wash_layered.xml
+├── few_shot_examples.json       # IT precedents (tune IT behavior HERE)
+├── wash_trade_few_shot_examples.json # WT precedents (tune WT behavior HERE)
+├── *.csv                        # Market/trader data (7 files)
+├── market_news.txt
+└── wash_trade/*.csv             # WT-specific data (2 files)
+```
 
-tests/                           # pytest test suite
+### Output & Scripts
+```
 resources/
-├── reports/                     # Output directory for decisions
-├── debug/                       # Debug dumps (A2A responses)
-└── research/                    # Reference documentation (LangGraph, A2A)
-scripts/                         # Utility scripts
-├── start_all_servers.sh         # Start all A2A servers + frontend (background)
-└── test_frontend_api.sh         # Test frontend API endpoints
+├── reports/                     # decision_{id}.json/html, audit_log.jsonl
+└── debug/                       # a2a_response_*.json
+
+scripts/
+├── start_all_servers.sh         # Start all A2A + frontend (background)
+└── test_frontend_api.sh         # API test script
+
 logs/                            # Runtime logs (from start_all_servers.sh)
 ```
 
-### A2A (Agent-to-Agent) Protocol Integration
+---
 
-The system supports Google's A2A protocol for agent-to-agent communication, enabling an orchestrator pattern where a central agent routes alerts to specialized agents.
+## Integration Points
 
-**Architecture:**
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                 Orchestrator Agent (Port 10000)                 │
-│  (Reads alerts, determines type, routes to specialized agents)  │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │ A2A Protocol (JSON-RPC over HTTP)
-                ┌───────────┴───────────┐
-                │                       │
-                ▼                       ▼
-┌───────────────────────────┐   ┌───────────────────────────────┐
-│   Insider Trading Agent   │   │     Wash Trade Agent          │
-│      (Port 10001)         │   │       (Port 10002)            │
-└───────────────────────────┘   └───────────────────────────────┘
-```
+### LLM Providers (via config)
+Set `LLM_PROVIDER` in `.env`:
+- `openai` - Requires: `OPENAI_API_KEY`, `OPENAI_MODEL`
+- `azure` - Requires: `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`
+- `openrouter` - Requires: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`
+- `gemini` - Requires: `GOOGLE_API_KEY`, `GEMINI_MODEL`
 
-**Running A2A Servers:**
+**Factory**: `llm_factory.py:create_llm()`
+
+### A2A Server URLs
+**Default**:
+- Orchestrator: `http://localhost:10000`
+- IT Agent: `http://localhost:10001`
+- WT Agent: `http://localhost:10002`
+- Frontend: `http://localhost:8080`
+
+**Override**:
 ```bash
-# Terminal 1: Start the insider trading agent server
-python -m alerts.a2a.insider_trading_server --port 10001
-
-# Terminal 2: Start the wash trade agent server
-python -m alerts.a2a.wash_trade_server --port 10002
-
-# Terminal 3: Start the orchestrator server
-python -m alerts.a2a.orchestrator_server --port 10000
-
-# Terminal 4: Test with the client
-
-# Test with insider trading alerts
-python -m alerts.a2a.test_client --server-url http://localhost:10000 \
-    --alert test_data/alerts/alert_genuine.xml
-
-# Test with wash trade alerts
-python -m alerts.a2a.test_client --server-url http://localhost:10000 \
-    --alert test_data/alerts/wash_trade/wash_genuine.xml
-python -m alerts.a2a.test_client --server-url http://localhost:10000 \
-    --alert test_data/alerts/wash_trade/wash_ambiguous.xml
-python -m alerts.a2a.test_client --server-url http://localhost:10000 \
-    --alert test_data/alerts/wash_trade/wash_layered.xml
-```
-
-**Using installed script entry points:**
-```bash
-alerts-insider-trading-server --port 10001
-alerts-wash-trade-server --port 10002
+# Via CLI args
 alerts-orchestrator-server --port 10000 \
-    --insider-trading-url http://localhost:10001 \
-    --wash-trade-url http://localhost:10002
+    --insider-trading-url http://remote:10001 \
+    --wash-trade-url http://remote:10002
+
+alerts-frontend --port 8080 --orchestrator-url http://remote:10000
 ```
 
-**Key A2A Concepts:**
-- **AgentCard**: JSON document at `/.well-known/agent.json` describing agent capabilities
-- **AgentExecutor**: Handles incoming A2A requests and executes agent logic
-- **Task**: Core abstraction for tracking long-running operations
-- **A2AClient**: Client for communicating with remote A2A agents
+### Data Sources (POC - local files)
+All tools read from `test_data/`:
+- Alert XMLs: `alerts/*.xml`, `alerts/wash_trade/*.xml`
+- CSVs: `trader_history.csv`, `trader_profiles.csv`, `market_data.csv`, `peer_trades.csv`, `wash_trade/*.csv`
+- Text: `market_news.txt`
+- Few-shot: `few_shot_examples.json`, `wash_trade_few_shot_examples.json`
 
-**Flow:**
-1. User sends alert to Orchestrator via A2A
-2. Orchestrator reads alert XML to determine type (insider trading, wash trade, or unsupported)
-3. If insider trading → routes to Insider Trading Agent via A2A
-4. If wash trade → routes to Wash Trade Agent via A2A
-5. Specialized agent analyzes and returns decision
-6. Orchestrator returns result to user
-
-**Alert Type Detection:**
-- **Insider Trading**: Alert types containing "insider", "pre-announcement", "mnpi", "material"
-- **Wash Trade**: Alert types containing "wash", "self-trade", "matched order", "circular"
-
-### LangGraph Workflow
-
-```
-START → agent → tools? → [tools → agent]* → respond → END
-        ↑                                      ↓
-        └──────── loops until no tool calls ───┘
-```
-
-**Nodes**:
-- `agent`: Main reasoning node (decides which tools to call)
-- `tools`: ToolNode executing requested tools
-- `respond`: Final structured output generation using `AlertDecision` Pydantic model
-
-**Key Implementation Details**:
-- `MessagesState` for conversation history
-- `recursion_limit=50` to allow multiple tool calls
-- Tools bound to LLM via `llm.bind_tools()`
-- Final response uses `llm.with_structured_output(AlertDecision)`
-
-### Tool Implementation Pattern
-
-All tools inherit from `BaseTool` and implement:
-
-```python
-class SomeTool(BaseTool):
-    def _load_data(self, **kwargs) -> str:
-        # Read from data source (CSV, XML, etc.)
-        pass
-
-    def _build_interpretation_prompt(self, raw_data: str, **kwargs) -> str:
-        # Build LLM prompt for interpretation
-        pass
-
-    def __call__(self, **kwargs) -> str:
-        # BaseTool handles: load → interpret with LLM → return insights
-        pass
-```
-
-**Critical**: Tools return LLM-interpreted insights, NOT raw data. Example:
-```
-Bad:  "trader_history.csv has 247 rows..."
-Good: "This trader typically trades 5K shares/day in tech sector.
-       The flagged 50K share healthcare trade is 10x normal volume
-       and a sector they've never touched."
-```
-
-### Few-Shot Examples Strategy
-
-Each agent type has its own examples file:
-- **Insider Trading**: `test_data/few_shot_examples.json`
-- **Wash Trade**: `test_data/wash_trade_few_shot_examples.json`
-
-The agent uses a **"case law" approach** - few-shot examples serve as precedents. To tune behavior:
-1. Edit the appropriate examples file (NO code changes needed)
-2. Add new example scenarios with detailed reasoning
-3. Agent compares current case to precedents
-
-Loaded via each agent's `system_prompt.py:load_few_shot_examples()` and injected into system prompt.
-
-### Configuration Management
-
-**Environment-based** configuration supporting OpenAI, Azure OpenAI, OpenRouter, and Google Gemini:
-
-```python
-# config.py uses dataclasses with fail-fast validation
-AppConfig
-├── LLMConfig       # Provider, model, API keys, temperature
-├── DataConfig      # Paths to data_dir, output_dir, alerts
-└── LoggingConfig   # Log level, format, optional file
-```
-
-Load with: `get_config()` (reads from `.env` file via `python-dotenv`)
-
-**Provider switching**: Set `LLM_PROVIDER=openai`, `LLM_PROVIDER=azure`, `LLM_PROVIDER=openrouter`, or `LLM_PROVIDER=gemini` in `.env`
-
-### Output Schema
-
-**Insider Trading Decision** (`InsiderTradingDecision`):
-- `determination`: "ESCALATE" | "CLOSE" | "NEEDS_HUMAN_REVIEW"
-- `genuine_alert_confidence`: 0-100
-- `false_positive_confidence`: 0-100
-- `key_findings`: List[str]
-- `favorable_indicators`: Reasons suggesting genuine insider trading
-- `risk_mitigating_factors`: Reasons suggesting false positive
-- `trader_baseline_analysis`: TraderBaselineAnalysis nested model
-- `market_context`: MarketContext nested model
-- `reasoning_narrative`: 2-4 paragraph explanation
-- `similar_precedent`: Which few-shot example this resembles
-
-**Wash Trade Decision** (`WashTradeDecision`):
-- `determination`: "ESCALATE" | "CLOSE" | "NEEDS_HUMAN_REVIEW"
-- `genuine_alert_confidence`: 0-100
-- `false_positive_confidence`: 0-100
-- `key_findings`: List[str]
-- `favorable_indicators`: Reasons suggesting genuine wash trading
-- `risk_mitigating_factors`: Reasons suggesting legitimate activity
-- `relationship_network`: RelationshipNetwork (nodes + edges for visualization)
-- `timing_patterns`: List[TimingPattern] - sub-second timing analysis
-- `trade_flows`: List[TradeFlow] - circular flow detection (A→B→C→A)
-- `counterparty_patterns`: List[CounterpartyPattern] - matching analysis
-- `historical_pattern_summary`: HistoricalPatternSummary - 90-day patterns
-- `regulatory_framework`: Applicable APAC regulations (MAS SFA, SFC SFO, etc.)
-- `reasoning_narrative`: 2-4 paragraph explanation
-- `similar_precedent`: Which few-shot example this resembles
-
-**Output Files**:
-- `resources/reports/decision_{alert_id}.json` - Full decision JSON
-- `resources/reports/decision_{alert_id}.html` - Professional HTML report with Tailwind CSS
-- `resources/reports/audit_log.jsonl` - Append-only audit trail
-
-## Important Constraints
-
-### Error Handling Philosophy
-**Fail-fast**: No graceful degradation. Errors crash loudly for debugging. If a tool fails, the entire analysis fails.
-
-Rationale: In POC phase, we want immediate feedback on issues rather than silent failures.
-
-### Data Access in POC
-All data sources are **local files** in `test_data/`:
-- `alerts/*.xml` - Insider trading SMARTS alert files
-- `alerts/wash_trade/*.xml` - Wash trade SMARTS alert files
-- `trader_history.csv` - Historical trades
-- `trader_profiles.csv` - Trader roles/access levels
-- `market_news.txt` - News timeline (free-form text)
-- `market_data.csv` - Price/volume data
-- `peer_trades.csv` - Peer trading activity
-- `few_shot_examples.json` - Insider trading few-shot precedents
-- `wash_trade_few_shot_examples.json` - Wash trade few-shot precedents
-- `wash_trade/account_relationships.csv` - Account relationship data
-- `wash_trade/related_accounts_history.csv` - Cross-account trade history
-
-### LLM Provider Support
-
-Code is **provider-agnostic**. Switch between four providers via configuration:
-
-**OpenAI**:
-- Environment variables: `OPENAI_API_KEY` + `OPENAI_MODEL`
-- Models: Any OpenAI model (e.g., "gpt-4o", "gpt-4-turbo")
-
-**Azure OpenAI**:
-- Environment variables: `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_DEPLOYMENT` + `AZURE_OPENAI_API_VERSION`
-- Models: Any deployed model in Azure
-
-**OpenRouter**:
-- Environment variables: `OPENROUTER_API_KEY` + `OPENROUTER_MODEL`
-- Optional: `OPENROUTER_SITE_URL` + `OPENROUTER_SITE_NAME` (for site ranking)
-- Models: Any model in OpenRouter catalog (e.g., "openai/gpt-4o", "anthropic/claude-opus", "meta-llama/llama-3-8b")
-- Base URL: Automatically set to `https://openrouter.ai/api/v1`
-
-**Google Gemini**:
-- Environment variables: `GOOGLE_API_KEY` + `GEMINI_MODEL`
-- Models: Any Gemini model (e.g., "gemini-2.0-flash", "gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash")
-- Documentation: https://ai.google.dev/gemini-api/docs
-
-Implementation: `llm_factory.py:create_llm()` uses LangChain's `ChatOpenAI`, `AzureChatOpenAI`, or `ChatGoogleGenerativeAI`.
-
-**Example OpenRouter Usage**:
-```bash
-export LLM_PROVIDER=openrouter
-export OPENROUTER_API_KEY=sk-or-...
-export OPENROUTER_MODEL=anthropic/claude-opus  # Or any other model
-python -m alerts.main
-```
-
-**Example Gemini Usage**:
-```bash
-export LLM_PROVIDER=gemini
-export GOOGLE_API_KEY=your-google-api-key
-export GEMINI_MODEL=gemini-2.0-flash  # Or any other Gemini model
-python -m alerts.main
-```
-
-### No Hardcoded Scoring
-The system uses **pure LLM reasoning** - no weight-based scoring formulas. To adjust behavior:
-1. Modify few-shot examples in the appropriate JSON file:
-   - Insider trading: `test_data/few_shot_examples.json`
-   - Wash trade: `test_data/wash_trade_few_shot_examples.json`
-2. Update system prompt in the appropriate agent's `prompts/system_prompt.py`
-
-**Do NOT add** scoring weights, thresholds, or rule-based logic.
+---
 
 ## Development Patterns
 
-### Adding a New Tool
+### Tune Agent Behavior (No Code Changes)
 
-**Common tools** (shared by ALL agents):
-1. Create tool class in `src/alerts/tools/common/your_tool.py`
-2. Inherit from `BaseTool` (from `alerts.tools.common.base`)
-3. Implement `_load_data()` and `_build_interpretation_prompt()`
-4. Export from `src/alerts/tools/common/__init__.py`
-5. Add to EACH agent's `_create_tool_instances()` method
-6. Update tests in `tests/test_tools.py`
+**Priority 1**: Edit few-shot examples
+- IT: `test_data/few_shot_examples.json`
+- WT: `test_data/wash_trade_few_shot_examples.json`
 
-**Agent-specific tools** (e.g., insider trading or wash trade):
-1. Create tool class in `src/alerts/agents/{agent_type}/tools/your_tool.py`
-2. Inherit from `BaseTool`
-3. Implement `_load_data()` and `_build_interpretation_prompt()`
-4. Export from `src/alerts/agents/{agent_type}/tools/__init__.py`
-5. Add to the specific agent's `_create_tool_instances()` method
-6. Update tests in `tests/test_tools.py`
+Add new precedent cases with detailed reasoning. Agent uses "case law" comparison.
 
-### Modifying Agent Behavior
-1. **First choice**: Edit the appropriate few-shot examples JSON file (no code changes)
-2. **If insufficient**: Update system prompt in the agent's `prompts/system_prompt.py`
-3. **Last resort**: Modify agent graph in the agent's `agent.py:_build_graph()`
+**Priority 2**: Update system prompts
+- IT: `agents/insider_trading/prompts/system_prompt.py`
+- WT: `agents/wash_trade/prompts/system_prompt.py`
 
-### Testing Strategy
-- Unit tests for tools, models, config, HTML generation
-- Mock LLM responses for deterministic tests
-- Use `conftest.py` for shared fixtures
-- Test data generation scripts go in `scripts/` folder
-- HTML report tests verify Tailwind CSS output and structure
+**Priority 3**: Modify agent graph (last resort)
+- IT: `agents/insider_trading/agent.py:_build_graph()`
+- WT: `agents/wash_trade/agent.py:_build_graph()`
 
-**Available Helper Scripts** (`scripts/` directory):
-- `start_all_servers.sh`: Starts all A2A servers and frontend in background with logging
-- `test_frontend_api.sh`: Tests frontend API with insider trading alert upload and polling
+### Add New Tool
 
-### Web UI Frontend
+**Common tool** (shared by all agents):
+1. Create: `tools/common/your_tool.py` inheriting `BaseTool`
+2. Implement: `_load_data()`, `_build_interpretation_prompt()`
+3. Export: `tools/common/__init__.py`
+4. Add to agents: Both `InsiderTradingAnalyzerAgent` and `WashTradeAnalyzerAgent._create_tool_instances()`
+5. Test: `tests/test_tools.py`
 
-The system includes a web interface for uploading alerts and viewing results with **real-time streaming progress**:
+**Agent-specific tool**:
+1. Create: `agents/{it|wt}/tools/your_tool.py`
+2. Same implementation pattern
+3. Export: `agents/{it|wt}/tools/__init__.py`
+4. Add to agent: `{IT|WT}AnalyzerAgent._create_tool_instances()`
+5. Test: `tests/test_tools.py`
 
-**Architecture:**
-```
-Browser (http://localhost:8080)
-    │
-    ├── POST /api/analyze (multipart XML upload)
-    ├── GET /api/stream/{task_id} (SSE real-time streaming)
-    ├── GET /api/status/{task_id} (polling fallback)
-    └── GET /api/download/{task_id}/{json|html}
-    │
-    ▼
-FastAPI Frontend Service (Port 8080)
-    │
-    └── POST /message/stream (A2A SSE streaming)
-    │
-    ▼
-Orchestrator Agent (Port 10000)
-    │
-    └── POST /message/stream (proxies to specialized agents)
-    │
-    ├── Insider Trading Agent (Port 10001)
-    │   └── POST /message/stream (SSE from LangGraph)
-    │
-    └── Wash Trade Agent (Port 10002)
-        └── POST /message/stream (SSE from LangGraph)
-```
-
-**Real-Time Streaming Architecture:**
-
-The system uses Server-Sent Events (SSE) to stream progress updates in real-time over 5-10 minute analysis tasks:
-
-1. **Browser → Frontend**: Uses `EventSource` API to connect to `/api/stream/{task_id}`
-2. **Frontend → Orchestrator**: Proxies SSE stream via `httpx.stream()` to `/message/stream`
-3. **Orchestrator → Agents**: Routes stream request to appropriate agent's `/message/stream`
-4. **Agent → LangGraph**: Uses `graph.astream_events()` to get tool-level progress
-5. **Tool Events**: Each tool emits `tool_started`, `tool_progress`, `tool_completed` events
-
-**Event Types:**
-- `analysis_started`: Analysis begins, alert type detected
-- `routing`: Orchestrator routing to specialized agent
-- `evaluation_started`: Agent begins evaluation phase (after tool gathering)
-- `tool_started`: Tool execution begins (with tool name)
-- `tool_progress`: Tool processing insight (optional)
-- `tool_completed`: Tool finished with insight summary
-- `analysis_complete`: Final decision with determination
-- `error`: Error occurred at any stage
-
-**Key Frontend Components:**
-- `frontend/app.py`: FastAPI routes, A2A client, SSE proxy endpoint
-- `frontend/task_manager.py`: In-memory task tracking (POC - no persistence)
-- `frontend/static/js/progress-timeline.js`: ProgressTimeline class for SSE visualization
-- `frontend/static/js/streaming.js`: EventSource integration (fail-fast, no polling fallback)
-- `frontend/static/js/results.js`: Dynamic rendering + Cytoscape.js graph for wash trade
-- `frontend/static/js/dag-visualization.js`: Real-time execution flow DAG with Cytoscape (User → Orchestrator → Agent → Tools → Output)
-
-**A2A Response Parsing Challenge:**
-The orchestrator wraps agent responses, creating nested JSON-RPC structures. The `extract_decision_from_response()` function handles this by:
-1. Detecting nested responses in artifact text
-2. Extracting embedded JSON-RPC using brace matching
-3. Finding artifacts ending in `_json` (e.g., `alert_decision_json`)
-
-Debug files are saved to `resources/debug/a2a_response_*.json` for investigation.
-
-### Real-Time Event Streaming
-
-The streaming system provides real-time visibility into the multi-agent analysis pipeline:
-
-**Event Format (A2A TaskStatusUpdateEvent):**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "task": {"id": "task-uuid", "state": "working"},
-    "taskStatusUpdateEvent": {
-      "task": {"id": "task-uuid", "state": "working"},
-      "final": false
-    },
-    "metadata": {
-      "event_id": "event-uuid",
-      "event_type": "tool_completed",
-      "agent": "insider_trading",
-      "tool_name": "trader_history",
-      "payload": {
-        "message": "Trader shows unusual volume deviation",
-        "stage": "data_gathering"
-      }
-    }
-  }
-}
-```
-
-**Stream Writer Pattern:**
-Tools emit events via optional `stream_writer` callback:
+**Tool Contract**:
 ```python
-# In BaseTool.__call__()
-self._emit_event(stream_writer, "tool_started", {"stage": "loading_data"})
-# ... do work ...
-self._emit_event(stream_writer, "tool_completed", {"insight": summary})
+class YourTool(BaseTool):
+    def _load_data(self, **kwargs) -> str:
+        # Read from data source
+        pass
+
+    def _build_interpretation_prompt(self, raw_data: str, **kwargs) -> str:
+        # Craft LLM prompt
+        pass
+
+    # BaseTool handles: load → LLM interpret → emit events → return insights
 ```
 
-**LangGraph Integration:**
-Agents use `graph.astream_events()` to capture internal LangGraph events:
-```python
-async for event in self.graph.astream_events(input, version="v2"):
-    # Map LangGraph events to A2A format
-    yield event_mapper.map_tool_event(event)
-```
+### Add New Agent Type
 
-**Reconnection Support:**
-- SSE events include `id` field for reconnection
-- `EventBuffer` class (event_mapper.py) stores recent events
-- Client can reconnect with `Last-Event-ID` header
+1. Create: `agents/your_type/agent.py` (copy IT/WT structure)
+2. Define model: `models/your_type.py` extending `BaseAlertDecision`
+3. Create tools: `agents/your_type/tools/*.py`
+4. System prompt: `agents/your_type/prompts/system_prompt.py`
+5. A2A executor: `a2a/your_type_executor.py`
+6. A2A server: `a2a/your_type_server.py`
+7. Update orchestrator: `a2a/orchestrator.py:determine_alert_type()`
+8. Add routing: `a2a/orchestrator.py:route_to_agent()`
+9. Tests: `tests/test_a2a_orchestrator.py`
 
-### HTML Report Generation
+### Output Schema Changes
 
-The system generates professional HTML reports using Tailwind CSS:
+**IT Decision**: Edit `models/insider_trading.py:InsiderTradingDecision`
+**WT Decision**: Edit `models/wash_trade.py:WashTradeDecision`
 
-**Insider Trading Reports** (`reports/html_generator.py:HTMLReportGenerator`):
-- Split-screen layout: Original alert data (left) + AI analysis (right)
-- Color-coded determination badges (ESCALATE=red, CLOSE=green, NEEDS_HUMAN_REVIEW=yellow)
-- Confidence score visualization with progress bars
-- Expandable sections for detailed findings
-- Timeline view for trader baseline and market context
-- Professional styling suitable for compliance documentation
+After schema change:
+1. Update HTML report generator (`reports/html_generator.py` or `reports/wash_trade_report.py`)
+2. Update frontend results rendering (`frontend/static/js/results.js`)
+3. Update tests (`tests/test_models.py` or `tests/test_wash_trade_models.py`)
 
-**Wash Trade Reports** (`reports/wash_trade_report.py:WashTradeHTMLReportGenerator`):
-- All features of insider trading reports, plus:
-- **SVG Relationship Network**: Interactive visualization of account relationships
-- Timing pattern analysis with sub-second precision
-- Circular trade flow visualization (A→B→C→A detection)
-- Counterparty pattern analysis
-- APAC regulatory framework references (MAS SFA, SFC SFO, ASIC, FSA FIEA)
+### Extend SSE Events
 
-The HTML reports are generated automatically alongside JSON output and include:
-- Alert metadata and details
-- AI determination with confidence scores
-- Key findings and evidence
-- Agent-specific analysis (trader baseline for IT, relationship network for WT)
-- Market context with news timeline
-- Complete reasoning narrative
+1. Add event type: `a2a/event_mapper.py:map_*_event()`
+2. Update frontend: `frontend/static/js/progress-timeline.js:_handleEvent()`
+3. Update DAG: `frontend/static/js/dag-visualization.js` (if execution flow changes)
 
-### Logging
-Extensive logging at INFO level by default:
-- Tool calls and processing times
-- Agent reasoning steps
-- Decision generation
-- Output file writes (JSON + HTML)
+---
 
-Third-party loggers (httpx, openai) suppressed to WARNING level.
+## Key Constraints
 
-## Key Files Reference
+### Fail-Fast Philosophy
+**No graceful degradation**. Errors crash loudly for immediate debugging.
+- Tool failure → entire analysis fails
+- Missing env var → startup fails
+- Invalid data → exception raised
 
-All paths relative to `src/` unless otherwise noted.
+**Rationale**: POC phase prioritizes visibility over resilience.
 
-| File | Purpose | When to Modify |
-|------|---------|----------------|
-| **Behavior Tuning (No Code Changes)** | | |
-| `test_data/few_shot_examples.json` | IT few-shot precedents | Adjust IT agent decisions |
-| `test_data/wash_trade_few_shot_examples.json` | WT few-shot precedents | Adjust WT agent decisions |
-| **Backend - Agents** | | |
-| `alerts/agents/insider_trading/agent.py` | IT LangGraph workflow | Add nodes, change IT workflow |
-| `alerts/agents/insider_trading/prompts/system_prompt.py` | IT system prompt | Change IT reasoning approach |
-| `alerts/agents/wash_trade/agent.py` | WT LangGraph workflow | Add nodes, change WT workflow |
-| `alerts/agents/wash_trade/prompts/system_prompt.py` | WT system prompt | Change WT reasoning approach |
-| **Backend - Tools** | | |
-| `alerts/tools/base.py` | BaseTool class + streaming | Tool infrastructure changes |
-| `alerts/tools/common/` | 3 shared tools | Common tool modifications |
-| `alerts/agents/insider_trading/tools/` | 3 IT-specific tools | IT tool changes |
-| `alerts/agents/wash_trade/tools/` | 4 WT-specific tools | WT tool changes |
-| **Backend - Models** | | |
-| `alerts/models/insider_trading.py` | IT output schema | Change IT decision structure |
-| `alerts/models/wash_trade.py` | WT output schema | Change WT decision structure |
-| **Backend - Reports** | | |
-| `alerts/reports/html_generator.py` | IT HTML report | Change IT report styling |
-| `alerts/reports/wash_trade_report.py` | WT HTML report | Change WT report styling |
-| `alerts/reports/wash_trade_graph.py` | SVG network graph | Change network visualization |
-| **Backend - A2A** | | |
-| `alerts/a2a/orchestrator.py` | Alert routing logic | Add new alert types/agents |
-| `alerts/a2a/event_mapper.py` | Event format conversion | Add new event types |
-| `alerts/a2a/*_executor.py` | Agent executors | Modify streaming behavior |
-| `alerts/a2a/*_server.py` | A2A HTTP servers | Server configuration |
-| **Backend - Core** | | |
-| `alerts/config.py` | Environment config | Add config parameters |
-| `alerts/llm_factory.py` | LLM provider factory | Add new LLM providers |
-| `alerts/main.py` | CLI entry point | CLI arguments, output |
-| **Frontend** | | |
-| `frontend/app.py` | FastAPI routes + SSE proxy | Add endpoints, modify streaming |
-| `frontend/task_manager.py` | Task lifecycle | Modify task tracking |
-| `frontend/static/js/streaming.js` | EventSource integration | SSE connection handling |
-| `frontend/static/js/progress-timeline.js` | Timeline visualization | Progress UI changes |
-| `frontend/static/js/results.js` | Results rendering | Result UI, Cytoscape graph |
+### No Hardcoded Scoring
+**Pure LLM reasoning**. Zero weight-based formulas.
+- To adjust behavior → edit few-shot examples
+- No `if confidence > 0.7` logic
+- No threshold constants
 
-## Anti-Patterns to Avoid
+### Tool Returns Insights, Not Data
+**Two-tier LLM**:
+- Tier 1: Tool-level LLM interprets raw data
+- Tier 2: Agent LLM reasons over insights
 
-1. **Don't return raw data from tools** - Always use LLM to interpret first
-2. **Don't add hardcoded scoring** - Use few-shot examples instead
-3. **Don't silently catch errors** - Let them crash (fail-fast)
-4. **Don't create new data sources** without updating architecture docs
-5. **Don't modify `.env`** - It contains secrets and is gitignored
-6. **Don't create files in project root** - Use `scripts/`, `test_data/`, or `resources/` subdirectories
+❌ Bad: `"trader_history.csv has 247 rows"`
+✅ Good: `"Trader typically 5K shares/day in tech. Flagged 50K healthcare trade is 10x volume, new sector"`
 
-## Known Issues
+### POC Data Sources
+All data from local files in `test_data/`. Production requires:
+- Replace file I/O with DB/API calls in `_load_data()`
+- Keep `_build_interpretation_prompt()` unchanged
 
-None currently. The BaseTool duplication issue has been resolved as of commit `13c5dfb` (Dec 5, 2025). The unified `alerts/tools/common/base.py` (426 lines) now includes full streaming support via `_emit_event()` method.
+### NEVER Modify
+- `.env` file (contains secrets, gitignored)
+- Legacy shim files (`agent.py`, `models.py`, `tools/*.py` except `common/`)
 
-## Reference Documentation
+---
 
-- LangGraph docs: `resources/research/langgraph/` (comprehensive reference materials)
-- Architecture design: `.dev-resources/architecture/smarts-alert-analyzer.md`
-- Wash trade architecture: `.dev-resources/architecture/wash-trade-analyzer.md`
-- Agent event streaming: `.dev-resources/architecture/agent-event-streaming.md`
-- UI architecture: `.dev-resources/architecture/ui-architecture.md`
-- Architecture prompts: `.dev-resources/prompts/architecture.txt`
+## Output Formats
+
+### Decision Files
+- **JSON**: `resources/reports/decision_{alert_id}.json` (full schema)
+- **HTML**: `resources/reports/decision_{alert_id}.html` (Tailwind CSS, professional)
+- **Audit**: `resources/reports/audit_log.jsonl` (append-only JSONL)
+
+### IT Decision Schema (11 fields)
+`determination`, `genuine_alert_confidence`, `false_positive_confidence`, `key_findings`, `favorable_indicators`, `risk_mitigating_factors`, `trader_baseline_analysis`, `market_context`, `reasoning_narrative`, `similar_precedent`, `recommended_action`
+
+### WT Decision Schema (14 fields)
+IT fields + `relationship_network`, `timing_patterns`, `trade_flows`, `counterparty_patterns`, `historical_pattern_summary`, `regulatory_framework`
+
+---
+
+## Testing Strategy
+
+**Unit tests**: Tools, models, config, HTML generation
+**Integration tests**: A2A executors, servers, streaming
+**Fixtures**: `tests/conftest.py`
+**Mock LLMs**: Deterministic test responses
+**Coverage**: `pytest --cov=alerts`
+
+---
+
+## Anti-Patterns
+
+❌ Return raw data from tools
+❌ Add hardcoded scoring/thresholds
+❌ Silently catch errors
+❌ Create files in project root
+❌ Modify `.env`
+❌ Use legacy tool paths (`tools/*.py` vs `tools/common/*.py`)
+❌ Edit shim files (`agent.py`, `models.py`)
+
+---
+
+## Reference
+
+**LangGraph**: `resources/research/langgraph/`
+**Architecture**: `.dev-resources/architecture/*.md`
+**A2A Protocol**: Google's Agent-to-Agent standard (JSON-RPC over HTTP)
+**APAC Regulations**: MAS SFA, SFC SFO, ASIC, FSA FIEA
