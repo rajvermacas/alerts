@@ -20,7 +20,13 @@ class TraderProfileTool(BaseTool, DataLoadingMixin):
     This tool retrieves trader's role, department, access level,
     and restrictions, using the LLM to assess their potential
     access to material non-public information.
+
+    Supports both legacy file-based loading (__call__) and
+    proactive data injection (execute) patterns.
     """
+
+    # Expected format for execute() method
+    expected_format: str = "csv"
 
     def __init__(self, llm: Any, data_dir: Path) -> None:
         """Initialize the trader profile tool.

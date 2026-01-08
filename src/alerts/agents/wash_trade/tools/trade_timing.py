@@ -26,8 +26,14 @@ class TradeTimingTool(BaseTool, DataLoadingMixin):
     - Liquidity assessment at the time of trades
     - Comparison to normal execution times for similar volumes
 
+    Supports both legacy file-based loading (__call__) and
+    proactive data injection (execute) patterns.
+
     Data Source: Computed from alert data + test_data/market_data.csv for context
     """
+
+    # Expected format for execute() method
+    expected_format: str = "csv"
 
     def __init__(self, llm: Any, data_dir: str) -> None:
         """Initialize the TradeTimingTool.

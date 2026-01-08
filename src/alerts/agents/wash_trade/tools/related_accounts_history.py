@@ -26,6 +26,9 @@ class RelatedAccountsHistoryTool(BaseTool, DataLoadingMixin):
     - Pattern frequency and recurrence
     - Historical wash trade signatures
 
+    Supports both legacy file-based loading (__call__) and
+    proactive data injection (execute) patterns.
+
     Data Source: test_data/wash_trade/related_accounts_history.csv
 
     CSV Fields:
@@ -39,6 +42,9 @@ class RelatedAccountsHistoryTool(BaseTool, DataLoadingMixin):
         - counterparty_account: Account on other side of trade
         - order_id: Order identifier
     """
+
+    # Expected format for execute() method
+    expected_format: str = "csv"
 
     def __init__(self, llm: Any, data_dir: str) -> None:
         """Initialize the RelatedAccountsHistoryTool.

@@ -20,7 +20,13 @@ class MarketNewsTool(BaseTool, DataLoadingMixin):
     This tool retrieves news items for a symbol within a date range
     and uses the LLM to interpret whether public information could
     have justified the trading decision.
+
+    Supports both legacy file-based loading (__call__) and
+    proactive data injection (execute) patterns.
     """
+
+    # Expected format for execute() method
+    expected_format: str = "txt"
 
     def __init__(self, llm: Any, data_dir: Path) -> None:
         """Initialize the market news tool.

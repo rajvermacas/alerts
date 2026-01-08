@@ -18,7 +18,13 @@ class AlertReaderTool(BaseTool, DataLoadingMixin):
 
     This tool reads the full XML content and uses the LLM to
     extract and summarize the key alert information.
+
+    Supports both legacy file-based loading (__call__) and
+    proactive data injection (execute) patterns.
     """
+
+    # Expected format for execute() method
+    expected_format: str = "xml"
 
     def __init__(self, llm: Any, data_dir: Path) -> None:
         """Initialize the alert reader tool.

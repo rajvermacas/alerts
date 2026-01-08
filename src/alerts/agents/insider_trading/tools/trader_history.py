@@ -20,7 +20,13 @@ class TraderHistoryTool(BaseTool, DataLoadingMixin):
 
     This tool retrieves a trader's past trades and uses the LLM to
     interpret their baseline behavior, comparing it to the flagged trade.
+
+    Supports both legacy file-based loading (__call__) and
+    proactive data injection (execute) patterns.
     """
+
+    # Expected format for execute() method
+    expected_format: str = "csv"
 
     def __init__(self, llm: Any, data_dir: Path) -> None:
         """Initialize the trader history tool.

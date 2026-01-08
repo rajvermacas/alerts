@@ -25,10 +25,16 @@ class CounterpartyAnalysisTool(BaseTool, DataLoadingMixin):
 
     The tool builds a trade flow graph and identifies suspicious patterns.
 
+    Supports both legacy file-based loading (__call__) and
+    proactive data injection (execute) patterns.
+
     Data Sources:
     - Trade data from alert and history
     - Account relationships for beneficial owner mapping
     """
+
+    # Expected format for execute() method
+    expected_format: str = "csv"
 
     def __init__(self, llm: Any, data_dir: str) -> None:
         """Initialize the CounterpartyAnalysisTool.

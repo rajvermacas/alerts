@@ -26,6 +26,9 @@ class AccountRelationshipsTool(BaseTool, DataLoadingMixin):
     The tool uses an LLM to interpret the relationships and identify
     potential wash trading risk based on beneficial ownership patterns.
 
+    Supports both legacy file-based loading (__call__) and
+    proactive data injection (execute) patterns.
+
     Data Source: test_data/wash_trade/account_relationships.csv
 
     CSV Fields:
@@ -36,6 +39,9 @@ class AccountRelationshipsTool(BaseTool, DataLoadingMixin):
         - linked_accounts: JSON array of related account IDs
         - relationship_degree: 1 = direct, 2 = through intermediary
     """
+
+    # Expected format for execute() method
+    expected_format: str = "csv"
 
     def __init__(self, llm: Any, data_dir: str) -> None:
         """Initialize the AccountRelationshipsTool.
@@ -92,9 +98,9 @@ class AccountRelationshipsTool(BaseTool, DataLoadingMixin):
             FileNotFoundError: If CSV file doesn't exist
         """
         # Support both 'account_ids' (new) and 'account_id' (legacy) for backward compatibility
-        account_ids_str = kwargs.get("account_ids") or kwargs.get("account_id")
+        account_ids_str = kwargs.get("account_ids") or kwargs.get("account_id") or ""
         # Parse comma-separated list of account IDs
-        requested_account_ids = [aid.strip() for aid in account_ids_str.split(",")]
+        requested_account_ids = [aid.strip() for aid in account_ids_str.split(",") if aid.strip()]
         self.logger.info(f"Loading relationship data for accounts: {requested_account_ids}")
 
         # Load full CSV
@@ -162,8 +168,8 @@ class AccountRelationshipsTool(BaseTool, DataLoadingMixin):
             Prompt for LLM interpretation
         """
         # Support both 'account_ids' (new) and 'account_id' (legacy) for backward compatibility
-        account_ids_str = kwargs.get("account_ids") or kwargs.get("account_id")
-        account_ids = [aid.strip() for aid in account_ids_str.split(",")]
+        account_ids_str = kwargs.get("account_ids") or kwargs.get("account_id") or ""
+        account_ids = [aid.strip() for aid in account_ids_str.split(",") if aid.strip()]
         accounts_display = ", ".join(account_ids)
 
         prompt = f"""You are analyzing account relationship data for potential wash trade detection.

@@ -19,7 +19,13 @@ class MarketDataTool(BaseTool, DataLoadingMixin):
 
     This tool retrieves price, volume, and volatility data for a symbol
     and uses the LLM to interpret market conditions and price movements.
+
+    Supports both legacy file-based loading (__call__) and
+    proactive data injection (execute) patterns.
     """
+
+    # Expected format for execute() method
+    expected_format: str = "csv"
 
     def __init__(self, llm: Any, data_dir: Path) -> None:
         """Initialize the market data tool.
