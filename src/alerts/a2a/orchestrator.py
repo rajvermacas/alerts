@@ -9,12 +9,14 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 import httpx
 from a2a.client import A2ACardResolver, A2AClient
 from a2a.types import MessageSendParams, SendMessageRequest
+
+from alerts.models.request import AnalysisRequest
 
 logger = logging.getLogger(__name__)
 
@@ -471,3 +473,201 @@ class OrchestratorAgent:
         logger.info("=" * 60)
 
         return await self.route_alert(alert_path)
+
+    # =========================================================================
+    # New methods for proactive information flow pattern
+    # =========================================================================
+
+    def determine_agent_type_from_xml(
+        self,
+        alert_xml: str,
+    ) -> Literal["insider_trading", "wash_trade"]:
+        """Determine agent type from alert XML content.
+
+        This method is used by the BigDataSimulator to determine the
+        appropriate agent type without requiring a file path.
+
+        Args:
+            alert_xml: Raw XML content of the alert
+
+        Returns:
+            Agent type string ("insider_trading" or "wash_trade")
+
+        Raises:
+            ValueError: If alert type cannot be determined
+        """
+        try:
+            root = ET.fromstring(alert_xml)
+            alert_type = self._get_text(root, ".//AlertType", "")
+            rule_violated = self._get_text(root, ".//RuleViolated", "")
+
+            category = self._categorize_alert(alert_type, rule_violated)
+
+            if category == AlertCategory.INSIDER_TRADING:
+                return "insider_trading"
+            elif category == AlertCategory.WASH_TRADE:
+                return "wash_trade"
+            else:
+                # Default to insider trading if unsupported
+                logger.warning(
+                    f"Unsupported alert type: {alert_type}, "
+                    f"rule: {rule_violated}. Defaulting to insider_trading."
+                )
+                return "insider_trading"
+
+        except ET.ParseError as e:
+            logger.error(f"Failed to parse alert XML: {e}")
+            raise ValueError(f"Failed to parse alert XML: {e}") from e
+
+    async def analyze_request(self, request: AnalysisRequest) -> dict[str, Any]:
+        """Analyze an alert using the proactive information flow pattern.
+
+        This method accepts an AnalysisRequest with pre-loaded data and
+        routes to the appropriate agent. The agent type is pre-determined
+        in the request, so no type detection is needed.
+
+        Args:
+            request: AnalysisRequest with alert_xml, agent_type, and tool_data
+
+        Returns:
+            Dictionary containing the analysis result
+
+        Raises:
+            ValueError: If agent type is not supported
+        """
+        logger.info("=" * 60)
+        logger.info("Orchestrator: Analyzing request (proactive pattern)")
+        logger.info(f"Agent type: {request.agent_type}")
+        logger.info(f"Tool data keys: {list(request.tool_data.keys())}")
+        logger.info("=" * 60)
+
+        if request.agent_type == "insider_trading":
+            logger.info("Routing to Insider Trading Agent (proactive)")
+            response = await self._send_request_to_insider_trading_agent(request)
+            return {
+                "agent_type": "insider_trading",
+                "routed_to": "insider_trading_agent",
+                "category": AlertCategory.INSIDER_TRADING.value,
+                "agent_response": response,
+            }
+
+        elif request.agent_type == "wash_trade":
+            logger.info("Routing to Wash Trade Agent (proactive)")
+            response = await self._send_request_to_wash_trade_agent(request)
+            return {
+                "agent_type": "wash_trade",
+                "routed_to": "wash_trade_agent",
+                "category": AlertCategory.WASH_TRADE.value,
+                "agent_response": response,
+            }
+
+        else:
+            raise ValueError(f"Unsupported agent type: {request.agent_type}")
+
+    async def _send_request_to_insider_trading_agent(
+        self,
+        request: AnalysisRequest,
+    ) -> dict[str, Any]:
+        """Send an AnalysisRequest to the insider trading agent.
+
+        Args:
+            request: AnalysisRequest with all tool data
+
+        Returns:
+            Response from the insider trading agent
+        """
+        logger.info("Sending AnalysisRequest to insider trading agent")
+
+        # For now, we use the A2A protocol to send the request
+        # In production, this could be a direct function call or gRPC
+        async with httpx.AsyncClient(timeout=300.0) as httpx_client:
+            try:
+                # Send request to the new /api/analyze endpoint
+                analyze_url = f"{self.insider_trading_agent_url}/api/analyze"
+                response = await httpx_client.post(
+                    analyze_url,
+                    json=request.model_dump(mode="json"),
+                    headers={"Content-Type": "application/json"},
+                )
+
+                if response.status_code == 200:
+                    return {
+                        "status": "success",
+                        "response": response.json(),
+                    }
+                else:
+                    logger.error(
+                        f"Insider trading agent returned status {response.status_code}: "
+                        f"{response.text}"
+                    )
+                    return {
+                        "status": "error",
+                        "error": f"Agent returned status {response.status_code}",
+                        "details": response.text,
+                    }
+
+            except httpx.ConnectError as e:
+                logger.error(f"Failed to connect to insider trading agent: {e}")
+                return {
+                    "status": "error",
+                    "error": f"Failed to connect to insider trading agent: {str(e)}",
+                }
+            except Exception as e:
+                logger.error(f"Failed to send request to insider trading agent: {e}")
+                return {
+                    "status": "error",
+                    "error": f"Failed to communicate with insider trading agent: {str(e)}",
+                }
+
+    async def _send_request_to_wash_trade_agent(
+        self,
+        request: AnalysisRequest,
+    ) -> dict[str, Any]:
+        """Send an AnalysisRequest to the wash trade agent.
+
+        Args:
+            request: AnalysisRequest with all tool data
+
+        Returns:
+            Response from the wash trade agent
+        """
+        logger.info("Sending AnalysisRequest to wash trade agent")
+
+        async with httpx.AsyncClient(timeout=300.0) as httpx_client:
+            try:
+                # Send request to the new /api/analyze endpoint
+                analyze_url = f"{self.wash_trade_agent_url}/api/analyze"
+                response = await httpx_client.post(
+                    analyze_url,
+                    json=request.model_dump(mode="json"),
+                    headers={"Content-Type": "application/json"},
+                )
+
+                if response.status_code == 200:
+                    return {
+                        "status": "success",
+                        "response": response.json(),
+                    }
+                else:
+                    logger.error(
+                        f"Wash trade agent returned status {response.status_code}: "
+                        f"{response.text}"
+                    )
+                    return {
+                        "status": "error",
+                        "error": f"Agent returned status {response.status_code}",
+                        "details": response.text,
+                    }
+
+            except httpx.ConnectError as e:
+                logger.error(f"Failed to connect to wash trade agent: {e}")
+                return {
+                    "status": "error",
+                    "error": f"Failed to connect to wash trade agent: {str(e)}",
+                }
+            except Exception as e:
+                logger.error(f"Failed to send request to wash trade agent: {e}")
+                return {
+                    "status": "error",
+                    "error": f"Failed to communicate with wash trade agent: {str(e)}",
+                }

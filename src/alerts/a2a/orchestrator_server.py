@@ -26,12 +26,15 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from dotenv import load_dotenv
+from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from alerts.a2a.orchestrator_executor import OrchestratorAgentExecutor
 from alerts.config import ConfigurationError, get_config, setup_logging
+from alerts.models.request import AnalysisRequest, ErrorResponse
 
 load_dotenv()
 
@@ -169,6 +172,111 @@ async def _error_generator(error_message: str):
     }
 
 
+async def api_analyze_endpoint(request: Request):
+    """Handle POST /api/analyze for proactive information flow pattern.
+
+    This endpoint accepts an AnalysisRequest JSON body and routes it to
+    the appropriate agent for analysis.
+
+    Request body should be AnalysisRequest JSON:
+    {
+        "alert_xml": "<Alert>...</Alert>",
+        "agent_type": "insider_trading" | "wash_trade",
+        "tool_data": {
+            "alert_reader": {"format": "xml", "data": "..."},
+            "market_data": {"format": "csv", "data": "..."},
+            ...
+        }
+    }
+
+    Returns:
+        200: Analysis result from the specialized agent
+        400: Validation error (missing fields, invalid format)
+        500: Internal server error
+    """
+    global _executor
+
+    if _executor is None:
+        logger.error("Executor not initialized")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "ANALYSIS_FAILED",
+                "message": "Orchestrator executor not initialized",
+            },
+        )
+
+    try:
+        body = await request.json()
+    except Exception as e:
+        logger.error(f"Invalid JSON in request: {e}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "ANALYSIS_FAILED",
+                "message": f"Invalid JSON: {str(e)}",
+            },
+        )
+
+    # Validate request using Pydantic
+    try:
+        analysis_request = AnalysisRequest(**body)
+    except ValidationError as e:
+        logger.error(f"Request validation failed: {e}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "MISSING_TOOL_DATA",
+                "message": str(e),
+                "details": str(e.errors()),
+            },
+        )
+
+    logger.info(f"Received AnalysisRequest for agent_type: {analysis_request.agent_type}")
+
+    try:
+        # Route to the appropriate agent
+        result = await _executor.orchestrator.analyze_request(analysis_request)
+
+        # Check if agent returned an error
+        agent_response = result.get("agent_response", {})
+        if agent_response.get("status") == "error":
+            logger.error(f"Agent returned error: {agent_response.get('error')}")
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "error": "ANALYSIS_FAILED",
+                    "message": agent_response.get("error", "Unknown agent error"),
+                    "details": agent_response.get("details"),
+                },
+            )
+
+        # Return successful result
+        return JSONResponse(
+            status_code=200,
+            content=result,
+        )
+
+    except ValueError as e:
+        logger.error(f"Orchestrator error: {e}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "UNKNOWN_AGENT_TYPE",
+                "message": str(e),
+            },
+        )
+    except Exception as e:
+        logger.error(f"Orchestrator failed: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "ANALYSIS_FAILED",
+                "message": f"Internal server error: {str(e)}",
+            },
+        )
+
+
 @click.command()
 @click.option("--host", default="localhost", help="Host to bind to")
 @click.option("--port", default=10000, help="Port to bind to")
@@ -257,15 +365,19 @@ def main(host: str, port: int, insider_trading_url: str, wash_trade_url: str, ve
             http_handler=request_handler,
         )
 
-        # Build the app and add streaming route
+        # Build the app and add custom routes
         app = server.build()
         app.routes.append(
             Route("/message/stream", message_stream_endpoint, methods=["POST"])
+        )
+        app.routes.append(
+            Route("/api/analyze", api_analyze_endpoint, methods=["POST"])
         )
 
         logger.info(f"Server starting at http://{host}:{port}")
         logger.info(f"Agent card available at http://{host}:{port}/.well-known/agent.json")
         logger.info(f"Streaming endpoint: POST http://{host}:{port}/message/stream")
+        logger.info(f"Analyze endpoint: POST http://{host}:{port}/api/analyze")
 
         # Run server
         uvicorn.run(app, host=host, port=port)
