@@ -1,37 +1,39 @@
 # SMARTS Alert False Positive Analyzer
 
-An intelligent compliance filter that analyzes SMARTS surveillance alerts to reduce false positive rates before escalating to human compliance analysts. The system uses a fully agentic LLM-based approach with no hardcoded scoring weights.
+An intelligent compliance filter that analyzes SMARTS surveillance alerts to reduce false positive rates before escalating to human compliance analysts. The system uses a deterministic multi-agent architecture with pure LLM-based reasoning.
 
 ## Overview
 
-This system supports multiple alert types through a multi-agent architecture:
-- **Insider Trading Alerts**: Analyzes pre-announcement trading, MNPI-based trades
-- **Wash Trade Alerts**: Detects same beneficial ownership, pre-arranged execution, circular trade flows
+This system supports multiple alert types through specialized agents:
+- **Insider Trading Alerts**: Pre-announcement trading, MNPI-based trades
+- **Wash Trade Alerts**: Same beneficial ownership, pre-arranged execution, circular flows
 
-The POC automates initial analysis of surveillance alerts by:
-- Reading SMARTS alert XML files
-- Gathering evidence from multiple data sources using specialized tools
+The system automates initial analysis by:
+- Receiving pre-aggregated data from Big Data Layer
+- Executing tools in fixed order (deterministic, no LLM routing)
 - Using LLM interpretation at each step to extract insights
-- Applying "case law" reasoning by comparing to precedent examples
+- Applying "case law" reasoning via few-shot examples
 - Producing structured decisions with detailed reasoning
 
-## Features
+## Key Features
 
-- **Fully Agentic**: Pure LLM reasoning without deterministic scoring
+- **Deterministic Execution**: Fixed tool order, predictable and reproducible
+- **Proactive Data Flow**: Big Data Layer provides all data upfront
+- **Pure LLM Reasoning**: No hardcoded scoring weights
 - **Multi-Agent Architecture**: Specialized agents for different alert types
-- **Real-Time Web UI**: Live execution DAG with SSE streaming progress
-- **10 Specialized Tools**: Each tool calls LLM internally for interpretation
-- **Few-Shot Learning**: Examples stored in external JSON for easy tuning
-- **Professional Reports**: JSON + HTML (Tailwind CSS) with network visualizations
-- **Audit Trail**: All decisions logged for compliance tracking
-- **APAC Regulatory Framework**: Supports MAS SFA, SFC SFO, ASIC, FSA FIEA
+- **Real-Time Web UI**: Live execution DAG with SSE streaming
+- **12 Specialized Tools**: Each calls LLM internally for interpretation
+- **Few-Shot Learning**: Examples in external JSON for zero-code tuning
+- **Professional Reports**: JSON + HTML (Tailwind CSS) with network graphs
+- **Audit Trail**: All decisions logged for compliance
+- **APAC Regulatory Framework**: MAS SFA, SFC SFO, ASIC, FSA FIEA
 
 ## Quick Start
 
 ### Prerequisites
 
 - Python 3.10+
-- OpenAI API key (or Azure OpenAI, OpenRouter, Google Gemini)
+- LLM API key (OpenAI, Azure OpenAI, OpenRouter, or Google Gemini)
 
 ### Installation
 
@@ -134,7 +136,15 @@ Then open `http://localhost:8080` in your browser.
 
 ## Architecture
 
+### System Flow (Deterministic)
+
 ```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Big Data Layer (External)                    │
+│  Aggregates all required data from production systems           │
+└───────────────────────┬─────────────────────────────────────────┘
+                        │ AnalysisRequest (pre-aggregated data)
+                        ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                 Orchestrator Agent (Port 10000)                 │
 │  Reads alerts, determines type, routes to specialized agents    │
@@ -146,9 +156,32 @@ Then open `http://localhost:8080` in your browser.
 ┌───────────────────────────┐   ┌───────────────────────────────┐
 │   Insider Trading Agent   │   │     Wash Trade Agent          │
 │      (Port 10001)         │   │       (Port 10002)            │
-│   6 tools (3 + 3)         │   │   7 tools (3 + 4)             │
+│   5 tools (fixed order)   │   │   7 tools (fixed order)       │
+│   No LLM routing          │   │   No LLM routing              │
 └───────────────────────────┘   └───────────────────────────────┘
 ```
+
+### Deterministic Execution
+
+Each agent executes tools in a **fixed order** defined in `TOOL_ORDER` tuple:
+
+**Insider Trading Agent**:
+1. alert_reader
+2. market_news
+3. market_data
+4. trader_profile
+5. trader_history
+
+**Wash Trade Agent**:
+1. alert_reader
+2. account_relationships
+3. related_accounts_history
+4. trade_timing
+5. market_data
+6. trader_profile
+7. counterparty_analysis
+
+**No LLM-based routing** - predictable and reproducible execution.
 
 ### Decision Outcomes
 
@@ -158,9 +191,9 @@ Then open `http://localhost:8080` in your browser.
 | `CLOSE` | High confidence of false positive | Auto-close with documentation |
 | `NEEDS_HUMAN_REVIEW` | Conflicting signals, cannot decide | Route for human judgment |
 
-### Tools
+### Tool Architecture
 
-**Common Tools** (used by all agents):
+**Common Tools** (all agents):
 - `alert_reader` - Parse alert XML
 - `trader_profile` - Role and MNPI access level
 - `market_data` - Price/volume data analysis
@@ -168,7 +201,6 @@ Then open `http://localhost:8080` in your browser.
 **Insider Trading Tools**:
 - `trader_history` - 1-year trade baseline
 - `market_news` - News timeline
-- `peer_trades` - Peer activity comparison
 
 **Wash Trade Tools**:
 - `account_relationships` - Ownership network
@@ -176,7 +208,7 @@ Then open `http://localhost:8080` in your browser.
 - `trade_timing` - Sub-second timing analysis
 - `counterparty_analysis` - Beneficial ownership overlap
 
-Each tool calls an LLM internally to interpret raw data and return insights (not raw data).
+**Tool Design**: Each tool calls an LLM internally to interpret raw data and return insights (not raw data).
 
 ## Testing
 
@@ -240,9 +272,9 @@ Add new example scenarios with detailed reasoning. The agent compares current ca
 ```
 alerts/
 ├── src/alerts/              # Backend analysis engine
-│   ├── agents/              # IT and WT specialized agents
+│   ├── agents/              # IT and WT deterministic agents
 │   ├── tools/               # Common tools + agent-specific tools
-│   ├── models/              # Pydantic output schemas
+│   ├── models/              # Pydantic schemas (request + output)
 │   ├── reports/             # HTML/JSON report generators
 │   └── a2a/                 # A2A protocol servers
 ├── src/frontend/            # FastAPI web UI
@@ -254,12 +286,38 @@ alerts/
 └── resources/reports/       # Output directory
 ```
 
+## API Contract (Big Data Layer)
+
+### Request Model
+
+```python
+class AnalysisRequest:
+    alert_id: str
+    agent_type: "insider_trading" | "wash_trade"
+    tool_data: Dict[str, ToolInput]
+
+class ToolInput:
+    format: "xml" | "csv" | "txt"
+    data: str  # Raw content
+```
+
+### Required Tools per Agent
+
+**Insider Trading**:
+- `alert_reader`, `market_news`, `market_data`, `trader_profile`, `trader_history`
+
+**Wash Trade**:
+- `alert_reader`, `market_data`, `trader_profile`, `account_relationships`, `related_accounts_history`, `trade_timing`, `counterparty_analysis`
+
+**Validation**: Missing required tools → immediate failure (fail-fast)
+
 ## Design Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Agent framework | LangGraph | Battle-tested, good tool support |
-| Architecture | Multi-agent with orchestrator | Specialized agents for different alert types |
+| Execution | Deterministic (fixed tool order) | Predictable, reproducible, testable |
+| Data flow | Proactive (pre-aggregated) | Decouples data layer, scales to production |
+| Agent framework | Custom loop (no LangGraph) | Simplicity, full control, no overhead |
 | Inter-agent protocol | A2A (Agent-to-Agent) | Google's standard for agent communication |
 | Tool LLM calls | Each tool calls LLM | Better accuracy through focused interpretation |
 | Scoring approach | Pure LLM reasoning | Adaptable via few-shot examples |
