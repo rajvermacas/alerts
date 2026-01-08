@@ -1,31 +1,57 @@
-"""LangGraph agent for Insider Trading Alert Analysis.
+"""Deterministic agent for Insider Trading Alert Analysis.
 
 This module implements the insider trading analyzer agent that orchestrates
-tool calls and produces the final determination for insider trading alerts.
+tool calls in a fixed order and produces the final determination for insider
+trading alerts.
 
 Supports both synchronous analyze() and async astream_analyze() for real-time streaming.
+
+Architecture:
+    ┌─────────────────────────────────────────────────────────┐
+    │                    AnalysisRequest                       │
+    │  (alert_xml, agent_type, tool_data: Dict[str, ToolInput])│
+    └─────────────────────────────┬───────────────────────────┘
+                                  │
+                                  ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │              InsiderTradingAnalyzerAgent                 │
+    │  ┌────────────────────────────────────────────────────┐ │
+    │  │  TOOL_ORDER = [                                     │ │
+    │  │    "alert_reader",                                  │ │
+    │  │    "market_news",                                   │ │
+    │  │    "market_data",                                   │ │
+    │  │    "trader_profile",                                │ │
+    │  │    "trader_history",                                │ │
+    │  │  ]                                                  │ │
+    │  └────────────────────────────────────────────────────┘ │
+    │                         │                                │
+    │       for tool_name in TOOL_ORDER:                       │
+    │           emit("tool_started", tool_name)                │
+    │           insight = tool.execute(data, format)           │
+    │           insights[tool_name] = insight                  │
+    │           emit("tool_completed", tool_name)              │
+    │                         │                                │
+    │                         ▼                                │
+    │              _synthesize(insights)                       │
+    │                  (LLM call)                              │
+    └─────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+                     InsiderTradingDecision
 """
 
 import json
 import logging
-import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Literal, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.tools import StructuredTool
-from langgraph.graph import END, MessagesState, StateGraph, START
-from langgraph.prebuilt import ToolNode
-from pydantic import BaseModel, Field
+from langchain_core.messages import HumanMessage, SystemMessage
 
-from alerts.a2a.event_mapper import EventMapper, StreamEvent, create_stream_writer_for_mapper
-
-from alerts.models.insider_trading import (
-    InsiderTradingDecision,
-    MarketContext,
-    TraderBaselineAnalysis,
-)
+from alerts.a2a.event_mapper import EventMapper, StreamEvent
+from alerts.exceptions import MissingToolDataError
+from alerts.models.insider_trading import InsiderTradingDecision
+from alerts.models.request import AnalysisRequest, ToolInput
 from alerts.reports.html_generator import HTMLReportGenerator
 from alerts.agents.insider_trading.prompts.system_prompt import (
     get_final_decision_prompt,
@@ -45,58 +71,28 @@ from alerts.agents.insider_trading.tools import (
 logger = logging.getLogger(__name__)
 
 
-# Tool argument schemas
-class ReadAlertArgs(BaseModel):
-    """Arguments for the read_alert tool."""
-    alert_file_path: str = Field(
-        description="Path to the alert XML file to read (e.g., 'test_data/alerts/alert_genuine.xml')"
-    )
-
-
-class QueryTraderHistoryArgs(BaseModel):
-    """Arguments for the query_trader_history tool."""
-    trader_id: str = Field(description="Trader ID to query")
-    symbol: str = Field(description="The flagged stock symbol")
-    trade_date: str = Field(description="The flagged trade date in YYYY-MM-DD format")
-
-
-class QueryTraderProfileArgs(BaseModel):
-    """Arguments for the query_trader_profile tool."""
-    trader_id: str = Field(description="Trader ID to query")
-
-
-class QueryMarketNewsArgs(BaseModel):
-    """Arguments for the query_market_news tool."""
-    symbol: str = Field(description="Stock symbol to query")
-    start_date: str = Field(description="Start date in YYYY-MM-DD format")
-    end_date: str = Field(description="End date in YYYY-MM-DD format")
-
-
-class QueryMarketDataArgs(BaseModel):
-    """Arguments for the query_market_data tool."""
-    symbol: str = Field(description="Stock symbol to query")
-    start_date: str = Field(description="Start date in YYYY-MM-DD format")
-    end_date: str = Field(description="End date in YYYY-MM-DD format")
-
-
-# Note: QueryPeerTradesArgs removed - peer_trades tool has been deprecated
-# as part of the proactive info flow architecture change.
-
-
 class InsiderTradingAnalyzerAgent:
-    """LangGraph agent for analyzing SMARTS insider trading alerts.
+    """Deterministic agent for analyzing SMARTS insider trading alerts.
 
-    This agent uses a multi-tool approach to gather evidence and
+    This agent uses a fixed tool order approach to gather evidence and
     produce a structured determination for insider trading alerts.
+    No LLM routing is used - tools are executed in a predetermined order.
 
     Attributes:
         llm: LangChain LLM instance
         data_dir: Path to data directory
         output_dir: Path to output directory
-        tool_instances: List of tool class instances
-        tools: List of LangChain tools
-        graph: Compiled LangGraph workflow
+        tool_instances: Dict mapping tool names to instances
     """
+
+    # Fixed order of tool execution - no LLM routing needed
+    TOOL_ORDER: List[str] = [
+        "read_alert",
+        "query_market_news",
+        "query_market_data",
+        "query_trader_profile",
+        "query_trader_history",
+    ]
 
     def __init__(
         self,
@@ -116,7 +112,7 @@ class InsiderTradingAnalyzerAgent:
         self.output_dir = output_dir
         self.logger = logger
 
-        self.logger.info("Initializing InsiderTradingAnalyzerAgent")
+        self.logger.info("Initializing InsiderTradingAnalyzerAgent (Deterministic)")
         self.logger.info(f"Data directory: {data_dir}")
         self.logger.info(f"Output directory: {output_dir}")
 
@@ -126,28 +122,18 @@ class InsiderTradingAnalyzerAgent:
         if not self.few_shot_examples:
             raise FileNotFoundError(f"Few-shot examples not found: {examples_path}")
 
-        # Initialize tool instances
+        # Initialize tool instances as a dict for name-based lookup
         self.tool_instances = self._create_tool_instances()
         self.logger.info(f"Created {len(self.tool_instances)} tool instances")
+        self.logger.info(f"Tool execution order: {self.TOOL_ORDER}")
 
-        # Convert to LangChain tools
-        self.tools = self._create_langchain_tools()
-        self.logger.info(f"Registered {len(self.tools)} LangChain tools")
-
-        # Bind tools to LLM
-        self.llm_with_tools = llm.bind_tools(self.tools)
-
-        # Build the graph
-        self.graph = self._build_graph()
-        self.logger.info("LangGraph workflow compiled successfully")
-
-    def _create_tool_instances(self) -> list:
+    def _create_tool_instances(self) -> Dict[str, Any]:
         """Create instances of all analysis tools.
 
         Returns:
-            List of tool instances
+            Dict mapping tool names to tool instances
         """
-        return [
+        tools = [
             # Common tools
             AlertReaderTool(self.llm, self.data_dir),
             TraderProfileTool(self.llm, self.data_dir),
@@ -155,524 +141,229 @@ class InsiderTradingAnalyzerAgent:
             # Insider trading specific tools
             TraderHistoryTool(self.llm, self.data_dir),
             MarketNewsTool(self.llm, self.data_dir),
-            # Note: PeerTradesTool removed - deprecated in proactive info flow architecture
         ]
+        return {tool.name: tool for tool in tools}
 
-    def _create_langchain_tools(self, config: Optional[Dict[str, Any]] = None) -> list:
-        """Convert tool instances to LangChain tools with proper schemas.
+    def _get_tool_data_key(self, tool_name: str) -> str:
+        """Map internal tool names to AnalysisRequest tool_data keys.
 
         Args:
-            config: Optional config dict to pass to tools (e.g., with stream_writer)
+            tool_name: Internal tool name (e.g., "read_alert")
 
         Returns:
-            List of LangChain tools
+            Key to use in AnalysisRequest.tool_data (e.g., "alert_reader")
         """
-        # Map tool names to their argument schemas
-        schema_map = {
-            "read_alert": ReadAlertArgs,
-            "query_trader_history": QueryTraderHistoryArgs,
-            "query_trader_profile": QueryTraderProfileArgs,
-            "query_market_news": QueryMarketNewsArgs,
-            "query_market_data": QueryMarketDataArgs,
-            # Note: query_peer_trades removed - deprecated in proactive info flow architecture
+        # Map from internal tool names to request.tool_data keys
+        tool_key_map = {
+            "read_alert": "alert_reader",
+            "query_market_news": "market_news",
+            "query_market_data": "market_data",
+            "query_trader_profile": "trader_profile",
+            "query_trader_history": "trader_history",
         }
+        return tool_key_map.get(tool_name, tool_name)
 
-        langchain_tools = []
-
-        for tool_instance in self.tool_instances:
-            # Get the schema for this tool
-            args_schema = schema_map.get(tool_instance.name)
-            if not args_schema:
-                raise ValueError(f"No schema defined for tool: {tool_instance.name}")
-
-            # Create a wrapper function that captures the instance and config
-            def make_tool_func(instance, tool_config):
-                def tool_func(**kwargs) -> str:
-                    return instance(config=tool_config, **kwargs)
-                return tool_func
-
-            # Create StructuredTool with explicit schema
-            lc_tool = StructuredTool.from_function(
-                func=make_tool_func(tool_instance, config),
-                name=tool_instance.name,
-                description=tool_instance.description,
-                args_schema=args_schema,
-            )
-            langchain_tools.append(lc_tool)
-
-        return langchain_tools
-
-    def _build_graph(self) -> Any:
-        """Build the LangGraph workflow.
-
-        Returns:
-            Compiled StateGraph
-        """
-        self.logger.debug("Building LangGraph workflow")
-
-        builder = StateGraph(MessagesState)
-
-        # Add nodes
-        builder.add_node("agent", self._agent_node)
-        builder.add_node("tools", ToolNode(self.tools))
-        builder.add_node("respond", self._respond_node)
-
-        # Add edges
-        builder.add_edge(START, "agent")
-        builder.add_conditional_edges(
-            "agent",
-            self._should_continue,
-            {
-                "tools": "tools",
-                "respond": "respond",
-            }
-        )
-        builder.add_edge("tools", "agent")
-        builder.add_edge("respond", END)
-
-        return builder.compile()
-
-    def _build_streaming_graph(self, streaming_tools: list, streaming_llm_with_tools: Any) -> Any:
-        """Build a LangGraph workflow with streaming-enabled tools.
-
-        This method creates a new graph instance that uses tools configured
-        with a stream_writer callback, enabling real-time event emission
-        during tool execution.
-
-        Args:
-            streaming_tools: List of LangChain tools with stream_writer config
-            streaming_llm_with_tools: LLM instance bound to streaming tools
-
-        Returns:
-            Compiled StateGraph with streaming tools
-        """
-        self.logger.debug("Building streaming LangGraph workflow")
-
-        builder = StateGraph(MessagesState)
-
-        # Create a streaming agent node that uses the streaming LLM
-        def streaming_agent_node(state: MessagesState) -> dict:
-            """Agent node using streaming-enabled LLM with tools."""
-            self.logger.info(f"Streaming agent node: processing {len(state['messages'])} messages")
-
-            # Build system prompt with few-shot examples
-            system_prompt = get_system_prompt(self.few_shot_examples)
-            messages = [SystemMessage(content=system_prompt)] + state["messages"]
-
-            # Invoke streaming LLM with tools
-            response = streaming_llm_with_tools.invoke(messages)
-
-            # Log tool calls if any
-            if hasattr(response, 'tool_calls') and response.tool_calls:
-                tool_names = [tc.get("name", "unknown") for tc in response.tool_calls]
-                self.logger.info(f"Streaming agent requesting tools: {tool_names}")
-
-            return {"messages": [response]}
-
-        # Add nodes - use streaming tools in ToolNode
-        builder.add_node("agent", streaming_agent_node)
-        builder.add_node("tools", ToolNode(streaming_tools))
-        builder.add_node("respond", self._respond_node)
-
-        # Add edges (same as non-streaming graph)
-        builder.add_edge(START, "agent")
-        builder.add_conditional_edges(
-            "agent",
-            self._should_continue,
-            {
-                "tools": "tools",
-                "respond": "respond",
-            }
-        )
-        builder.add_edge("tools", "agent")
-        builder.add_edge("respond", END)
-
-        return builder.compile()
-
-    def _agent_node(self, state: MessagesState) -> dict:
-        """Main agent node that decides what to do.
-
-        Args:
-            state: Current graph state with messages
-
-        Returns:
-            Updated state with agent response
-        """
-        self.logger.info(f"Agent node: processing {len(state['messages'])} messages")
-
-        # Build system prompt with few-shot examples
-        system_prompt = get_system_prompt(self.few_shot_examples)
-
-        messages = [SystemMessage(content=system_prompt)] + state["messages"]
-
-        # Invoke LLM with tools
-        response = self.llm_with_tools.invoke(messages)
-
-        # Log tool calls if any
-        if hasattr(response, 'tool_calls') and response.tool_calls:
-            tool_names = [tc.get("name", "unknown") for tc in response.tool_calls]
-            self.logger.info(f"Agent requesting tools: {tool_names}")
-
-        return {"messages": [response]}
-
-    def _should_continue(self, state: MessagesState) -> Literal["tools", "respond"]:
-        """Decide whether to continue with tools or generate response.
-
-        Args:
-            state: Current graph state
-
-        Returns:
-            Next node name ("tools" or "respond")
-        """
-        last_message = state["messages"][-1]
-
-        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
-            self.logger.debug("Routing to tools node")
-            return "tools"
-
-        self.logger.debug("Routing to respond node")
-        return "respond"
-
-    def _respond_node(self, state: MessagesState) -> dict:
-        """Generate final structured response.
-
-        Args:
-            state: Current graph state with all messages
-
-        Returns:
-            Updated state with final response
-
-        Raises:
-            Exception: If structured decision generation fails (fail-fast)
-        """
-        self.logger.info("Respond node: generating structured decision")
-
-        # Create LLM with structured output
-        llm_structured = self.llm.with_structured_output(InsiderTradingDecision)
-
-        # Build final decision prompt
-        decision_prompt = get_final_decision_prompt()
-
-        # Add decision prompt to conversation
-        messages = state["messages"] + [
-            HumanMessage(content=decision_prompt)
-        ]
-
-        # Get structured response
-        decision = llm_structured.invoke(messages)
-
-        # Fail-fast: If decision is None, log debug info and raise
-        if decision is None:
-            self._log_failed_response(state, messages, None, "LLM returned None decision")
-            raise ValueError(
-                "LLM returned None for structured decision. "
-                "Check resources/debug/ for response details."
-            )
-
-        self.logger.info(
-            f"Decision generated: {decision.determination} "
-            f"(genuine: {decision.genuine_alert_confidence}%, "
-            f"false_positive: {decision.false_positive_confidence}%)"
-        )
-
-        # Return as JSON message
-        return {
-            "messages": [AIMessage(content=decision.model_dump_json(indent=2))]
-        }
-
-    def _log_failed_response(
+    def analyze_request(
         self,
-        state: MessagesState,
-        messages: List[Any],
-        raw_response: Any,
-        error_reason: str,
-    ) -> None:
-        """Log failed LLM response to debug file for investigation.
+        request: AnalysisRequest,
+        event_callback: Optional[Callable[[str, str, Optional[Dict]], None]] = None,
+    ) -> InsiderTradingDecision:
+        """Analyze an alert using the proactive info flow pattern.
+
+        This method uses data injected via AnalysisRequest instead of
+        loading data from files.
 
         Args:
-            state: Current graph state
-            messages: Messages sent to LLM
-            raw_response: Raw response from LLM (may be None)
-            error_reason: Description of why the response failed
-        """
-        debug_dir = Path("resources/debug")
-        debug_dir.mkdir(parents=True, exist_ok=True)
-
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        debug_file = debug_dir / f"insider_trading_failed_response_{timestamp}.json"
-
-        debug_data = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "error_reason": error_reason,
-            "raw_response": str(raw_response) if raw_response else None,
-            "messages_count": len(messages),
-            "state_messages_count": len(state.get("messages", [])),
-            "last_messages": [
-                {
-                    "type": type(msg).__name__,
-                    "content": msg.content[:2000] if hasattr(msg, "content") else str(msg)[:2000],
-                }
-                for msg in messages[-5:]
-            ],
-        }
-
-        debug_file.write_text(json.dumps(debug_data, indent=2, default=str))
-        self.logger.error(
-            f"Failed response logged to {debug_file.absolute()}. Reason: {error_reason}"
-        )
-
-    def analyze(self, alert_file_path: Path) -> InsiderTradingDecision:
-        """Analyze an alert and produce a determination.
-
-        Args:
-            alert_file_path: Path to the alert XML file
+            request: AnalysisRequest with alert_xml, agent_type, and tool_data
+            event_callback: Optional callback for emitting events
+                           Signature: (event_type, tool_name, data) -> None
 
         Returns:
             InsiderTradingDecision with the determination and reasoning
 
         Raises:
-            FileNotFoundError: If alert file doesn't exist
+            MissingToolDataError: If required tool data is not provided
             Exception: If analysis fails
         """
         start_time = datetime.now(timezone.utc)
 
         self.logger.info("=" * 60)
-        self.logger.info(f"Starting analysis of alert: {alert_file_path}")
+        self.logger.info("Starting deterministic insider trading analysis")
+        self.logger.info(f"Agent type: {request.agent_type}")
+        self.logger.info(f"Tool data keys: {list(request.tool_data.keys())}")
         self.logger.info("=" * 60)
 
-        if not alert_file_path.exists():
-            raise FileNotFoundError(f"Alert file not found: {alert_file_path}")
+        insights: Dict[str, str] = {}
 
-        # Store alert file path for HTML report generation
-        self._current_alert_path = alert_file_path
+        # Execute tools in fixed order
+        for tool_name in self.TOOL_ORDER:
+            tool_data_key = self._get_tool_data_key(tool_name)
 
-        # Create initial message with alert file path
-        initial_message = HumanMessage(
-            content=f"""Analyze the following SMARTS alert for potential insider trading.
+            self.logger.info(f"Executing tool: {tool_name} (data key: {tool_data_key})")
 
-Alert file path: {alert_file_path}
+            # Get tool data from request
+            tool_input = request.tool_data.get(tool_data_key)
+            if tool_input is None:
+                raise MissingToolDataError(tool_data_key)
 
-**Workflow:**
-1. First, call read_alert to parse the alert and extract trader_id, symbol, trade_date
-2. Then, call ALL 4 remaining tools together in a single response:
-   - query_trader_history
-   - query_trader_profile
-   - query_market_news
-   - query_market_data
+            # Emit tool started event
+            if event_callback:
+                event_callback("tool_started", tool_name, None)
 
-After gathering all evidence, provide your determination with detailed reasoning."""
-        )
+            # Get tool instance and execute with injected data
+            tool = self.tool_instances.get(tool_name)
+            if tool is None:
+                raise ValueError(f"Unknown tool: {tool_name}")
 
-        # Run the graph
-        self.logger.info("Invoking LangGraph workflow")
+            try:
+                insight = tool.execute(
+                    data=tool_input.data,
+                    format=tool_input.format,
+                )
+                insights[tool_name] = insight
+                self.logger.info(f"Tool {tool_name} completed successfully")
 
-        try:
-            result = self.graph.invoke(
-                {"messages": [initial_message]},
-                {"recursion_limit": 50}  # Allow many tool calls
-            )
+                # Emit tool completed event
+                if event_callback:
+                    event_callback("tool_completed", tool_name, {"insight_length": len(insight)})
 
-            # Extract the final decision from the last message
-            last_message = result["messages"][-1]
+            except Exception as e:
+                self.logger.error(f"Tool {tool_name} failed: {e}")
+                if event_callback:
+                    event_callback("tool_error", tool_name, {"error": str(e)})
+                raise
 
-            if isinstance(last_message.content, str) and last_message.content.startswith("{"):
-                try:
-                    data = json.loads(last_message.content)
-                    decision = InsiderTradingDecision(**data)
-                except json.JSONDecodeError as e:
-                    self.logger.error(f"Failed to parse decision JSON: {e}")
-                    raise
-            else:
-                self.logger.error("Last message is not valid JSON")
-                raise ValueError("Agent did not produce valid structured output")
+        # Emit evaluation started event
+        if event_callback:
+            event_callback("evaluation_started", "synthesis", None)
 
-            # Calculate processing time
-            elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-            self.logger.info(f"Analysis completed in {elapsed:.2f}s")
+        # Synthesize final decision using LLM
+        decision = self._synthesize(insights)
 
-            # Write outputs
-            self._write_decision(decision)
-            self._write_html_report(decision, alert_file_path)
-            self._write_audit_log(decision, elapsed)
+        # Calculate processing time
+        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+        self.logger.info(f"Analysis completed in {elapsed:.2f}s")
 
-            return decision
+        # Write outputs
+        self._write_decision(decision)
+        self._write_audit_log(decision, elapsed)
 
-        except Exception as e:
-            elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-            self.logger.error(f"Analysis failed after {elapsed:.2f}s: {e}", exc_info=True)
-            raise
+        # Emit completion event
+        if event_callback:
+            event_callback("analysis_complete", "synthesis", {
+                "determination": decision.determination,
+                "confidence": decision.genuine_alert_confidence,
+            })
 
-    async def astream_analyze(
+        return decision
+
+    async def astream_analyze_request(
         self,
-        alert_file_path: Path,
+        request: AnalysisRequest,
         task_id: str,
     ) -> AsyncIterator[StreamEvent]:
-        """Analyze an alert with streaming events.
+        """Analyze an alert with streaming events using proactive info flow.
 
         This async generator yields StreamEvent objects as the analysis progresses,
         enabling real-time progress updates to the client.
 
         Args:
-            alert_file_path: Path to the alert XML file
+            request: AnalysisRequest with alert_xml, agent_type, and tool_data
             task_id: Task ID for event correlation
 
         Yields:
             StreamEvent objects for each progress update
 
         Raises:
-            FileNotFoundError: If alert file doesn't exist
+            MissingToolDataError: If required tool data is not provided
             Exception: If analysis fails
         """
         start_time = datetime.now(timezone.utc)
         event_mapper = EventMapper(task_id=task_id, agent_name="insider_trading")
-        collected_events: List[StreamEvent] = []
 
         self.logger.info("=" * 60)
-        self.logger.info(f"Starting streaming analysis of alert: {alert_file_path}")
+        self.logger.info("Starting streaming deterministic insider trading analysis")
+        self.logger.info(f"Task ID: {task_id}")
         self.logger.info("=" * 60)
-
-        if not alert_file_path.exists():
-            error_event = event_mapper.create_error_event(
-                f"Alert file not found: {alert_file_path}",
-                stage="initialization",
-                fatal=True,
-            )
-            yield error_event
-            raise FileNotFoundError(f"Alert file not found: {alert_file_path}")
 
         # Emit analysis started event
-        yield event_mapper.create_analysis_started_event(str(alert_file_path))
+        yield event_mapper.create_analysis_started_event("proactive_request")
 
-        # Create stream writer for tools
-        stream_writer = create_stream_writer_for_mapper(event_mapper, collected_events)
-
-        # Create tools with streaming config
-        streaming_config = {"stream_writer": stream_writer}
-        streaming_tools = self._create_langchain_tools(config=streaming_config)
-
-        # Build a new graph with streaming tools
-        streaming_llm_with_tools = self.llm.bind_tools(streaming_tools)
-
-        # Build streaming graph that uses the streaming tools
-        streaming_graph = self._build_streaming_graph(streaming_tools, streaming_llm_with_tools)
-        self.logger.info("Built streaming graph with stream_writer-enabled tools")
-
-        # Create initial message
-        initial_message = HumanMessage(
-            content=f"""Analyze the following SMARTS alert for potential insider trading.
-
-Alert file path: {alert_file_path}
-
-**Workflow:**
-1. First, call read_alert to parse the alert and extract trader_id, symbol, trade_date
-2. Then, call ALL 4 remaining tools together in a single response:
-   - query_trader_history
-   - query_trader_profile
-   - query_market_news
-   - query_market_data
-
-After gathering all evidence, provide your determination with detailed reasoning."""
-        )
+        insights: Dict[str, str] = {}
 
         try:
-            # Use astream_events for real-time streaming
-            self.logger.info("Starting astream_events iteration")
+            # Execute tools in fixed order
+            for tool_name in self.TOOL_ORDER:
+                tool_data_key = self._get_tool_data_key(tool_name)
 
-            # Track node transitions for emitting agent events
-            last_node = None
+                self.logger.info(f"Executing tool: {tool_name}")
 
-            # Keep-alive tracking
-            last_keepalive_time = time.time()
-            KEEPALIVE_INTERVAL = 25  # seconds
+                # Get tool data from request
+                tool_input = request.tool_data.get(tool_data_key)
+                if tool_input is None:
+                    error_event = event_mapper.create_error_event(
+                        f"Missing tool data: {tool_data_key}",
+                        stage="tool_execution",
+                        fatal=True,
+                    )
+                    yield error_event
+                    raise MissingToolDataError(tool_data_key)
 
-            async for event in streaming_graph.astream_events(
-                {"messages": [initial_message]},
-                config={"recursion_limit": 50},
-                version="v2",
-            ):
-                event_kind = event.get("event", "")
-                event_name = event.get("name", "")
-                event_data = event.get("data", {})
+                # Emit tool started event
+                yield event_mapper.create_tool_started_event(tool_name)
 
-                self.logger.debug(f"LangGraph event: {event_kind} - {event_name}")
+                # Get tool instance and execute
+                tool = self.tool_instances.get(tool_name)
+                if tool is None:
+                    raise ValueError(f"Unknown tool: {tool_name}")
 
-                # Yield any collected tool events first
-                while collected_events:
-                    tool_event = collected_events.pop(0)
-                    yield tool_event
+                try:
+                    insight = tool.execute(
+                        data=tool_input.data,
+                        format=tool_input.format,
+                    )
+                    insights[tool_name] = insight
 
-                # Map and emit relevant LangGraph events
-                if event_kind == "on_chain_start":
-                    if event_name in ("agent", "respond", "_respond_node"):
-                        if event_name != last_node:
-                            last_node = event_name
-                            if event_name == "agent":
-                                yield event_mapper.create_agent_thinking_event(
-                                    "Deciding next action..."
-                                )
-                            elif event_name in ("respond", "_respond_node"):
-                                self.logger.info(f"Emitting evaluation_started event for node: {event_name}")
-                                yield event_mapper.create_evaluation_started_event()
+                    # Emit tool completed event
+                    yield event_mapper.create_tool_completed_event(
+                        tool_name,
+                        summary=insight[:200] + "..." if len(insight) > 200 else insight
+                    )
 
-                elif event_kind == "on_tool_start":
-                    # Map and yield tool start events
-                    mapped_event = event_mapper.map_langgraph_event(event, event_kind)
-                    if mapped_event:
-                        self.logger.debug(f"Yielding tool_start event: {event_name}")
-                        yield mapped_event
+                except Exception as e:
+                    self.logger.error(f"Tool {tool_name} failed: {e}")
+                    yield event_mapper.create_error_event(
+                        str(e),
+                        stage=f"tool_{tool_name}",
+                        fatal=True,
+                    )
+                    raise
 
-                elif event_kind == "on_tool_end":
-                    # Map and yield tool end events
-                    mapped_event = event_mapper.map_langgraph_event(event, event_kind)
-                    if mapped_event:
-                        self.logger.debug(f"Yielding tool_end event: {event_name}")
-                        yield mapped_event
+            # Emit evaluation started event
+            yield event_mapper.create_evaluation_started_event()
 
-                # Emit keep-alive if needed (prevent connection timeouts during long operations)
-                current_time = time.time()
-                if current_time - last_keepalive_time >= KEEPALIVE_INTERVAL:
-                    keepalive_event = event_mapper.create_keep_alive_event()
-                    self.logger.debug("Emitting keep-alive event")
-                    yield keepalive_event
-                    last_keepalive_time = current_time
+            # Synthesize final decision
+            decision = self._synthesize(insights)
 
-                elif event_kind == "on_chain_end":
-                    if event_name == "respond":
-                        # Extract final result
-                        output = event_data.get("output", {})
-                        messages = output.get("messages", [])
-                        if messages:
-                            last_msg = messages[-1]
-                            if hasattr(last_msg, "content"):
-                                content = last_msg.content
-                                if isinstance(content, str) and content.startswith("{"):
-                                    try:
-                                        data = json.loads(content)
-                                        decision = InsiderTradingDecision(**data)
+            # Calculate processing time
+            elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
 
-                                        # Write outputs
-                                        self._write_decision(decision)
-                                        self._write_html_report(decision, alert_file_path)
-                                        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-                                        self._write_audit_log(decision, elapsed)
+            # Write outputs
+            self._write_decision(decision)
+            self._write_audit_log(decision, elapsed)
 
-                                        # Emit completion event with full decision
-                                        decision_dict = decision.model_dump(mode="json", exclude_none=True)
-                                        yield event_mapper.create_analysis_complete_event(
-                                            determination=decision.determination,
-                                            confidence=decision.genuine_alert_confidence,
-                                            summary=decision.key_findings[0] if decision.key_findings else "Analysis complete",
-                                            decision=decision_dict,
-                                        )
+            # Emit completion event
+            decision_dict = decision.model_dump(mode="json", exclude_none=True)
+            yield event_mapper.create_analysis_complete_event(
+                determination=decision.determination,
+                confidence=decision.genuine_alert_confidence,
+                summary=decision.key_findings[0] if decision.key_findings else "Analysis complete",
+                decision=decision_dict,
+            )
 
-                                        self.logger.info(
-                                            f"Streaming analysis completed in {elapsed:.2f}s: "
-                                            f"{decision.determination}"
-                                        )
-                                        return
-
-                                    except (json.JSONDecodeError, Exception) as e:
-                                        self.logger.error(f"Failed to parse decision: {e}")
+            self.logger.info(
+                f"Streaming analysis completed in {elapsed:.2f}s: {decision.determination}"
+            )
 
         except Exception as e:
             elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
@@ -683,6 +374,158 @@ After gathering all evidence, provide your determination with detailed reasoning
                 fatal=True,
             )
             raise
+
+    def _synthesize(self, insights: Dict[str, str]) -> InsiderTradingDecision:
+        """Synthesize tool insights into a final decision.
+
+        This is the ONLY LLM reasoning step in the deterministic workflow.
+
+        Args:
+            insights: Dict mapping tool names to their insight strings
+
+        Returns:
+            InsiderTradingDecision with determination and reasoning
+
+        Raises:
+            ValueError: If LLM fails to produce valid decision
+        """
+        self.logger.info("Synthesizing final decision from tool insights")
+
+        # Build context from all tool insights
+        insights_text = "\n\n".join([
+            f"## {tool_name.replace('_', ' ').title()} Analysis\n{insight}"
+            for tool_name, insight in insights.items()
+        ])
+
+        # Build system prompt with few-shot examples
+        system_prompt = get_system_prompt(self.few_shot_examples)
+        decision_prompt = get_final_decision_prompt()
+
+        # Construct messages for LLM
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=f"""Based on the following tool analyses, provide your final insider trading determination.
+
+{insights_text}
+
+{decision_prompt}"""),
+        ]
+
+        # Get structured response
+        llm_structured = self.llm.with_structured_output(InsiderTradingDecision)
+        decision = llm_structured.invoke(messages)
+
+        # Fail-fast if decision is None
+        if decision is None:
+            self._log_failed_synthesis(insights, messages)
+            raise ValueError(
+                "LLM returned None for structured decision. "
+                "Check resources/debug/ for response details."
+            )
+
+        self.logger.info(
+            f"Decision synthesized: {decision.determination} "
+            f"(genuine: {decision.genuine_alert_confidence}%, "
+            f"false_positive: {decision.false_positive_confidence}%)"
+        )
+
+        return decision
+
+    def _log_failed_synthesis(
+        self,
+        insights: Dict[str, str],
+        messages: List[Any],
+    ) -> None:
+        """Log failed synthesis to debug file for investigation.
+
+        Args:
+            insights: Tool insights that were used
+            messages: Messages sent to LLM
+        """
+        debug_dir = Path("resources/debug")
+        debug_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        debug_file = debug_dir / f"insider_trading_failed_synthesis_{timestamp}.json"
+
+        debug_data = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error_reason": "LLM returned None decision during synthesis",
+            "insights_summary": {
+                name: insight[:500] for name, insight in insights.items()
+            },
+            "messages_count": len(messages),
+        }
+
+        debug_file.write_text(json.dumps(debug_data, indent=2, default=str))
+        self.logger.error(f"Failed synthesis logged to {debug_file.absolute()}")
+
+    # =========================================================================
+    # Legacy methods for backward compatibility with file-based loading
+    # These will be deprecated once all consumers migrate to analyze_request()
+    # =========================================================================
+
+    def analyze(self, alert_file_path: Path) -> InsiderTradingDecision:
+        """Legacy method: Analyze an alert by loading data from files.
+
+        DEPRECATED: Use analyze_request() with AnalysisRequest instead.
+
+        Args:
+            alert_file_path: Path to the alert XML file
+
+        Returns:
+            InsiderTradingDecision with the determination and reasoning
+        """
+        self.logger.warning(
+            "analyze() is deprecated. Use analyze_request() with AnalysisRequest instead."
+        )
+
+        # For backward compatibility, we need to load data from files
+        # This should be removed once all consumers migrate
+        from alerts.mock.bigdata_simulator import BigDataSimulator
+
+        simulator = BigDataSimulator(str(self.data_dir))
+        request = simulator.create_request(str(alert_file_path))
+
+        decision = self.analyze_request(request)
+
+        # Also write HTML report for legacy compatibility
+        self._write_html_report(decision, alert_file_path)
+
+        return decision
+
+    async def astream_analyze(
+        self,
+        alert_file_path: Path,
+        task_id: str,
+    ) -> AsyncIterator[StreamEvent]:
+        """Legacy method: Analyze an alert with streaming by loading from files.
+
+        DEPRECATED: Use astream_analyze_request() with AnalysisRequest instead.
+
+        Args:
+            alert_file_path: Path to the alert XML file
+            task_id: Task ID for event correlation
+
+        Yields:
+            StreamEvent objects for each progress update
+        """
+        self.logger.warning(
+            "astream_analyze() is deprecated. Use astream_analyze_request() instead."
+        )
+
+        # For backward compatibility, load data from files
+        from alerts.mock.bigdata_simulator import BigDataSimulator
+
+        simulator = BigDataSimulator(str(self.data_dir))
+        request = simulator.create_request(str(alert_file_path))
+
+        async for event in self.astream_analyze_request(request, task_id):
+            yield event
+
+        # Write HTML report for legacy compatibility
+        # Note: We need to get the decision from somewhere
+        # This is a limitation of the streaming interface
 
     def _write_decision(self, decision: InsiderTradingDecision) -> Path:
         """Write decision to JSON file.
@@ -755,7 +598,7 @@ After gathering all evidence, provide your determination with detailed reasoning
         """
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "tools": [t.get_stats() for t in self.tool_instances]
+            "tools": [t.get_stats() for t in self.tool_instances.values()]
         }
 
 

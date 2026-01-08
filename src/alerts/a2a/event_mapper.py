@@ -455,6 +455,61 @@ class EventMapper:
             final=False,
         )
 
+    def create_tool_started_event(self, tool_name: str) -> StreamEvent:
+        """Create event for when a tool starts execution.
+
+        Used by the deterministic agent loop to signal tool execution start.
+
+        Args:
+            tool_name: Name of the tool starting execution
+
+        Returns:
+            StreamEvent indicating tool has started
+        """
+        self._tool_start_times[tool_name] = datetime.now(timezone.utc)
+        return self.create_event(
+            event_type="tool_started",
+            payload={
+                "tool_name": tool_name,
+                "message": f"Executing {tool_name}...",
+            },
+            final=False,
+        )
+
+    def create_tool_completed_event(
+        self,
+        tool_name: str,
+        summary: str = "",
+    ) -> StreamEvent:
+        """Create event for when a tool completes execution.
+
+        Used by the deterministic agent loop to signal tool execution completion.
+
+        Args:
+            tool_name: Name of the tool that completed
+            summary: Brief summary of the tool's output
+
+        Returns:
+            StreamEvent indicating tool has completed
+        """
+        # Calculate duration if we tracked the start time
+        duration_ms = None
+        if tool_name in self._tool_start_times:
+            start_time = self._tool_start_times.pop(tool_name)
+            duration_ms = int(
+                (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            )
+
+        return self.create_event(
+            event_type="tool_completed",
+            payload={
+                "tool_name": tool_name,
+                "summary": summary,
+                "duration_ms": duration_ms,
+            },
+            final=False,
+        )
+
 
 def create_stream_writer_for_mapper(
     event_mapper: EventMapper,
