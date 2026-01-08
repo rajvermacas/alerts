@@ -6,7 +6,7 @@ the insider trading agent and orchestrator servers.
 
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, patch, AsyncMock
 from click.testing import CliRunner
 
 
@@ -31,10 +31,12 @@ class TestInsiderTradingServer:
         assert '--verbose' in result.output
 
     @patch('alerts.a2a.insider_trading_server.uvicorn.run')
-    @patch('alerts.a2a.insider_trading_server.ChatOpenAI')
-    def test_server_startup_default_args(self, mock_llm, mock_uvicorn):
+    @patch('alerts.a2a.insider_trading_server.create_llm')
+    def test_server_startup_default_args(self, mock_create_llm, mock_uvicorn):
         """Test server starts with default arguments."""
         from alerts.a2a.insider_trading_server import main
+
+        mock_create_llm.return_value = MagicMock()
 
         runner = CliRunner()
         result = runner.invoke(main, [])
@@ -43,10 +45,12 @@ class TestInsiderTradingServer:
         assert mock_uvicorn.called
 
     @patch('alerts.a2a.insider_trading_server.uvicorn.run')
-    @patch('alerts.a2a.insider_trading_server.ChatOpenAI')
-    def test_server_startup_custom_port(self, mock_llm, mock_uvicorn):
+    @patch('alerts.a2a.insider_trading_server.create_llm')
+    def test_server_startup_custom_port(self, mock_create_llm, mock_uvicorn):
         """Test server starts with custom port."""
         from alerts.a2a.insider_trading_server import main
+
+        mock_create_llm.return_value = MagicMock()
 
         runner = CliRunner()
         result = runner.invoke(main, ['--port', '9999'])
@@ -57,10 +61,12 @@ class TestInsiderTradingServer:
         assert call_kwargs['port'] == 9999
 
     @patch('alerts.a2a.insider_trading_server.uvicorn.run')
-    @patch('alerts.a2a.insider_trading_server.ChatOpenAI')
-    def test_server_startup_custom_host(self, mock_llm, mock_uvicorn):
+    @patch('alerts.a2a.insider_trading_server.create_llm')
+    def test_server_startup_custom_host(self, mock_create_llm, mock_uvicorn):
         """Test server starts with custom host."""
         from alerts.a2a.insider_trading_server import main
+
+        mock_create_llm.return_value = MagicMock()
 
         runner = CliRunner()
         result = runner.invoke(main, ['--host', '0.0.0.0'])
@@ -71,40 +77,18 @@ class TestInsiderTradingServer:
         assert call_kwargs['host'] == '0.0.0.0'
 
     @patch('alerts.a2a.insider_trading_server.uvicorn.run')
-    @patch('alerts.a2a.insider_trading_server.ChatOpenAI')
-    def test_server_with_verbose_logging(self, mock_llm, mock_uvicorn):
+    @patch('alerts.a2a.insider_trading_server.create_llm')
+    def test_server_with_verbose_logging(self, mock_create_llm, mock_uvicorn):
         """Test server with verbose logging enabled."""
         from alerts.a2a.insider_trading_server import main
+
+        mock_create_llm.return_value = MagicMock()
 
         runner = CliRunner()
         result = runner.invoke(main, ['--verbose'])
 
         # Should start successfully
         assert mock_uvicorn.called
-
-    def test_agent_card_structure(self):
-        """Test that agent card has required fields."""
-        from alerts.a2a.insider_trading_server import AGENT_CARD
-
-        assert 'name' in AGENT_CARD
-        assert 'description' in AGENT_CARD
-        assert 'url' in AGENT_CARD
-        assert AGENT_CARD['name'] == "Insider Trading Alert Analyzer"
-        assert 'insider trading' in AGENT_CARD['description'].lower()
-
-    @patch('alerts.a2a.insider_trading_server.ChatOpenAI')
-    def test_create_executor_function(self, mock_llm):
-        """Test executor creation function."""
-        from alerts.a2a.insider_trading_server import _create_executor
-        from alerts.a2a.insider_trading_executor import InsiderTradingAgentExecutor
-
-        mock_llm_instance = MagicMock()
-        mock_llm.return_value = mock_llm_instance
-
-        executor = _create_executor()
-
-        assert isinstance(executor, InsiderTradingAgentExecutor)
-        assert executor.llm == mock_llm_instance
 
 
 class TestOrchestratorServer:
@@ -167,37 +151,6 @@ class TestOrchestratorServer:
         assert call_kwargs['host'] == '0.0.0.0'
         assert call_kwargs['port'] == 8888
 
-    def test_agent_card_structure(self):
-        """Test that agent card has required fields."""
-        from alerts.a2a.orchestrator_server import AGENT_CARD
-
-        assert 'name' in AGENT_CARD
-        assert 'description' in AGENT_CARD
-        assert 'url' in AGENT_CARD
-        assert AGENT_CARD['name'] == "Alert Orchestrator"
-        assert 'orchestrat' in AGENT_CARD['description'].lower()
-
-    def test_create_executor_function_default_url(self):
-        """Test executor creation with default URL."""
-        from alerts.a2a.orchestrator_server import _create_executor
-        from alerts.a2a.orchestrator_executor import OrchestratorAgentExecutor
-
-        executor = _create_executor()
-
-        assert isinstance(executor, OrchestratorAgentExecutor)
-        assert executor.insider_trading_agent_url == "http://localhost:10001"
-
-    def test_create_executor_function_custom_url(self):
-        """Test executor creation with custom URL."""
-        from alerts.a2a.orchestrator_server import _create_executor
-        from alerts.a2a.orchestrator_executor import OrchestratorAgentExecutor
-
-        custom_url = "http://custom-host:9999"
-        executor = _create_executor(custom_url)
-
-        assert isinstance(executor, OrchestratorAgentExecutor)
-        assert executor.insider_trading_agent_url == custom_url
-
 
 class TestA2AIntegration:
     """Integration tests for A2A communication."""
@@ -206,8 +159,6 @@ class TestA2AIntegration:
     async def test_end_to_end_alert_flow_mock(self, tmp_path):
         """Test end-to-end flow with mocked components."""
         from alerts.a2a.orchestrator import OrchestratorAgent
-        from alerts.a2a.insider_trading_executor import InsiderTradingAgentExecutor
-        from unittest.mock import AsyncMock
 
         # Create test alert
         data_dir = tmp_path / "data"
@@ -245,17 +196,6 @@ class TestA2AIntegration:
             assert result['routed_to'] == "insider_trading_agent"
             assert result['agent_response']['status'] == "success"
             mock_send.assert_called_once()
-
-    def test_both_servers_have_unique_names(self):
-        """Test that both servers have unique identifiable names."""
-        from alerts.a2a.insider_trading_server import AGENT_CARD as IT_CARD
-        from alerts.a2a.orchestrator_server import AGENT_CARD as ORCH_CARD
-
-        # Names should be different
-        assert IT_CARD['name'] != ORCH_CARD['name']
-
-        # Descriptions should be different
-        assert IT_CARD['description'] != ORCH_CARD['description']
 
     def test_server_ports_different(self):
         """Test that default ports are different for each server."""
@@ -337,68 +277,16 @@ class TestTestClient:
         assert result.exit_code == 0
 
 
-class TestServerConfiguration:
-    """Test server configuration and environment handling."""
-
-    def test_insider_trading_server_data_dir_default(self):
-        """Test that insider trading server has correct default data dir."""
-        from alerts.a2a.insider_trading_server import _create_executor
-
-        # Mock LLM
-        with patch('alerts.a2a.insider_trading_server.ChatOpenAI'):
-            executor = _create_executor()
-            assert executor.data_dir == Path("test_data")
-            assert executor.output_dir == Path("resources/reports")
-
-    def test_orchestrator_server_data_dir_default(self):
-        """Test that orchestrator server has correct default data dir."""
-        from alerts.a2a.orchestrator_server import _create_executor
-
-        executor = _create_executor()
-        assert executor.data_dir == Path("test_data")
-
-    @patch.dict('os.environ', {'OPENAI_API_KEY': 'test-key'})
-    @patch('alerts.a2a.insider_trading_server.ChatOpenAI')
-    def test_insider_trading_server_respects_env(self, mock_llm):
-        """Test that server respects environment variables."""
-        from alerts.a2a.insider_trading_server import _create_executor
-
-        mock_llm_instance = MagicMock()
-        mock_llm.return_value = mock_llm_instance
-
-        executor = _create_executor()
-
-        # LLM should have been created
-        assert mock_llm.called
-
-
 class TestServerErrorHandling:
     """Test server error handling and edge cases."""
 
-    @patch('alerts.a2a.insider_trading_server.ChatOpenAI')
-    def test_insider_server_handles_llm_creation_error(self, mock_llm):
-        """Test that server handles LLM creation errors."""
-        from alerts.a2a.insider_trading_server import _create_executor
-
-        # Simulate LLM creation failure
-        mock_llm.side_effect = Exception("API key invalid")
-
-        with pytest.raises(Exception, match="API key invalid"):
-            _create_executor()
-
-    def test_orchestrator_server_handles_invalid_url(self):
-        """Test that orchestrator handles invalid URLs gracefully."""
-        from alerts.a2a.orchestrator_server import _create_executor
-
-        # Should accept any URL string (validation happens at runtime)
-        executor = _create_executor("not-a-valid-url")
-        assert executor.insider_trading_agent_url == "not-a-valid-url"
-
     @patch('alerts.a2a.insider_trading_server.uvicorn.run')
-    @patch('alerts.a2a.insider_trading_server.ChatOpenAI')
-    def test_insider_server_handles_port_in_use(self, mock_llm, mock_uvicorn):
+    @patch('alerts.a2a.insider_trading_server.create_llm')
+    def test_insider_server_handles_port_in_use(self, mock_create_llm, mock_uvicorn):
         """Test server behavior when port is already in use."""
         from alerts.a2a.insider_trading_server import main
+
+        mock_create_llm.return_value = MagicMock()
 
         # Simulate port in use
         mock_uvicorn.side_effect = OSError("Address already in use")

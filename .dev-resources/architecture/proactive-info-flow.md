@@ -248,23 +248,23 @@ This document describes the architectural changes required to shift from **react
 │  TOOL_ORDER = [                                                              │
 │      "alert_reader",                                                         │
 │      "market_data",                                                          │
-│      "trader_profile",                                                       │
 │      "account_relationships",                                                │
 │      "related_accounts_history",                                             │
 │      "trade_timing",                                                         │
 │      "counterparty_analysis",                                                │
 │  ]                                                                           │
 │                                                                              │
+│  NOTE: trader_profile NOT included for wash trade (by design decision)       │
+│                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  Step 1: alert_reader           → AlertSummary                               │
 │  Step 2: market_data            → MarketContext                              │
-│  Step 3: trader_profile         → TraderRiskAssessment                       │
-│  Step 4: account_relationships  → OwnershipNetwork                           │
-│  Step 5: related_accounts_history → CoordinatedActivityAnalysis              │
-│  Step 6: trade_timing           → SubSecondPatterns                          │
-│  Step 7: counterparty_analysis  → BeneficialOwnershipOverlap                 │
-│  Step 8: FINAL SYNTHESIS        → WashTradeDecision                          │
+│  Step 3: account_relationships  → OwnershipNetwork                           │
+│  Step 4: related_accounts_history → CoordinatedActivityAnalysis              │
+│  Step 5: trade_timing           → SubSecondPatterns                          │
+│  Step 6: counterparty_analysis  → BeneficialOwnershipOverlap                 │
+│  Step 7: FINAL SYNTHESIS        → WashTradeDecision                          │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -539,13 +539,14 @@ components:
 | | `trader_history` | csv |
 | `wash_trade` | `alert_reader` | xml |
 | | `market_data` | csv |
-| | `trader_profile` | csv |
 | | `account_relationships` | csv |
 | | `related_accounts_history` | csv |
 | | `trade_timing` | csv |
 | | `counterparty_analysis` | csv |
 
-**Note**: `peer_trades` has been removed from requirements.
+**Notes**:
+- `peer_trades` has been removed from requirements (deleted entirely).
+- `trader_profile` is NOT included in `wash_trade` requirements (design decision - wash trade analysis focuses on account relationships, not individual trader profiles).
 
 ---
 

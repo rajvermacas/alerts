@@ -234,6 +234,67 @@ def temp_test_data(tmp_path: Path, sample_alert_xml: str,
     return data_dir
 
 
+@pytest.fixture
+def sample_trader_baseline_analysis():
+    """Return a valid TraderBaselineAnalysis for testing."""
+    from alerts.models.insider_trading import TraderBaselineAnalysis
+    return TraderBaselineAnalysis(
+        typical_volume="5,000 shares/day average in tech sector",
+        typical_sectors="Technology (MSFT, AAPL, GOOGL)",
+        typical_frequency="Daily active trader with 2-3 trades per day",
+        deviation_assessment="Flagged trade is 10x normal volume in healthcare (new sector)"
+    )
+
+
+@pytest.fixture
+def sample_market_context():
+    """Return a valid MarketContext for testing."""
+    from alerts.models.insider_trading import MarketContext
+    return MarketContext(
+        news_timeline="No public news before March 16. M&A announced March 16 at 9:00 AM.",
+        volatility_assessment="Market volatility was moderate. VIX at 18. Stock rose 47% on announcement.",
+        peer_activity_summary="Other traders were net sellers. No internal buys detected."
+    )
+
+
+@pytest.fixture
+def sample_insider_trading_decision(sample_trader_baseline_analysis, sample_market_context):
+    """Return a valid InsiderTradingDecision for testing."""
+    from alerts.models import InsiderTradingDecision
+    return InsiderTradingDecision(
+        alert_id="TEST-001",
+        alert_type="INSIDER_TRADING",
+        determination="ESCALATE",
+        genuine_alert_confidence=85,
+        false_positive_confidence=15,
+        key_findings=[
+            "Trade timing 36 hours before M&A announcement",
+            "Volume 25x trader baseline",
+            "First trade in healthcare sector"
+        ],
+        favorable_indicators=[
+            "Back-office employee trading",
+            "No public information available"
+        ],
+        risk_mitigating_factors=[
+            "Market maker activity present"
+        ],
+        reasoning_narrative=(
+            "This case presents strong indicators of potential insider trading. "
+            "The trader, a back-office employee with no legitimate access to MNPI, "
+            "made an unusually large trade (25x their normal volume) in a sector "
+            "they have never traded before (healthcare), precisely 36 hours before "
+            "a major M&A announcement. The trade generated an estimated $675,000 profit. "
+            "No public information was available to justify this position."
+        ),
+        similar_precedent="ex_001 - Clear genuine case with strong temporal correlation",
+        trader_baseline_analysis=sample_trader_baseline_analysis,
+        market_context=sample_market_context,
+        recommended_action="ESCALATE",
+        data_gaps=[]
+    )
+
+
 # Environment setup for tests
 @pytest.fixture(autouse=True)
 def setup_test_env(monkeypatch):

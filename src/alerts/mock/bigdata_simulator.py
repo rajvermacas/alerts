@@ -215,8 +215,8 @@ class BigDataSimulator:
                 data=self._read_file(str(news_path)),
             )
         else:
-            self.logger.warning(f"Market news file not found: {news_path}")
-            data["market_news"] = ToolInput(format="txt", data="")
+            self.logger.error(f"Required market news file not found: {news_path}")
+            raise FileNotFoundError(f"Required market news file not found: {news_path}")
 
         # Market data (CSV format)
         market_data_path = self.data_dir / "market_data.csv"
@@ -226,8 +226,8 @@ class BigDataSimulator:
                 data=self._read_file(str(market_data_path)),
             )
         else:
-            self.logger.warning(f"Market data file not found: {market_data_path}")
-            data["market_data"] = ToolInput(format="csv", data="")
+            self.logger.error(f"Required market data file not found: {market_data_path}")
+            raise FileNotFoundError(f"Required market data file not found: {market_data_path}")
 
         # Trader profile (CSV format)
         profile_path = self.data_dir / "trader_profiles.csv"
@@ -237,8 +237,8 @@ class BigDataSimulator:
                 data=self._read_file(str(profile_path)),
             )
         else:
-            self.logger.warning(f"Trader profiles file not found: {profile_path}")
-            data["trader_profile"] = ToolInput(format="csv", data="")
+            self.logger.error(f"Required trader profiles file not found: {profile_path}")
+            raise FileNotFoundError(f"Required trader profiles file not found: {profile_path}")
 
         # Trader history (CSV format)
         history_path = self.data_dir / "trader_history.csv"
@@ -248,8 +248,8 @@ class BigDataSimulator:
                 data=self._read_file(str(history_path)),
             )
         else:
-            self.logger.warning(f"Trader history file not found: {history_path}")
-            data["trader_history"] = ToolInput(format="csv", data="")
+            self.logger.error(f"Required trader history file not found: {history_path}")
+            raise FileNotFoundError(f"Required trader history file not found: {history_path}")
 
         return data
 
@@ -271,8 +271,8 @@ class BigDataSimulator:
                 data=self._read_file(str(market_data_path)),
             )
         else:
-            self.logger.warning(f"Market data file not found: {market_data_path}")
-            data["market_data"] = ToolInput(format="csv", data="")
+            self.logger.error(f"Required market data file not found: {market_data_path}")
+            raise FileNotFoundError(f"Required market data file not found: {market_data_path}")
 
         # Wash trade specific tools - from wash_trade subdirectory
         wt_dir = self.data_dir / "wash_trade"
@@ -285,8 +285,8 @@ class BigDataSimulator:
                 data=self._read_file(str(relationships_path)),
             )
         else:
-            self.logger.warning(f"Account relationships file not found: {relationships_path}")
-            data["account_relationships"] = ToolInput(format="csv", data="")
+            self.logger.error(f"Required account relationships file not found: {relationships_path}")
+            raise FileNotFoundError(f"Required account relationships file not found: {relationships_path}")
 
         # Related accounts history
         history_path = wt_dir / "related_accounts_history.csv"
@@ -296,12 +296,10 @@ class BigDataSimulator:
                 data=self._read_file(str(history_path)),
             )
         else:
-            self.logger.warning(f"Related accounts history file not found: {history_path}")
-            data["related_accounts_history"] = ToolInput(format="csv", data="")
+            self.logger.error(f"Required related accounts history file not found: {history_path}")
+            raise FileNotFoundError(f"Required related accounts history file not found: {history_path}")
 
-        # Trade timing - use the main market_data for timing context
-        # (The tool will compute timing from its own data sources)
-        # For now, we provide the same market data as trade_timing context
+        # Trade timing
         timing_path = wt_dir / "trade_timing.csv"
         if timing_path.exists():
             data["trade_timing"] = ToolInput(
@@ -309,12 +307,8 @@ class BigDataSimulator:
                 data=self._read_file(str(timing_path)),
             )
         else:
-            # Fall back to market data for timing context
-            self.logger.warning(f"Trade timing file not found: {timing_path}, using market_data")
-            data["trade_timing"] = ToolInput(
-                format="csv",
-                data=data.get("market_data", ToolInput(format="csv", data="")).data,
-            )
+            self.logger.error(f"Required trade timing file not found: {timing_path}")
+            raise FileNotFoundError(f"Required trade timing file not found: {timing_path}")
 
         # Counterparty analysis
         counterparty_path = wt_dir / "counterparty_analysis.csv"
@@ -324,8 +318,8 @@ class BigDataSimulator:
                 data=self._read_file(str(counterparty_path)),
             )
         else:
-            self.logger.warning(f"Counterparty analysis file not found: {counterparty_path}")
-            data["counterparty_analysis"] = ToolInput(format="csv", data="")
+            self.logger.error(f"Required counterparty analysis file not found: {counterparty_path}")
+            raise FileNotFoundError(f"Required counterparty analysis file not found: {counterparty_path}")
 
         return data
 
