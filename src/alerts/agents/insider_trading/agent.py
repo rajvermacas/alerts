@@ -40,7 +40,6 @@ from alerts.tools.common import (
 from alerts.agents.insider_trading.tools import (
     TraderHistoryTool,
     MarketNewsTool,
-    PeerTradesTool,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,11 +79,8 @@ class QueryMarketDataArgs(BaseModel):
     end_date: str = Field(description="End date in YYYY-MM-DD format")
 
 
-class QueryPeerTradesArgs(BaseModel):
-    """Arguments for the query_peer_trades tool."""
-    symbol: str = Field(description="Stock symbol to query")
-    start_date: str = Field(description="Start date in YYYY-MM-DD format")
-    end_date: str = Field(description="End date in YYYY-MM-DD format")
+# Note: QueryPeerTradesArgs removed - peer_trades tool has been deprecated
+# as part of the proactive info flow architecture change.
 
 
 class InsiderTradingAnalyzerAgent:
@@ -159,7 +155,7 @@ class InsiderTradingAnalyzerAgent:
             # Insider trading specific tools
             TraderHistoryTool(self.llm, self.data_dir),
             MarketNewsTool(self.llm, self.data_dir),
-            PeerTradesTool(self.llm, self.data_dir),
+            # Note: PeerTradesTool removed - deprecated in proactive info flow architecture
         ]
 
     def _create_langchain_tools(self, config: Optional[Dict[str, Any]] = None) -> list:
@@ -178,7 +174,7 @@ class InsiderTradingAnalyzerAgent:
             "query_trader_profile": QueryTraderProfileArgs,
             "query_market_news": QueryMarketNewsArgs,
             "query_market_data": QueryMarketDataArgs,
-            "query_peer_trades": QueryPeerTradesArgs,
+            # Note: query_peer_trades removed - deprecated in proactive info flow architecture
         }
 
         langchain_tools = []
@@ -458,12 +454,11 @@ Alert file path: {alert_file_path}
 
 **Workflow:**
 1. First, call read_alert to parse the alert and extract trader_id, symbol, trade_date
-2. Then, call ALL 5 remaining tools together in a single response:
+2. Then, call ALL 4 remaining tools together in a single response:
    - query_trader_history
    - query_trader_profile
    - query_market_news
    - query_market_data
-   - query_peer_trades
 
 After gathering all evidence, provide your determination with detailed reasoning."""
         )
@@ -570,12 +565,11 @@ Alert file path: {alert_file_path}
 
 **Workflow:**
 1. First, call read_alert to parse the alert and extract trader_id, symbol, trade_date
-2. Then, call ALL 5 remaining tools together in a single response:
+2. Then, call ALL 4 remaining tools together in a single response:
    - query_trader_history
    - query_trader_profile
    - query_market_news
    - query_market_data
-   - query_peer_trades
 
 After gathering all evidence, provide your determination with detailed reasoning."""
         )

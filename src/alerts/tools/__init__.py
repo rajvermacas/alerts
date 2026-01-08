@@ -24,8 +24,8 @@ from alerts.tools.common import (
 from alerts.agents.insider_trading.tools import (
     TraderHistoryTool,
     MarketNewsTool,
-    PeerTradesTool,
 )
+# Note: PeerTradesTool removed - deprecated in proactive info flow architecture
 
 __all__ = [
     # Base classes
@@ -38,5 +38,5 @@ __all__ = [
     # Insider trading specific (backward compatibility)
     "TraderHistoryTool",
     "MarketNewsTool",
-    "PeerTradesTool",
+    # Note: PeerTradesTool removed - deprecated in proactive info flow architecture
 ]

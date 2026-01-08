@@ -10,7 +10,7 @@ from alerts.tools.trader_history import TraderHistoryTool
 from alerts.tools.trader_profile import TraderProfileTool
 from alerts.tools.market_news import MarketNewsTool
 from alerts.tools.market_data import MarketDataTool
-from alerts.tools.peer_trades import PeerTradesTool
+# Note: PeerTradesTool removed - deprecated in proactive info flow architecture
 
 
 class TestDataLoadingMixin:
@@ -225,28 +225,7 @@ class TestMarketDataTool:
         assert tool.call_count == 1
 
 
-class TestPeerTradesTool:
-    """Tests for PeerTradesTool."""
-
-    def test_initialization(self, mock_llm: MagicMock, test_data_dir: Path):
-        """Test tool initialization."""
-        tool = PeerTradesTool(mock_llm, test_data_dir)
-
-        assert tool.name == "query_peer_trades"
-        assert "peer" in tool.description.lower()
-
-    def test_full_execution(self, mock_llm: MagicMock, test_data_dir: Path):
-        """Test full tool execution."""
-        tool = PeerTradesTool(mock_llm, test_data_dir)
-
-        result = tool(
-            symbol="ACME",
-            start_date="2024-03-08",
-            end_date="2024-03-20"
-        )
-
-        assert result == "Mock LLM response for testing"
-        assert tool.call_count == 1
+# Note: TestPeerTradesTool removed - peer_trades tool deprecated in proactive info flow architecture
 
 
 class TestToolStatistics:
