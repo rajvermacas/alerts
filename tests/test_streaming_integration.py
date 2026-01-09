@@ -188,13 +188,38 @@ def insider_trading_request(sample_alert_xml) -> AnalysisRequest:
 
 @pytest.fixture
 def wash_trade_request() -> AnalysisRequest:
-    """Create a valid AnalysisRequest for wash trade."""
+    """Create a valid AnalysisRequest for wash trade.
+
+    The alert XML must contain the required fields for context extraction:
+    - AccountID (at least one, can have multiple)
+    - Symbol
+    - TradeDate
+    - TradeTime (optional, for timing analysis)
+    - Quantity (optional)
+    """
     alert_xml = """<?xml version="1.0" encoding="UTF-8"?>
-<Alert>
-    <AlertId>WT-TEST-001</AlertId>
-    <AlertType>Wash Trade</AlertType>
-    <AccountId>ACC-001</AccountId>
-</Alert>"""
+<SmartsAlert>
+    <AlertMetadata>
+        <AlertID>WT-TEST-001</AlertID>
+        <AlertType>WashTrade</AlertType>
+    </AlertMetadata>
+    <FlaggedTrades>
+        <Trade sequence="1">
+            <AccountID>ACC-001</AccountID>
+            <TradeDate>2024-03-15</TradeDate>
+            <TradeTime>14:32:15.123</TradeTime>
+            <Symbol>TEST</Symbol>
+            <Quantity>1000</Quantity>
+        </Trade>
+        <Trade sequence="2">
+            <AccountID>ACC-002</AccountID>
+            <TradeDate>2024-03-15</TradeDate>
+            <TradeTime>14:32:15.625</TradeTime>
+            <Symbol>TEST</Symbol>
+            <Quantity>1000</Quantity>
+        </Trade>
+    </FlaggedTrades>
+</SmartsAlert>"""
 
     return AnalysisRequest(
         alert_xml=alert_xml,

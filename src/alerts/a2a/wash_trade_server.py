@@ -26,9 +26,13 @@ from sse_starlette import EventSourceResponse
 from starlette.requests import Request
 from starlette.routing import Route
 
+from pydantic import ValidationError
+from starlette.responses import JSONResponse
+
 from alerts.a2a.wash_trade_executor import WashTradeAgentExecutor
 from alerts.config import ConfigurationError, get_config, setup_logging
 from alerts.llm_factory import create_llm
+from alerts.models.request import AnalysisRequest
 
 load_dotenv()
 
@@ -123,6 +127,91 @@ async def _error_generator(error_message: str):
     }
 
 
+async def api_analyze_endpoint(request: Request):
+    """Handle POST /api/analyze for proactive information flow pattern.
+
+    This endpoint accepts an AnalysisRequest JSON body and performs
+    wash trade analysis using the pre-loaded tool data.
+
+    Request body should be AnalysisRequest JSON:
+    {
+        "alert_xml": "<Alert>...</Alert>",
+        "agent_type": "wash_trade",
+        "tool_data": {
+            "alert_reader": {"format": "xml", "data": "..."},
+            "market_data": {"format": "csv", "data": "..."},
+            ...
+        }
+    }
+
+    Returns:
+        200: WashTradeDecision JSON
+        400: Validation error
+        500: Internal server error
+    """
+    global _executor
+
+    if _executor is None:
+        logger.error("Executor not initialized")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "ANALYSIS_FAILED",
+                "message": "Wash trade executor not initialized",
+            },
+        )
+
+    try:
+        body = await request.json()
+    except Exception as e:
+        logger.error(f"Invalid JSON in request: {e}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "INVALID_REQUEST",
+                "message": f"Invalid JSON: {str(e)}",
+            },
+        )
+
+    # Validate request using Pydantic
+    try:
+        analysis_request = AnalysisRequest(**body)
+    except ValidationError as e:
+        logger.error(f"Request validation failed: {e}")
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "MISSING_TOOL_DATA",
+                "message": str(e),
+                "details": str(e.errors()),
+            },
+        )
+
+    logger.info(f"Received AnalysisRequest for wash trade analysis")
+    logger.info(f"Tool data keys: {list(analysis_request.tool_data.keys())}")
+
+    try:
+        # Use the agent's analyze_request method
+        agent = _executor._get_agent()
+        decision = agent.analyze_request(analysis_request)
+
+        # Return the decision as JSON
+        return JSONResponse(
+            status_code=200,
+            content=decision.model_dump(mode="json", exclude_none=True),
+        )
+
+    except Exception as e:
+        logger.error(f"Analysis failed: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "ANALYSIS_FAILED",
+                "message": f"Analysis failed: {str(e)}",
+            },
+        )
+
+
 @click.command()
 @click.option("--host", default="localhost", help="Host to bind to")
 @click.option("--port", default=10002, help="Port to bind to")
@@ -208,10 +297,15 @@ def main(host: str, port: int, verbose: bool) -> None:
         app.routes.append(
             Route("/message/stream", message_stream_endpoint, methods=["POST"])
         )
+        # Add the analyze endpoint for proactive information flow
+        app.routes.append(
+            Route("/api/analyze", api_analyze_endpoint, methods=["POST"])
+        )
 
         logger.info(f"Wash Trade Server starting at http://{host}:{port}")
         logger.info(f"Agent card available at http://{host}:{port}/.well-known/agent.json")
         logger.info(f"Streaming endpoint: POST http://{host}:{port}/message/stream")
+        logger.info(f"Analyze endpoint: POST http://{host}:{port}/api/analyze")
 
         # Run server
         uvicorn.run(app, host=host, port=port)

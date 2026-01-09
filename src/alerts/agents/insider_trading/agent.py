@@ -163,6 +163,39 @@ class InsiderTradingAnalyzerAgent:
         }
         return tool_key_map.get(tool_name, tool_name)
 
+    def _build_context_params(self, context: Dict[str, str]) -> Dict[str, Dict[str, str]]:
+        """Build per-tool context parameters from alert context.
+
+        Maps the extracted alert context (symbol, trader_id, dates) to the
+        specific parameters each tool requires in its _build_interpretation_prompt.
+
+        Args:
+            context: Dict with keys: trader_id, symbol, trade_date, start_date, end_date
+
+        Returns:
+            Dict mapping tool names to their required kwargs
+        """
+        return {
+            "query_market_news": {
+                "symbol": context["symbol"],
+                "start_date": context["start_date"],
+                "end_date": context["end_date"],
+            },
+            "query_market_data": {
+                "symbol": context["symbol"],
+                "start_date": context["start_date"],
+                "end_date": context["end_date"],
+            },
+            "query_trader_profile": {
+                "trader_id": context["trader_id"],
+            },
+            "query_trader_history": {
+                "trader_id": context["trader_id"],
+                "symbol": context["symbol"],
+                "trade_date": context["trade_date"],
+            },
+        }
+
     def analyze_request(
         self,
         request: AnalysisRequest,
@@ -171,7 +204,8 @@ class InsiderTradingAnalyzerAgent:
         """Analyze an alert using the proactive info flow pattern.
 
         This method uses data injected via AnalysisRequest instead of
-        loading data from files.
+        loading data from files. It extracts context parameters from the
+        alert XML and passes them to each tool for proper prompt building.
 
         Args:
             request: AnalysisRequest with alert_xml, agent_type, and tool_data
@@ -195,8 +229,50 @@ class InsiderTradingAnalyzerAgent:
 
         insights: Dict[str, str] = {}
 
-        # Execute tools in fixed order
-        for tool_name in self.TOOL_ORDER:
+        # Step 1: Execute alert_reader first to extract context parameters
+        alert_tool_name = "read_alert"
+        alert_data_key = self._get_tool_data_key(alert_tool_name)
+
+        self.logger.info(f"Step 1: Executing {alert_tool_name} and extracting context")
+
+        alert_input = request.tool_data.get(alert_data_key)
+        if alert_input is None:
+            raise MissingToolDataError(alert_data_key)
+
+        # Emit tool started event for alert reader
+        if event_callback:
+            event_callback("tool_started", alert_tool_name, None)
+
+        alert_reader = self.tool_instances.get(alert_tool_name)
+        if alert_reader is None:
+            raise ValueError(f"Unknown tool: {alert_tool_name}")
+
+        try:
+            alert_insight = alert_reader.execute(
+                data=alert_input.data,
+                format=alert_input.format,
+            )
+            insights[alert_tool_name] = alert_insight
+            self.logger.info(f"Tool {alert_tool_name} completed successfully")
+
+            if event_callback:
+                event_callback("tool_completed", alert_tool_name, {"insight_length": len(alert_insight)})
+
+        except Exception as e:
+            self.logger.error(f"Tool {alert_tool_name} failed: {e}")
+            if event_callback:
+                event_callback("tool_error", alert_tool_name, {"error": str(e)})
+            raise
+
+        # Step 2: Extract context parameters from alert XML for other tools
+        self.logger.info("Step 2: Extracting context parameters from alert XML")
+        context = AlertReaderTool.parse_alert_context(alert_input.data)
+        context_params = self._build_context_params(context)
+        self.logger.info(f"Extracted context: symbol={context['symbol']}, trader_id={context['trader_id']}")
+
+        # Step 3: Execute remaining tools with context parameters
+        self.logger.info("Step 3: Executing remaining tools with context")
+        for tool_name in self.TOOL_ORDER[1:]:  # Skip alert_reader (already executed)
             tool_data_key = self._get_tool_data_key(tool_name)
 
             self.logger.info(f"Executing tool: {tool_name} (data key: {tool_data_key})")
@@ -210,15 +286,20 @@ class InsiderTradingAnalyzerAgent:
             if event_callback:
                 event_callback("tool_started", tool_name, None)
 
-            # Get tool instance and execute with injected data
+            # Get tool instance and execute with injected data + context params
             tool = self.tool_instances.get(tool_name)
             if tool is None:
                 raise ValueError(f"Unknown tool: {tool_name}")
+
+            # Get context params for this tool (empty dict if not found)
+            tool_context = context_params.get(tool_name, {})
+            self.logger.debug(f"Tool {tool_name} context params: {tool_context}")
 
             try:
                 insight = tool.execute(
                     data=tool_input.data,
                     format=tool_input.format,
+                    **tool_context,  # Pass context parameters to tool
                 )
                 insights[tool_name] = insight
                 self.logger.info(f"Tool {tool_name} completed successfully")
@@ -265,7 +346,8 @@ class InsiderTradingAnalyzerAgent:
         """Analyze an alert with streaming events using proactive info flow.
 
         This async generator yields StreamEvent objects as the analysis progresses,
-        enabling real-time progress updates to the client.
+        enabling real-time progress updates to the client. It extracts context
+        parameters from the alert XML and passes them to each tool.
 
         Args:
             request: AnalysisRequest with alert_xml, agent_type, and tool_data
@@ -290,10 +372,61 @@ class InsiderTradingAnalyzerAgent:
         yield event_mapper.create_analysis_started_event("proactive_request")
 
         insights: Dict[str, str] = {}
+        context_params: Dict[str, Dict[str, str]] = {}
 
         try:
-            # Execute tools in fixed order
-            for tool_name in self.TOOL_ORDER:
+            # Step 1: Execute alert_reader first and extract context
+            alert_tool_name = "read_alert"
+            alert_data_key = self._get_tool_data_key(alert_tool_name)
+
+            self.logger.info(f"Step 1: Executing {alert_tool_name} and extracting context")
+
+            alert_input = request.tool_data.get(alert_data_key)
+            if alert_input is None:
+                error_event = event_mapper.create_error_event(
+                    f"Missing tool data: {alert_data_key}",
+                    stage="tool_execution",
+                    fatal=True,
+                )
+                yield error_event
+                raise MissingToolDataError(alert_data_key)
+
+            yield event_mapper.create_tool_started_event(alert_tool_name)
+
+            alert_reader = self.tool_instances.get(alert_tool_name)
+            if alert_reader is None:
+                raise ValueError(f"Unknown tool: {alert_tool_name}")
+
+            try:
+                alert_insight = alert_reader.execute(
+                    data=alert_input.data,
+                    format=alert_input.format,
+                )
+                insights[alert_tool_name] = alert_insight
+
+                yield event_mapper.create_tool_completed_event(
+                    alert_tool_name,
+                    summary=alert_insight[:200] + "..." if len(alert_insight) > 200 else alert_insight
+                )
+
+            except Exception as e:
+                self.logger.error(f"Tool {alert_tool_name} failed: {e}")
+                yield event_mapper.create_error_event(
+                    str(e),
+                    stage=f"tool_{alert_tool_name}",
+                    fatal=True,
+                )
+                raise
+
+            # Step 2: Extract context parameters from alert XML
+            self.logger.info("Step 2: Extracting context parameters from alert XML")
+            context = AlertReaderTool.parse_alert_context(alert_input.data)
+            context_params = self._build_context_params(context)
+            self.logger.info(f"Extracted context: symbol={context['symbol']}, trader_id={context['trader_id']}")
+
+            # Step 3: Execute remaining tools with context parameters
+            self.logger.info("Step 3: Executing remaining tools with context")
+            for tool_name in self.TOOL_ORDER[1:]:  # Skip alert_reader (already executed)
                 tool_data_key = self._get_tool_data_key(tool_name)
 
                 self.logger.info(f"Executing tool: {tool_name}")
@@ -317,10 +450,15 @@ class InsiderTradingAnalyzerAgent:
                 if tool is None:
                     raise ValueError(f"Unknown tool: {tool_name}")
 
+                # Get context params for this tool
+                tool_context = context_params.get(tool_name, {})
+                self.logger.debug(f"Tool {tool_name} context params: {tool_context}")
+
                 try:
                     insight = tool.execute(
                         data=tool_input.data,
                         format=tool_input.format,
+                        **tool_context,  # Pass context parameters to tool
                     )
                     insights[tool_name] = insight
 

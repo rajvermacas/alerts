@@ -5,8 +5,10 @@ for the agent to analyze. This is a shared tool used by all agent types.
 """
 
 import logging
+import re
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 from alerts.tools.common.base import BaseTool, DataLoadingMixin
 
@@ -133,3 +135,83 @@ Alert XML:
 {raw_data}
 
 Summary:"""
+
+    @staticmethod
+    def parse_alert_context(xml_content: str) -> Dict[str, str]:
+        """Extract context parameters from alert XML for other tools.
+
+        This method parses the alert XML to extract key fields needed by other
+        tools in the analysis pipeline. It supports both Insider Trading and
+        Wash Trade alert XML formats.
+
+        Args:
+            xml_content: Raw XML content of the alert
+
+        Returns:
+            Dict with keys:
+                - trader_id: Trader identifier (for IT alerts)
+                - symbol: Stock symbol being traded
+                - trade_date: Date of the suspicious trade (YYYY-MM-DD)
+                - start_date: 30 days before trade date (YYYY-MM-DD)
+                - end_date: 7 days after trade date (YYYY-MM-DD)
+
+        Raises:
+            ValueError: If required fields cannot be extracted from the XML
+
+        Example:
+            >>> context = AlertReaderTool.parse_alert_context(xml_content)
+            >>> context["symbol"]
+            'ACME'
+            >>> context["trade_date"]
+            '2024-03-15'
+        """
+        logger.debug("Parsing alert context from XML")
+
+        # Extract trader_id (XML tag: <TraderID>)
+        trader_match = re.search(r'<TraderID>([^<]+)</TraderID>', xml_content)
+        if not trader_match:
+            logger.error("Could not extract TraderID from alert XML")
+            raise ValueError("Could not extract TraderID from alert XML")
+        trader_id = trader_match.group(1).strip()
+        logger.debug(f"Extracted trader_id: {trader_id}")
+
+        # Extract symbol (XML tag: <Symbol>)
+        symbol_match = re.search(r'<Symbol>([^<]+)</Symbol>', xml_content)
+        if not symbol_match:
+            logger.error("Could not extract Symbol from alert XML")
+            raise ValueError("Could not extract Symbol from alert XML")
+        symbol = symbol_match.group(1).strip()
+        logger.debug(f"Extracted symbol: {symbol}")
+
+        # Extract trade date (XML tag: <TradeDate>)
+        date_match = re.search(r'<TradeDate>([^<]+)</TradeDate>', xml_content)
+        if not date_match:
+            logger.error("Could not extract TradeDate from alert XML")
+            raise ValueError("Could not extract TradeDate from alert XML")
+        trade_date_str = date_match.group(1).strip()
+        logger.debug(f"Extracted trade_date: {trade_date_str}")
+
+        # Parse trade date and compute date range (30 days before, 7 days after)
+        try:
+            trade_date = datetime.strptime(trade_date_str, "%Y-%m-%d")
+        except ValueError as e:
+            logger.error(f"Invalid trade date format: {trade_date_str}")
+            raise ValueError(f"Invalid trade date format '{trade_date_str}': {e}")
+
+        start_date = trade_date - timedelta(days=30)
+        end_date = trade_date + timedelta(days=7)
+
+        context = {
+            "trader_id": trader_id,
+            "symbol": symbol,
+            "trade_date": trade_date_str,
+            "start_date": start_date.strftime("%Y-%m-%d"),
+            "end_date": end_date.strftime("%Y-%m-%d"),
+        }
+
+        logger.info(
+            f"Parsed alert context: symbol={symbol}, trader_id={trader_id}, "
+            f"date_range={context['start_date']} to {context['end_date']}"
+        )
+
+        return context
