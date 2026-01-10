@@ -1,12 +1,16 @@
 """Deterministic agent for Insider Trading Alert Analysis.
 
 This module implements the insider trading analyzer agent that orchestrates
-tool calls in a fixed order and produces the final determination for insider
-trading alerts.
+tool calls and produces the final determination for insider trading alerts.
 
 Supports both synchronous analyze() and async astream_analyze() for real-time streaming.
 
-Architecture:
+Tool Execution Strategy:
+- Sync (analyze_request): Sequential execution for CLI usage
+- Async (astream_analyze_request): PARALLEL execution using asyncio.gather()
+  for non-blocking operation in async server contexts (FastAPI/Starlette)
+
+Architecture (Async Parallel Execution):
     ┌─────────────────────────────────────────────────────────┐
     │                    AnalysisRequest                       │
     │  (alert_xml, agent_type, tool_data: Dict[str, ToolInput])│
@@ -15,21 +19,20 @@ Architecture:
                                   ▼
     ┌─────────────────────────────────────────────────────────┐
     │              InsiderTradingAnalyzerAgent                 │
-    │  ┌────────────────────────────────────────────────────┐ │
-    │  │  TOOL_ORDER = [                                     │ │
-    │  │    "alert_reader",                                  │ │
-    │  │    "market_news",                                   │ │
-    │  │    "market_data",                                   │ │
-    │  │    "trader_profile",                                │ │
-    │  │    "trader_history",                                │ │
-    │  │  ]                                                  │ │
-    │  └────────────────────────────────────────────────────┘ │
+    │                                                          │
+    │  Step 1: read_alert (blocking - extracts context)        │
     │                         │                                │
-    │       for tool_name in TOOL_ORDER:                       │
-    │           emit("tool_started", tool_name)                │
-    │           insight = tool.execute(data, format)           │
-    │           insights[tool_name] = insight                  │
-    │           emit("tool_completed", tool_name)              │
+    │                         ▼                                │
+    │  Step 2: PARALLEL execution via asyncio.gather()         │
+    │          ┌──────────────┼──────────────┐                │
+    │          │              │              │                │
+    │          ▼              ▼              ▼                │
+    │    market_news   market_data   trader_profile           │
+    │          │              │              │                │
+    │          │              ▼              │                │
+    │          │        trader_history       │                │
+    │          │              │              │                │
+    │          └──────────────┼──────────────┘                │
     │                         │                                │
     │                         ▼                                │
     │              _synthesize(insights)                       │
@@ -40,11 +43,12 @@ Architecture:
                      InsiderTradingDecision
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -195,6 +199,60 @@ class InsiderTradingAnalyzerAgent:
                 "trade_date": context["trade_date"],
             },
         }
+
+    async def _aexecute_single_tool(
+        self,
+        tool_name: str,
+        request: AnalysisRequest,
+        context_params: Dict[str, Dict[str, str]],
+    ) -> Tuple[str, str]:
+        """Execute a single tool asynchronously.
+
+        Used by astream_analyze_request() for parallel tool execution via
+        asyncio.gather(). Each coroutine executes independently using
+        the async aexecute() method which uses ainvoke() for non-blocking
+        LLM calls.
+
+        Args:
+            tool_name: Name of the tool to execute
+            request: AnalysisRequest containing all tool data
+            context_params: Dict mapping tool names to their context kwargs
+
+        Returns:
+            Tuple of (tool_name, insight) for result aggregation
+
+        Raises:
+            MissingToolDataError: If tool data is not found in request
+            ValueError: If tool instance is not found
+            Exception: If tool execution fails
+        """
+        tool_data_key = self._get_tool_data_key(tool_name)
+
+        self.logger.info(f"Async executing tool: {tool_name} (data key: {tool_data_key})")
+
+        # Get tool data from request
+        tool_input = request.tool_data.get(tool_data_key)
+        if tool_input is None:
+            raise MissingToolDataError(tool_data_key)
+
+        # Get tool instance
+        tool = self.tool_instances.get(tool_name)
+        if tool is None:
+            raise ValueError(f"Unknown tool: {tool_name}")
+
+        # Get context params for this tool (empty dict if not found)
+        tool_context = context_params.get(tool_name, {})
+        self.logger.debug(f"Tool {tool_name} context params: {tool_context}")
+
+        # Execute tool asynchronously (uses ainvoke for LLM)
+        insight = await tool.aexecute(
+            data=tool_input.data,
+            format=tool_input.format,
+            **tool_context,
+        )
+
+        self.logger.info(f"Async tool {tool_name} completed successfully")
+        return (tool_name, insight)
 
     def analyze_request(
         self,
@@ -424,58 +482,50 @@ class InsiderTradingAnalyzerAgent:
             context_params = self._build_context_params(context)
             self.logger.info(f"Extracted context: symbol={context['symbol']}, trader_id={context['trader_id']}")
 
-            # Step 3: Execute remaining tools with context parameters
-            self.logger.info("Step 3: Executing remaining tools with context")
-            for tool_name in self.TOOL_ORDER[1:]:  # Skip alert_reader (already executed)
-                tool_data_key = self._get_tool_data_key(tool_name)
+            # Step 3: Execute remaining tools in PARALLEL
+            parallel_tools = self.TOOL_ORDER[1:]  # All tools except read_alert
+            self.logger.info(
+                f"Step 3: Executing {len(parallel_tools)} tools in parallel: {parallel_tools}"
+            )
 
-                self.logger.info(f"Executing tool: {tool_name}")
+            # Emit all tool_started events FIRST (before parallel execution begins)
+            for tool_name in parallel_tools:
+                yield event_mapper.create_tool_started_event(tool_name)
 
-                # Get tool data from request
-                tool_input = request.tool_data.get(tool_data_key)
-                if tool_input is None:
-                    error_event = event_mapper.create_error_event(
-                        f"Missing tool data: {tool_data_key}",
+            # Create coroutines for all tools
+            tool_coroutines = [
+                self._aexecute_single_tool(tool_name, request, context_params)
+                for tool_name in parallel_tools
+            ]
+
+            # Execute all tools concurrently using asyncio.gather
+            # return_exceptions=True ensures all coroutines complete even if some fail
+            results = await asyncio.gather(*tool_coroutines, return_exceptions=True)
+
+            # Process results and emit completion events
+            # Check for exceptions first (fail-fast behavior)
+            for result in results:
+                if isinstance(result, BaseException):
+                    self.logger.error(f"Tool execution failed: {result}")
+                    yield event_mapper.create_error_event(
+                        str(result),
                         stage="tool_execution",
                         fatal=True,
                     )
-                    yield error_event
-                    raise MissingToolDataError(tool_data_key)
+                    raise result
 
-                # Emit tool started event
-                yield event_mapper.create_tool_started_event(tool_name)
+            # All tools succeeded - collect insights and emit completion events
+            # Type narrowing: after exception check, results are all Tuple[str, str]
+            for tool_result in results:
+                # Cast is safe here since we've checked for exceptions above
+                tool_name, insight = tool_result  # type: ignore[misc]
+                insights[tool_name] = insight
+                self.logger.info(f"Tool {tool_name} completed with {len(insight)} chars")
 
-                # Get tool instance and execute
-                tool = self.tool_instances.get(tool_name)
-                if tool is None:
-                    raise ValueError(f"Unknown tool: {tool_name}")
-
-                # Get context params for this tool
-                tool_context = context_params.get(tool_name, {})
-                self.logger.debug(f"Tool {tool_name} context params: {tool_context}")
-
-                try:
-                    insight = tool.execute(
-                        data=tool_input.data,
-                        format=tool_input.format,
-                        **tool_context,  # Pass context parameters to tool
-                    )
-                    insights[tool_name] = insight
-
-                    # Emit tool completed event
-                    yield event_mapper.create_tool_completed_event(
-                        tool_name,
-                        summary=insight[:200] + "..." if len(insight) > 200 else insight
-                    )
-
-                except Exception as e:
-                    self.logger.error(f"Tool {tool_name} failed: {e}")
-                    yield event_mapper.create_error_event(
-                        str(e),
-                        stage=f"tool_{tool_name}",
-                        fatal=True,
-                    )
-                    raise
+                yield event_mapper.create_tool_completed_event(
+                    tool_name,
+                    summary=insight[:200] + "..." if len(insight) > 200 else insight
+                )
 
             # Emit evaluation started event
             yield event_mapper.create_evaluation_started_event()

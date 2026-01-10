@@ -98,6 +98,30 @@ class BaseTool(ABC):
             self.logger.error(f"LLM interpretation failed: {e}", exc_info=True)
             raise
 
+    async def _ainterpret_with_llm(self, prompt: str) -> str:
+        """Async version: Use LLM to interpret data and return insights.
+
+        Uses LangChain's ainvoke() for non-blocking LLM calls in async contexts.
+
+        Args:
+            prompt: Interpretation prompt
+
+        Returns:
+            LLM-generated insights as string
+        """
+        self.logger.debug(f"Sending async interpretation prompt ({len(prompt)} chars)")
+
+        try:
+            response = await self.llm.ainvoke(prompt)
+            content = response.content
+
+            self.logger.debug(f"LLM async response received ({len(content)} chars)")
+            return content
+
+        except Exception as e:
+            self.logger.error(f"LLM async interpretation failed: {e}", exc_info=True)
+            raise
+
     def execute(
         self,
         data: str,
@@ -212,6 +236,125 @@ class BaseTool(ABC):
             )
             self._emit_event(stream_writer, "error", {
                 "message": f"Tool execution failed: {e}",
+                "stage": "execution",
+                "duration_seconds": round(elapsed, 2),
+            })
+            raise  # Fail-fast as per architecture
+
+    async def aexecute(
+        self,
+        data: str,
+        format: str,
+        config: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> str:
+        """Async version of execute() for non-blocking LLM calls.
+
+        This method uses ainvoke() for async LLM calls, enabling proper
+        concurrency in async contexts (e.g., FastAPI/Starlette servers).
+        Use this method with asyncio.gather() for parallel tool execution.
+
+        Args:
+            data: Raw data content as string (pre-loaded by caller)
+            format: Data format identifier (csv, xml, txt)
+            config: Optional configuration dict containing 'stream_writer' callback
+            **kwargs: Additional tool-specific parameters for prompt building
+
+        Returns:
+            LLM-interpreted insights as string
+
+        Raises:
+            MissingToolDataError: If data is None or empty
+            InvalidFormatError: If format doesn't match expected_format
+        """
+        self.call_count += 1
+        start_time = datetime.now(timezone.utc)
+
+        # Extract stream_writer from config if provided
+        stream_writer: Optional[StreamWriter] = None
+        if config is not None:
+            stream_writer = config.get("stream_writer")
+
+        self.logger.info(
+            f"Tool async execute() invocation #{self.call_count}: "
+            f"format={format}, data_size={len(data) if data else 0}"
+        )
+
+        try:
+            # Validate data is provided (fail-fast)
+            if data is None or data == "":
+                self.logger.error(f"Missing data for tool {self.name}")
+                raise MissingToolDataError(self.name)
+
+            # Validate format matches expected
+            if format != self.expected_format:
+                self.logger.error(
+                    f"Format mismatch for {self.name}: "
+                    f"expected {self.expected_format}, got {format}"
+                )
+                raise InvalidFormatError(self.name, self.expected_format, format)
+
+            # Emit tool_started event
+            self._emit_event(stream_writer, "tool_started", {
+                "message": f"Starting {self.name}...",
+                "data_size": len(data),
+                "format": format,
+            })
+
+            self.logger.debug(f"Data provided: {len(data)} chars")
+
+            # Emit progress event after data validation
+            self._emit_event(stream_writer, "tool_progress", {
+                "message": f"Processing {len(data)} characters of {format} data...",
+                "stage": "data_validated",
+                "data_size": len(data),
+            })
+
+            # Build interpretation prompt (sync - just string operations)
+            prompt = self._build_interpretation_prompt(data, **kwargs)
+            self.logger.debug(f"Interpretation prompt built: {len(prompt)} chars")
+
+            # Emit progress event before LLM call
+            self._emit_event(stream_writer, "tool_progress", {
+                "message": "Interpreting data with LLM (async)...",
+                "stage": "llm_interpreting",
+                "prompt_size": len(prompt),
+            })
+
+            # Interpret with LLM (async)
+            insights = await self._ainterpret_with_llm(prompt)
+
+            # Track timing
+            elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+            self.total_processing_time += elapsed
+
+            self.logger.info(
+                f"Async tool completed in {elapsed:.2f}s, returned {len(insights)} chars"
+            )
+
+            # Emit tool_completed event with summary
+            summary = insights[:200] + "..." if len(insights) > 200 else insights
+            self._emit_event(stream_writer, "tool_completed", {
+                "message": f"Completed {self.name} analysis",
+                "duration_seconds": round(elapsed, 2),
+                "insights_size": len(insights),
+                "summary": summary,
+            })
+
+            return insights
+
+        except (MissingToolDataError, InvalidFormatError):
+            # Re-raise validation errors without wrapping
+            raise
+
+        except Exception as e:
+            elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+            self.logger.error(
+                f"Async tool execution failed after {elapsed:.2f}s: {e}",
+                exc_info=True
+            )
+            self._emit_event(stream_writer, "error", {
+                "message": f"Async tool execution failed: {e}",
                 "stage": "execution",
                 "duration_seconds": round(elapsed, 2),
             })

@@ -27,7 +27,7 @@ Architecture (after refactoring):
 import pytest
 from pathlib import Path
 from typing import List
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from alerts.agents.insider_trading.agent import InsiderTradingAnalyzerAgent
 from alerts.agents.wash_trade.agent import WashTradeAnalyzerAgent
@@ -248,13 +248,15 @@ class TestInsiderTradingAgentStreaming:
     ):
         """Test that tool events (tool_started, tool_completed) are yielded during streaming."""
         # Mock tool execute methods to avoid LLM calls within tools
+        # Note: read_alert uses sync execute(), but parallel tools use async aexecute()
         with patch("alerts.tools.common.alert_reader.AlertReaderTool.execute") as mock_alert, \
-             patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.execute") as mock_news, \
-             patch("alerts.tools.common.market_data.MarketDataTool.execute") as mock_market, \
-             patch("alerts.tools.common.trader_profile.TraderProfileTool.execute") as mock_profile, \
-             patch("alerts.agents.insider_trading.tools.trader_history.TraderHistoryTool.execute") as mock_history:
+             patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.aexecute") as mock_news, \
+             patch("alerts.tools.common.market_data.MarketDataTool.aexecute") as mock_market, \
+             patch("alerts.tools.common.trader_profile.TraderProfileTool.aexecute") as mock_profile, \
+             patch("alerts.agents.insider_trading.tools.trader_history.TraderHistoryTool.aexecute") as mock_history:
 
             # Set up tool returns
+            # read_alert uses sync execute(), parallel tools use async aexecute()
             mock_alert.return_value = "Alert parsed: TEST-001"
             mock_news.return_value = "No news before announcement"
             mock_market.return_value = "Market stable"
@@ -290,11 +292,12 @@ class TestInsiderTradingAgentStreaming:
         test_data_dir: Path,
     ):
         """Test that all tools in TOOL_ORDER emit events."""
+        # Note: read_alert uses sync execute(), parallel tools use async aexecute()
         with patch("alerts.tools.common.alert_reader.AlertReaderTool.execute") as mock_alert, \
-             patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.execute") as mock_news, \
-             patch("alerts.tools.common.market_data.MarketDataTool.execute") as mock_market, \
-             patch("alerts.tools.common.trader_profile.TraderProfileTool.execute") as mock_profile, \
-             patch("alerts.agents.insider_trading.tools.trader_history.TraderHistoryTool.execute") as mock_history:
+             patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.aexecute") as mock_news, \
+             patch("alerts.tools.common.market_data.MarketDataTool.aexecute") as mock_market, \
+             patch("alerts.tools.common.trader_profile.TraderProfileTool.aexecute") as mock_profile, \
+             patch("alerts.agents.insider_trading.tools.trader_history.TraderHistoryTool.aexecute") as mock_history:
 
             # Set up tool returns
             mock_alert.return_value = "Alert parsed"
@@ -404,11 +407,12 @@ class TestEventOrdering:
         test_data_dir: Path,
     ):
         """Test that events flow in the correct sequence."""
+        # Note: read_alert uses sync execute(), parallel tools use async aexecute()
         with patch("alerts.tools.common.alert_reader.AlertReaderTool.execute") as mock_alert, \
-             patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.execute") as mock_news, \
-             patch("alerts.tools.common.market_data.MarketDataTool.execute") as mock_market, \
-             patch("alerts.tools.common.trader_profile.TraderProfileTool.execute") as mock_profile, \
-             patch("alerts.agents.insider_trading.tools.trader_history.TraderHistoryTool.execute") as mock_history:
+             patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.aexecute") as mock_news, \
+             patch("alerts.tools.common.market_data.MarketDataTool.aexecute") as mock_market, \
+             patch("alerts.tools.common.trader_profile.TraderProfileTool.aexecute") as mock_profile, \
+             patch("alerts.agents.insider_trading.tools.trader_history.TraderHistoryTool.aexecute") as mock_history:
 
             mock_alert.return_value = "Alert data"
             mock_news.return_value = "News data"
@@ -454,12 +458,17 @@ class TestEventOrdering:
         tmp_path: Path,
         test_data_dir: Path,
     ):
-        """Test that tools are executed in the order defined by TOOL_ORDER."""
+        """Test that tools are executed in the order defined by TOOL_ORDER.
+
+        Note: With parallel execution, tool_started events are emitted in TOOL_ORDER
+        before execution, but tool_completed events may arrive in any order.
+        """
+        # Note: read_alert uses sync execute(), parallel tools use async aexecute()
         with patch("alerts.tools.common.alert_reader.AlertReaderTool.execute") as mock_alert, \
-             patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.execute") as mock_news, \
-             patch("alerts.tools.common.market_data.MarketDataTool.execute") as mock_market, \
-             patch("alerts.tools.common.trader_profile.TraderProfileTool.execute") as mock_profile, \
-             patch("alerts.agents.insider_trading.tools.trader_history.TraderHistoryTool.execute") as mock_history:
+             patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.aexecute") as mock_news, \
+             patch("alerts.tools.common.market_data.MarketDataTool.aexecute") as mock_market, \
+             patch("alerts.tools.common.trader_profile.TraderProfileTool.aexecute") as mock_profile, \
+             patch("alerts.agents.insider_trading.tools.trader_history.TraderHistoryTool.aexecute") as mock_history:
 
             mock_alert.return_value = "Alert data"
             mock_news.return_value = "News data"
