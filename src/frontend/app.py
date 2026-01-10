@@ -266,7 +266,11 @@ async def stream_events(task_id: str, request: Request):
         )
 
     async def event_generator():
-        """Generate SSE events by proxying from orchestrator using AnalysisRequest."""
+        """Generate SSE events by proxying from orchestrator's streaming endpoint.
+
+        This uses the new /api/analyze/stream endpoint for real-time progress updates,
+        implementing true SSE streaming instead of fake simulated events.
+        """
         event_count = 0
         last_keepalive = asyncio.get_event_loop().time()
         keepalive_interval = 25  # seconds
@@ -281,95 +285,81 @@ async def stream_events(task_id: str, request: Request):
                 f"agent_type: {analysis_request.get('agent_type')}"
             )
 
-            # Connect to orchestrator's new /api/analyze endpoint
-            async with httpx.AsyncClient(timeout=600.0) as client:
-                logger.info(f"Connecting to orchestrator: {ORCHESTRATOR_URL}/api/analyze")
+            # Connect to orchestrator's streaming endpoint for real-time events
+            stream_url = f"{ORCHESTRATOR_URL}/api/analyze/stream"
+            async with httpx.AsyncClient(timeout=httpx.Timeout(600.0)) as client:
+                logger.info(f"Connecting to orchestrator stream: {stream_url}")
 
-                # Send request to orchestrator (non-streaming for now)
-                # In future, this could use a streaming endpoint
-                response = await client.post(
-                    f"{ORCHESTRATOR_URL}/api/analyze",
+                async with client.stream(
+                    "POST",
+                    stream_url,
                     json=analysis_request,
-                    headers={"Content-Type": "application/json"},
-                )
-
-                if response.status_code != 200:
-                    logger.error(f"Orchestrator analyze failed: {response.status_code}")
-                    yield {
-                        "data": json.dumps({
-                            "event_type": "error",
-                            "message": f"Orchestrator returned status {response.status_code}",
-                        }),
-                        "event": "error",
-                    }
-                    return
-
-                # Parse result
-                result = response.json()
-                logger.info(f"Received result from orchestrator for task {task_id}")
-
-                # Emit progress events (simulated for now since we don't have streaming)
-                yield {
-                    "data": json.dumps({
-                        "event_type": "analysis_started",
-                        "message": "Analysis started",
-                        "agent_type": analysis_request.get("agent_type"),
-                    }),
-                    "event": "analysis_started",
-                    "id": str(uuid4()),
-                }
-
-                # Check if agent returned an error
-                agent_response = result.get("agent_response", {})
-                if agent_response.get("status") == "error":
-                    yield {
-                        "data": json.dumps({
-                            "event_type": "error",
-                            "message": agent_response.get("error", "Unknown error"),
-                        }),
-                        "event": "error",
-                    }
-                    task_manager.update_task(
-                        task_id=task_id,
-                        status="error",
-                        error=agent_response.get("error"),
-                    )
-                    return
-
-                # Extract decision from response
-                decision = agent_response.get("response", {})
-
-                # Emit completion event
-                yield {
-                    "data": json.dumps({
-                        "result": {
-                            "taskStatusUpdateEvent": {"final": True},
-                            "metadata": {
-                                "event_type": "analysis_complete",
-                                "payload": {
-                                    "decision": decision,
-                                    "determination": decision.get("determination"),
-                                    "confidence": decision.get("genuine_alert_confidence"),
-                                }
-                            }
+                    headers={"Accept": "text/event-stream"},
+                ) as response:
+                    if response.status_code != 200:
+                        logger.error(f"Orchestrator stream failed: {response.status_code}")
+                        yield {
+                            "data": json.dumps({
+                                "event_type": "error",
+                                "message": f"Orchestrator returned status {response.status_code}",
+                            }),
+                            "event": "error",
                         }
-                    }),
-                    "event": "analysis_complete",
-                    "id": str(uuid4()),
-                }
+                        return
 
-                # Update task with decision
-                alert_type = decision.get("alert_type", result.get("agent_type", "unknown"))
-                alert_id = decision.get("alert_id", task_id[:8])
+                    # Parse and forward SSE events from orchestrator
+                    async for line in response.aiter_lines():
+                        # Check client disconnect
+                        if await request.is_disconnected():
+                            logger.info(f"Client disconnected for task {task_id}")
+                            break
 
-                task_manager.update_task(
-                    task_id=task_id,
-                    status="complete",
-                    alert_id=alert_id,
-                    alert_type=alert_type,
-                    decision=decision,
-                )
-                logger.info(f"Task {task_id} completed: {decision.get('determination')}")
+                        # Check for keepalive
+                        current_time = asyncio.get_event_loop().time()
+                        if current_time - last_keepalive > keepalive_interval:
+                            yield {
+                                "data": json.dumps({
+                                    "event_type": "keep_alive",
+                                    "message": "Processing...",
+                                }),
+                                "event": "keep_alive",
+                            }
+                            last_keepalive = current_time
+
+                        # Parse SSE line
+                        if line.startswith("data:"):
+                            data_str = line[5:].strip()
+                            if data_str:
+                                try:
+                                    event_data = json.loads(data_str)
+                                    event_count += 1
+
+                                    # Extract event type from metadata
+                                    metadata = event_data.get("result", {}).get("metadata", {})
+                                    event_type = metadata.get("event_type", "update")
+                                    event_id = metadata.get("event_id", str(uuid4()))
+
+                                    # Forward the event to browser
+                                    yield {
+                                        "data": data_str,
+                                        "event": event_type,
+                                        "id": event_id,
+                                        "retry": 5000,
+                                    }
+
+                                    # Check for final event and update task
+                                    task_status = event_data.get("result", {}).get("taskStatusUpdateEvent", {})
+                                    if task_status.get("final", False):
+                                        logger.info(f"Final event received for task {task_id}")
+
+                                        # Extract decision from final event and update task
+                                        await _handle_streaming_final_event(
+                                            task_id, event_data, analysis_request.get("agent_type")
+                                        )
+                                        break
+
+                                except json.JSONDecodeError:
+                                    logger.warning(f"Invalid JSON in SSE line: {data_str[:100]}")
 
         except httpx.ConnectError as e:
             logger.error(f"Failed to connect to orchestrator: {e}")
@@ -624,6 +614,74 @@ async def _handle_final_event(task_id: str, event_data: Dict, temp_file_path: Pa
                 logger.info(f"Cleaned up temp file: {temp_file_path}")
             except Exception as e:
                 logger.warning(f"Failed to cleanup temp file: {e}")
+
+
+async def _handle_streaming_final_event(
+    task_id: str, event_data: Dict, agent_type: str | None
+) -> None:
+    """Handle the final event from streaming and update task status.
+
+    Extracts the complete decision from the streaming response and updates
+    the task manager. Used by the new /api/analyze/stream flow.
+
+    Args:
+        task_id: Task ID
+        event_data: Final event data from SSE stream
+        agent_type: Type of agent (insider_trading or wash_trade)
+    """
+    logger.info(f"Handling streaming final event for task {task_id}")
+    logger.info(f"Final event keys: {event_data.keys() if event_data else 'None'}")
+
+    try:
+        # Extract from nested A2A response structure
+        result = event_data.get("result", {})
+        metadata = result.get("metadata", {})
+        payload = metadata.get("payload", {})
+
+        logger.info(f"Payload keys: {payload.keys() if payload else 'None'}")
+
+        # Extract full decision from payload
+        decision = payload.get("decision")
+
+        if not decision:
+            # Try alternative structure (direct decision in payload)
+            decision = payload
+            logger.info("Using payload as decision directly")
+
+        if not decision or "determination" not in decision:
+            logger.error(f"Missing decision in final event. Payload: {payload}")
+            task_manager.update_task(
+                task_id=task_id,
+                status="error",
+                error="Missing decision in final event",
+            )
+            return
+
+        logger.info(f"Found decision: {decision.get('determination')}")
+
+        # Extract alert info from decision
+        alert_type_from_decision = decision.get("alert_type", agent_type or "unknown")
+        alert_id = decision.get("alert_id", task_id[:8])
+
+        logger.info(f"Extracted - alert_type: {alert_type_from_decision}, alert_id: {alert_id}")
+
+        # Update task with full decision
+        task_manager.update_task(
+            task_id=task_id,
+            status="complete",
+            alert_id=alert_id,
+            alert_type=alert_type_from_decision.lower() if alert_type_from_decision else "unknown",
+            decision=decision,
+        )
+        logger.info(f"Task {task_id} completed: {decision['determination']}")
+
+    except Exception as e:
+        logger.error(f"Error handling streaming final event: {e}", exc_info=True)
+        task_manager.update_task(
+            task_id=task_id,
+            status="error",
+            error=f"Failed to process final event: {e}",
+        )
 
 
 @app.get("/api/download/{task_id}/json")

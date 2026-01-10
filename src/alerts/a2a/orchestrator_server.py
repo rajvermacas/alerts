@@ -20,6 +20,7 @@ import uuid
 from pathlib import Path
 
 import click
+import httpx
 import uvicorn
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -277,6 +278,228 @@ async def api_analyze_endpoint(request: Request):
         )
 
 
+async def api_analyze_stream_endpoint(request: Request):
+    """Handle POST /api/analyze/stream for streaming proactive analysis.
+
+    This endpoint accepts an AnalysisRequest JSON body and streams
+    real-time progress events by proxying SSE from the specialized agent.
+
+    Request body should be AnalysisRequest JSON:
+    {
+        "alert_xml": "<Alert>...</Alert>",
+        "agent_type": "insider_trading" | "wash_trade",
+        "tool_data": {
+            "alert_reader": {"format": "xml", "data": "..."},
+            "market_data": {"format": "csv", "data": "..."},
+            ...
+        }
+    }
+
+    Returns SSE stream with events:
+        - analysis_started (orchestrator)
+        - routing (orchestrator)
+        - tool_started (agent)
+        - tool_completed (agent)
+        - evaluation_started (agent)
+        - analysis_complete (agent)
+        - error (if failure)
+    """
+    global _executor
+
+    if _executor is None:
+        logger.error("Executor not initialized for streaming")
+        return EventSourceResponse(
+            _error_generator("Orchestrator executor not initialized"),
+            media_type="text/event-stream",
+        )
+
+    try:
+        body = await request.json()
+    except Exception as e:
+        logger.error(f"Invalid JSON in streaming request: {e}")
+        return EventSourceResponse(
+            _error_generator(f"Invalid JSON: {e}"),
+            media_type="text/event-stream",
+        )
+
+    # Validate request using Pydantic
+    try:
+        analysis_request = AnalysisRequest(**body)
+    except ValidationError as e:
+        logger.error(f"Request validation failed for streaming: {e}")
+        return EventSourceResponse(
+            _error_generator(f"Validation error: {e}"),
+            media_type="text/event-stream",
+        )
+
+    task_id = str(uuid.uuid4())
+    logger.info(f"Starting streaming orchestration for task {task_id}")
+    logger.info(f"Agent type: {analysis_request.agent_type}")
+
+    async def event_generator():
+        """Generate SSE events by proxying from specialized agent."""
+        try:
+            # Emit orchestrator-level events first
+            yield _create_sse_event(task_id, "analysis_started", {
+                "message": "Analysis started",
+                "agent_type": analysis_request.agent_type,
+            })
+
+            yield _create_sse_event(task_id, "routing", {
+                "message": f"Routing to {analysis_request.agent_type} agent",
+                "agent_type": analysis_request.agent_type,
+            })
+
+            # Determine target agent URL
+            if analysis_request.agent_type == "insider_trading":
+                target_url = _executor.orchestrator.insider_trading_agent_url
+            elif analysis_request.agent_type == "wash_trade":
+                target_url = _executor.orchestrator.wash_trade_agent_url
+            else:
+                yield _create_sse_error_event(
+                    task_id,
+                    f"Unknown agent type: {analysis_request.agent_type}"
+                )
+                return
+
+            stream_url = f"{target_url}/api/analyze/stream"
+            logger.info(f"Connecting to agent stream: {stream_url}")
+
+            # Proxy events from specialized agent
+            async with httpx.AsyncClient(timeout=httpx.Timeout(600.0)) as client:
+                async with client.stream(
+                    "POST",
+                    stream_url,
+                    json=analysis_request.model_dump(mode="json"),
+                    headers={"Accept": "text/event-stream"},
+                ) as response:
+                    if response.status_code != 200:
+                        logger.error(f"Agent stream failed: {response.status_code}")
+                        yield _create_sse_error_event(
+                            task_id,
+                            f"Agent returned status {response.status_code}"
+                        )
+                        return
+
+                    # Parse and forward SSE events from agent
+                    async for line in response.aiter_lines():
+                        if await request.is_disconnected():
+                            logger.info(f"Client disconnected for task {task_id}")
+                            break
+
+                        if line.startswith("data:"):
+                            data_str = line[5:].strip()
+                            if data_str:
+                                try:
+                                    event_data = json.loads(data_str)
+
+                                    # Add orchestrator metadata
+                                    if "result" in event_data:
+                                        if "metadata" in event_data.get("result", {}):
+                                            event_data["result"]["metadata"]["orchestrated"] = True
+
+                                    # Extract event type for SSE
+                                    metadata = event_data.get("result", {}).get("metadata", {})
+                                    event_type = metadata.get("event_type", "update")
+                                    event_id = metadata.get("event_id", str(uuid.uuid4()))
+
+                                    yield {
+                                        "data": json.dumps(event_data),
+                                        "event": event_type,
+                                        "id": event_id,
+                                        "retry": 5000,
+                                    }
+
+                                    # Check for final event
+                                    task_status = event_data.get("result", {}).get("taskStatusUpdateEvent", {})
+                                    if task_status.get("final", False):
+                                        logger.info(f"Final event received for task {task_id}")
+                                        return
+
+                                except json.JSONDecodeError:
+                                    logger.warning(f"Invalid JSON in agent SSE: {data_str[:100]}")
+
+        except httpx.ConnectError as e:
+            logger.error(f"Failed to connect to agent: {e}")
+            yield _create_sse_error_event(task_id, f"Agent connection failed: {e}")
+
+        except asyncio.CancelledError:
+            logger.info(f"Stream cancelled for task {task_id}")
+
+        except Exception as e:
+            logger.error(f"Stream error for task {task_id}: {e}", exc_info=True)
+            yield _create_sse_error_event(task_id, str(e))
+
+    return EventSourceResponse(
+        event_generator(),
+        media_type="text/event-stream",
+    )
+
+
+def _create_sse_event(task_id: str, event_type: str, payload: dict) -> dict:
+    """Create an SSE event in A2A format.
+
+    Args:
+        task_id: Task ID for event correlation
+        event_type: Type of event (analysis_started, routing, etc.)
+        payload: Event-specific payload data
+
+    Returns:
+        Dict formatted for SSE response
+    """
+    return {
+        "data": json.dumps({
+            "jsonrpc": "2.0",
+            "result": {
+                "task": {"id": task_id, "state": "working"},
+                "taskStatusUpdateEvent": {
+                    "task": {"id": task_id, "state": "working"},
+                    "final": False,
+                },
+                "metadata": {
+                    "event_id": str(uuid.uuid4()),
+                    "event_type": event_type,
+                    "agent": "orchestrator",
+                    "payload": payload,
+                },
+            },
+        }),
+        "event": event_type,
+        "id": str(uuid.uuid4()),
+        "retry": 5000,
+    }
+
+
+def _create_sse_error_event(task_id: str, message: str) -> dict:
+    """Create an SSE error event.
+
+    Args:
+        task_id: Task ID for event correlation
+        message: Error message
+
+    Returns:
+        Dict formatted for SSE error response
+    """
+    return {
+        "data": json.dumps({
+            "jsonrpc": "2.0",
+            "result": {
+                "task": {"id": task_id, "state": "failed"},
+                "taskStatusUpdateEvent": {
+                    "task": {"id": task_id, "state": "failed"},
+                    "final": True,
+                },
+                "metadata": {
+                    "event_type": "error",
+                    "payload": {"message": message},
+                },
+            },
+        }),
+        "event": "error",
+        "id": str(uuid.uuid4()),
+    }
+
+
 @click.command()
 @click.option("--host", default="localhost", help="Host to bind to")
 @click.option("--port", default=10000, help="Port to bind to")
@@ -367,17 +590,24 @@ def main(host: str, port: int, insider_trading_url: str, wash_trade_url: str, ve
 
         # Build the app and add custom routes
         app = server.build()
+        # Add the streaming endpoint (legacy file-based)
         app.routes.append(
             Route("/message/stream", message_stream_endpoint, methods=["POST"])
         )
+        # Add the analyze endpoint for proactive information flow (non-streaming)
         app.routes.append(
             Route("/api/analyze", api_analyze_endpoint, methods=["POST"])
+        )
+        # Add the streaming analyze endpoint for proactive information flow (SSE)
+        app.routes.append(
+            Route("/api/analyze/stream", api_analyze_stream_endpoint, methods=["POST"])
         )
 
         logger.info(f"Server starting at http://{host}:{port}")
         logger.info(f"Agent card available at http://{host}:{port}/.well-known/agent.json")
         logger.info(f"Streaming endpoint: POST http://{host}:{port}/message/stream")
         logger.info(f"Analyze endpoint: POST http://{host}:{port}/api/analyze")
+        logger.info(f"Analyze stream endpoint: POST http://{host}:{port}/api/analyze/stream")
 
         # Run server
         uvicorn.run(app, host=host, port=port)

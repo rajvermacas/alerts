@@ -172,6 +172,121 @@ async def _error_generator(error_message: str):
     }
 
 
+async def api_analyze_stream_endpoint(request: Request):
+    """Handle POST /api/analyze/stream for streaming proactive analysis.
+
+    This endpoint accepts an AnalysisRequest JSON body and streams
+    real-time progress events as the analysis progresses using SSE.
+
+    Request body should be AnalysisRequest JSON:
+    {
+        "alert_xml": "<Alert>...</Alert>",
+        "agent_type": "insider_trading",
+        "tool_data": {
+            "alert_reader": {"format": "xml", "data": "..."},
+            "market_data": {"format": "csv", "data": "..."},
+            ...
+        }
+    }
+
+    Returns SSE stream with events:
+        - analysis_started
+        - tool_started
+        - tool_completed
+        - evaluation_started
+        - analysis_complete
+        - error (if failure)
+    """
+    global _executor
+
+    if _executor is None:
+        logger.error("Executor not initialized for streaming")
+        return EventSourceResponse(
+            _error_generator("Insider trading executor not initialized"),
+            media_type="text/event-stream",
+        )
+
+    try:
+        body = await request.json()
+    except Exception as e:
+        logger.error(f"Invalid JSON in streaming request: {e}")
+        return EventSourceResponse(
+            _error_generator(f"Invalid JSON: {e}"),
+            media_type="text/event-stream",
+        )
+
+    # Validate request using Pydantic
+    try:
+        analysis_request = AnalysisRequest(**body)
+    except ValidationError as e:
+        logger.error(f"Request validation failed for streaming: {e}")
+        return EventSourceResponse(
+            _error_generator(f"Validation error: {e}"),
+            media_type="text/event-stream",
+        )
+
+    task_id = str(uuid.uuid4())
+    logger.info(f"Starting streaming analysis for task {task_id}")
+    logger.info(f"Tool data keys: {list(analysis_request.tool_data.keys())}")
+
+    async def event_generator():
+        """Generate SSE events from agent streaming."""
+        try:
+            agent = _executor._get_agent()
+
+            async for event in agent.astream_analyze_request(analysis_request, task_id):
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    logger.info(f"Client disconnected for task {task_id}")
+                    break
+
+                # Convert StreamEvent to A2A format and yield as SSE
+                a2a_event = event.to_a2a_format(
+                    task_state="completed" if event.final else "working"
+                )
+
+                yield {
+                    "data": json.dumps(a2a_event),
+                    "event": event.event_type,
+                    "id": event.event_id,
+                    "retry": 5000,
+                }
+
+                if event.final:
+                    logger.info(f"Final event sent for task {task_id}")
+                    break
+
+                # Small delay to prevent overwhelming client
+                await asyncio.sleep(0.05)
+
+        except asyncio.CancelledError:
+            logger.info(f"Stream cancelled for task {task_id}")
+        except Exception as e:
+            logger.error(f"Stream error for task {task_id}: {e}", exc_info=True)
+            yield {
+                "data": json.dumps({
+                    "jsonrpc": "2.0",
+                    "result": {
+                        "task": {"id": task_id, "state": "failed"},
+                        "taskStatusUpdateEvent": {
+                            "task": {"id": task_id, "state": "failed"},
+                            "final": True,
+                        },
+                        "metadata": {
+                            "event_type": "error",
+                            "payload": {"message": str(e)},
+                        },
+                    },
+                }),
+                "event": "error",
+            }
+
+    return EventSourceResponse(
+        event_generator(),
+        media_type="text/event-stream",
+    )
+
+
 async def api_analyze_endpoint(request: Request):
     """Handle POST /api/analyze for proactive information flow pattern.
 
@@ -338,19 +453,24 @@ def main(host: str, port: int, verbose: bool) -> None:
         # Build the app and add streaming route
         app = server.build()
 
-        # Add the streaming endpoint
+        # Add the streaming endpoint (legacy file-based)
         app.routes.append(
             Route("/message/stream", message_stream_endpoint, methods=["POST"])
         )
-        # Add the analyze endpoint for proactive information flow
+        # Add the analyze endpoint for proactive information flow (non-streaming)
         app.routes.append(
             Route("/api/analyze", api_analyze_endpoint, methods=["POST"])
+        )
+        # Add the streaming analyze endpoint for proactive information flow (SSE)
+        app.routes.append(
+            Route("/api/analyze/stream", api_analyze_stream_endpoint, methods=["POST"])
         )
 
         logger.info(f"Server starting at http://{host}:{port}")
         logger.info(f"Agent card available at http://{host}:{port}/.well-known/agent.json")
         logger.info(f"Streaming endpoint: POST http://{host}:{port}/message/stream")
         logger.info(f"Analyze endpoint: POST http://{host}:{port}/api/analyze")
+        logger.info(f"Analyze stream endpoint: POST http://{host}:{port}/api/analyze/stream")
 
         # Run server
         uvicorn.run(app, host=host, port=port)
