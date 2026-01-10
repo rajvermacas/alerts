@@ -73,7 +73,7 @@ User/Browser
     ↓ (XML alert)
 Orchestrator (Port 10000) ← detects alert type
     ↓
-    ├→ Insider Trading Agent (10001) → 6 tools (3 common + 3 IT-specific)
+    ├→ Insider Trading Agent (10001) → 5 tools (3 common + 2 IT-specific)
     └→ Wash Trade Agent (10002) → 7 tools (3 common + 4 WT-specific)
     ↓
 Decision (JSON + HTML)
@@ -95,7 +95,6 @@ Each tool = Data Source → **LLM Interpretation** → Insights (not raw data)
 **IT-Specific Tools**:
 4. `trader_history` - CSV → baseline deviation
 5. `market_news` - TXT → public info timeline
-6. `peer_trades` - CSV → isolation vs consensus
 
 **WT-Specific Tools**:
 4. `account_relationships` - CSV → ownership network
@@ -161,10 +160,9 @@ src/alerts/agents/
 ├── insider_trading/
 │   ├── agent.py                # InsiderTradingAnalyzerAgent
 │   ├── prompts/system_prompt.py # System prompt + few-shot loader
-│   └── tools/                  # 3 IT-specific tools
+│   └── tools/                  # 2 IT-specific tools
 │       ├── trader_history.py
-│       ├── market_news.py
-│       └── peer_trades.py
+│       └── market_news.py
 └── wash_trade/
     ├── agent.py                # WashTradeAnalyzerAgent
     ├── prompts/system_prompt.py
@@ -296,7 +294,7 @@ alerts-frontend --port 8080 --orchestrator-url http://remote:10000
 ### Data Sources (POC - local files)
 All tools read from `test_data/`:
 - Alert XMLs: `alerts/*.xml`, `alerts/wash_trade/*.xml`
-- CSVs: `trader_history.csv`, `trader_profiles.csv`, `market_data.csv`, `peer_trades.csv`, `wash_trade/*.csv`
+- CSVs: `trader_history.csv`, `trader_profiles.csv`, `market_data.csv`, `wash_trade/*.csv`
 - Text: `market_news.txt`
 - Few-shot: `few_shot_examples.json`, `wash_trade_few_shot_examples.json`
 
@@ -324,10 +322,11 @@ Add new precedent cases with detailed reasoning. Agent uses "case law" compariso
 
 **Common tool** (shared by all agents):
 1. Create: `tools/common/your_tool.py` inheriting `BaseTool`
-2. Implement: `_load_data()`, `_build_interpretation_prompt()`
-3. Export: `tools/common/__init__.py`
-4. Add to agents: Both `InsiderTradingAnalyzerAgent` and `WashTradeAnalyzerAgent._create_tool_instances()`
-5. Test: `tests/test_tools.py`
+2. Set: `expected_format` class attribute (csv, xml, txt)
+3. Implement: `_build_interpretation_prompt()` only
+4. Export: `tools/common/__init__.py`
+5. Add to agents: Both `InsiderTradingAnalyzerAgent` and `WashTradeAnalyzerAgent._create_tool_instances()`
+6. Test: `tests/test_tools.py`
 
 **Agent-specific tool**:
 1. Create: `agents/{it|wt}/tools/your_tool.py`
@@ -336,18 +335,25 @@ Add new precedent cases with detailed reasoning. Agent uses "case law" compariso
 4. Add to agent: `{IT|WT}AnalyzerAgent._create_tool_instances()`
 5. Test: `tests/test_tools.py`
 
-**Tool Contract**:
+**Tool Contract** (Proactive Information Flow):
 ```python
 class YourTool(BaseTool):
-    def _load_data(self, **kwargs) -> str:
-        # Read from data source
-        pass
+    # Declare expected data format
+    expected_format: str = "csv"  # or "xml", "txt"
+
+    def __init__(self, llm: Any, data_dir: Path) -> None:
+        super().__init__(
+            llm=llm,
+            name="your_tool_name",
+            description="Description for agent prompt"
+        )
 
     def _build_interpretation_prompt(self, raw_data: str, **kwargs) -> str:
-        # Craft LLM prompt
-        pass
+        # Craft LLM prompt - this is the ONLY method you need to implement
+        return f"Analyze this data: {raw_data}"
 
-    # BaseTool handles: load → LLM interpret → emit events → return insights
+    # BaseTool.execute() handles: validate → LLM interpret → emit events → return insights
+    # Data is INJECTED via execute(data=..., format=...) by Big Data Layer
 ```
 
 ### Add New Agent Type
@@ -406,7 +412,8 @@ After schema change:
 
 ### POC Data Sources
 All data from local files in `test_data/`. Production requires:
-- Replace file I/O with DB/API calls in `_load_data()`
+- Update Big Data Layer to fetch from DB/API instead of files
+- Tools receive data via `execute(data=..., format=...)` - no changes needed
 - Keep `_build_interpretation_prompt()` unchanged
 
 ### NEVER Modify

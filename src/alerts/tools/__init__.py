@@ -14,7 +14,7 @@ New code should import from specific packages.
 # Common tools (shared across agents)
 from alerts.tools.common import (
     BaseTool,
-    DataLoadingMixin,
+    StreamWriter,
     AlertReaderTool,
     TraderProfileTool,
     MarketDataTool,
@@ -25,12 +25,11 @@ from alerts.agents.insider_trading.tools import (
     TraderHistoryTool,
     MarketNewsTool,
 )
-# Note: PeerTradesTool removed - deprecated in proactive info flow architecture
 
 __all__ = [
     # Base classes
     "BaseTool",
-    "DataLoadingMixin",
+    "StreamWriter",
     # Common tools
     "AlertReaderTool",
     "TraderProfileTool",
@@ -38,5 +37,4 @@ __all__ = [
     # Insider trading specific (backward compatibility)
     "TraderHistoryTool",
     "MarketNewsTool",
-    # Note: PeerTradesTool removed - deprecated in proactive info flow architecture
 ]

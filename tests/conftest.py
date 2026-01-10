@@ -226,7 +226,6 @@ def temp_test_data(tmp_path: Path, sample_alert_xml: str,
     # Write empty market data files
     (data_dir / "market_news.txt").write_text("===== TEST News Timeline =====\n2024-03-15 - No news")
     (data_dir / "market_data.csv").write_text("symbol,date,open,high,low,close,volume,vix\nTEST,2024-03-15,100,102,99,101,1000000,18")
-    (data_dir / "peer_trades.csv").write_text("trader_id,date,symbol,side,qty,price,trader_type\nT101,2024-03-15,TEST,SELL,1000,100,INSTITUTIONAL")
 
     # Write few-shot examples
     (data_dir / "few_shot_examples.json").write_text(json.dumps(sample_few_shot_examples, indent=2))

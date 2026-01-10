@@ -1,28 +1,29 @@
 """Trader profile tool for SMARTS Alert Analyzer.
 
-This tool queries trader profile information to assess their role,
+This tool analyzes trader profile information to assess their role,
 access level, and any trading restrictions. This is a shared tool
 used by multiple agent types.
+
+Uses proactive information flow pattern where data is injected via execute().
 """
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from alerts.tools.common.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool
 
 logger = logging.getLogger(__name__)
 
 
-class TraderProfileTool(BaseTool, DataLoadingMixin):
-    """Tool to query and analyze trader profile information.
+class TraderProfileTool(BaseTool):
+    """Tool to analyze trader profile information.
 
-    This tool retrieves trader's role, department, access level,
-    and restrictions, using the LLM to assess their potential
-    access to material non-public information.
+    This tool receives trader profile data via execute() and uses the LLM
+    to assess their potential access to material non-public information.
 
-    Supports both legacy file-based loading (__call__) and
-    proactive data injection (execute) patterns.
+    Uses proactive information flow pattern where data is injected
+    from the Big Data Layer.
     """
 
     # Expected format for execute() method
@@ -49,46 +50,6 @@ class TraderProfileTool(BaseTool, DataLoadingMixin):
         self.profiles_file = data_dir / "trader_profiles.csv"
         self.logger.info(f"Trader profile tool initialized with file: {self.profiles_file}")
 
-    def _validate_input(self, **kwargs: Any) -> Optional[str]:
-        """Validate input parameters.
-
-        Args:
-            **kwargs: Must contain 'trader_id'
-
-        Returns:
-            Error message if invalid, None if valid
-        """
-        if not kwargs.get("trader_id"):
-            return "trader_id is required"
-
-        if not self.profiles_file.exists():
-            return f"Trader profiles file not found: {self.profiles_file}"
-
-        return None
-
-    def _load_data(self, **kwargs: Any) -> str:
-        """Load trader's profile data.
-
-        Args:
-            **kwargs: Must contain 'trader_id'
-
-        Returns:
-            Profile data for the trader
-        """
-        trader_id = kwargs["trader_id"]
-
-        self.logger.info(f"Loading profile for trader {trader_id}")
-
-        # Load full CSV
-        csv_content = self.load_csv_as_string(str(self.profiles_file))
-
-        # Filter for this trader
-        trader_data = self.filter_csv_by_column(csv_content, "trader_id", trader_id)
-
-        self.logger.debug(f"Profile data: {trader_data}")
-
-        return trader_data
-
     def _build_interpretation_prompt(self, raw_data: str, **kwargs: Any) -> str:
         """Build prompt for LLM to interpret trader's profile.
 
@@ -99,7 +60,7 @@ class TraderProfileTool(BaseTool, DataLoadingMixin):
         Returns:
             Interpretation prompt
         """
-        trader_id = kwargs["trader_id"]
+        trader_id = kwargs.get("trader_id", "unknown")
 
         return f"""You are a compliance analyst reviewing a trader's profile for insider trading investigation.
 

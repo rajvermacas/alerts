@@ -1,27 +1,29 @@
 """Market data tool for SMARTS Alert Analyzer.
 
-This tool queries market price and volume data to understand
+This tool analyzes market price and volume data to understand
 market conditions around the suspicious trade. This is a shared tool
 used by multiple agent types.
+
+Uses proactive information flow pattern where data is injected via execute().
 """
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from alerts.tools.common.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool
 
 logger = logging.getLogger(__name__)
 
 
-class MarketDataTool(BaseTool, DataLoadingMixin):
-    """Tool to query and analyze market data around a trade date.
+class MarketDataTool(BaseTool):
+    """Tool to analyze market data around a trade date.
 
-    This tool retrieves price, volume, and volatility data for a symbol
+    This tool receives price, volume, and volatility data via execute()
     and uses the LLM to interpret market conditions and price movements.
 
-    Supports both legacy file-based loading (__call__) and
-    proactive data injection (execute) patterns.
+    Uses proactive information flow pattern where data is injected
+    from the Big Data Layer.
     """
 
     # Expected format for execute() method
@@ -48,57 +50,6 @@ class MarketDataTool(BaseTool, DataLoadingMixin):
         self.market_data_file = data_dir / "market_data.csv"
         self.logger.info(f"Market data tool initialized with file: {self.market_data_file}")
 
-    def _validate_input(self, **kwargs: Any) -> Optional[str]:
-        """Validate input parameters.
-
-        Args:
-            **kwargs: Must contain 'symbol', 'start_date', 'end_date'
-
-        Returns:
-            Error message if invalid, None if valid
-        """
-        required = ["symbol", "start_date", "end_date"]
-        for field in required:
-            if not kwargs.get(field):
-                return f"{field} is required"
-
-        if not self.market_data_file.exists():
-            return f"Market data file not found: {self.market_data_file}"
-
-        return None
-
-    def _load_data(self, **kwargs: Any) -> str:
-        """Load market data for the symbol.
-
-        Args:
-            **kwargs: Must contain 'symbol', 'start_date', 'end_date'
-
-        Returns:
-            Filtered CSV content
-        """
-        symbol = kwargs["symbol"]
-        start_date = kwargs["start_date"]
-        end_date = kwargs["end_date"]
-
-        self.logger.info(
-            f"Loading market data for {symbol} from {start_date} to {end_date}"
-        )
-
-        # Load full CSV
-        csv_content = self.load_csv_as_string(str(self.market_data_file))
-
-        # Filter for this symbol
-        symbol_data = self.filter_csv_by_column(csv_content, "symbol", symbol)
-
-        # Filter by date range
-        filtered_data = self.filter_csv_by_date_range(
-            symbol_data, "date", start_date, end_date
-        )
-
-        self.logger.debug(f"Filtered to {filtered_data.count(chr(10))} rows")
-
-        return filtered_data
-
     def _build_interpretation_prompt(self, raw_data: str, **kwargs: Any) -> str:
         """Build prompt for LLM to interpret market data.
 
@@ -109,9 +60,9 @@ class MarketDataTool(BaseTool, DataLoadingMixin):
         Returns:
             Interpretation prompt
         """
-        symbol = kwargs["symbol"]
-        start_date = kwargs["start_date"]
-        end_date = kwargs["end_date"]
+        symbol = kwargs.get("symbol", "unknown")
+        start_date = kwargs.get("start_date", "unknown")
+        end_date = kwargs.get("end_date", "unknown")
 
         return f"""You are a compliance analyst reviewing market data for an insider trading investigation.
 

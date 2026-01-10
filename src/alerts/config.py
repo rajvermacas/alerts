@@ -146,11 +146,6 @@ class DataConfig:
         return self.data_dir / "market_data.csv"
 
     @property
-    def peer_trades_path(self) -> Path:
-        """Path to peer trades CSV file."""
-        return self.data_dir / "peer_trades.csv"
-
-    @property
     def few_shot_examples_path(self) -> Path:
         """Path to few-shot examples JSON file."""
         return self.data_dir / "few_shot_examples.json"

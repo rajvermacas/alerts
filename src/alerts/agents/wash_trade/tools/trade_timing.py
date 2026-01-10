@@ -2,34 +2,34 @@
 
 This tool analyzes temporal patterns of flagged trades to identify
 pre-arranged execution indicative of wash trading.
+
+Uses proactive information flow pattern where data is injected via execute().
 """
 
 import logging
-import os
 from datetime import datetime
 from typing import Any, Optional
 
-from alerts.tools.common.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool
 
 logger = logging.getLogger(__name__)
 
 
-class TradeTimingTool(BaseTool, DataLoadingMixin):
+class TradeTimingTool(BaseTool):
     """Tool to analyze temporal patterns of flagged trades.
 
-    This tool examines the timing of trades to determine if they appear
-    to be pre-arranged or coordinated, which is a key indicator of wash trading.
+    This tool receives timing data via execute() and uses the LLM to
+    determine if trades appear to be pre-arranged or coordinated,
+    which is a key indicator of wash trading.
 
-    The tool analyzes:
+    The analysis covers:
     - Time delta between trades (sub-second is highly suspicious)
     - Market phase (opening, regular session, closing, after-hours)
     - Liquidity assessment at the time of trades
     - Comparison to normal execution times for similar volumes
 
-    Supports both legacy file-based loading (__call__) and
-    proactive data injection (execute) patterns.
-
-    Data Source: Computed from alert data + test_data/market_data.csv for context
+    Uses proactive information flow pattern where data is injected
+    from the Big Data Layer.
     """
 
     # Expected format for execute() method
@@ -53,25 +53,7 @@ class TradeTimingTool(BaseTool, DataLoadingMixin):
             ),
         )
         self.data_dir = data_dir
-        self.market_data_path = os.path.join(data_dir, "market_data.csv")
         self.logger.info(f"TradeTimingTool initialized with data_dir: {data_dir}")
-
-    def _validate_input(self, **kwargs: Any) -> Optional[str]:
-        """Validate input parameters.
-
-        Args:
-            **kwargs: Must include 'trade1_timestamp' and 'trade2_timestamp',
-                     optionally 'symbol' and 'trade_quantity'
-
-        Returns:
-            Error message if invalid, None if valid
-        """
-        if "trade1_timestamp" not in kwargs:
-            return "trade1_timestamp is required"
-        if "trade2_timestamp" not in kwargs:
-            return "trade2_timestamp is required"
-
-        return None
 
     def _parse_timestamp(self, ts: str) -> Optional[datetime]:
         """Parse timestamp string to datetime.
@@ -178,81 +160,6 @@ class TradeTimingTool(BaseTool, DataLoadingMixin):
         else:
             return "very_low"
 
-    def _load_data(self, **kwargs: Any) -> str:
-        """Load timing data and market context.
-
-        Args:
-            **kwargs: Must include timestamps, optionally symbol
-
-        Returns:
-            Formatted timing analysis data
-        """
-        trade1_ts = kwargs.get("trade1_timestamp", "")
-        trade2_ts = kwargs.get("trade2_timestamp", "")
-        symbol = kwargs.get("symbol", "UNKNOWN")
-        quantity = kwargs.get("trade_quantity", "Unknown")
-
-        self.logger.info(f"Analyzing timing for trades: {trade1_ts} and {trade2_ts}")
-
-        # Calculate time delta
-        delta_ms = self._calculate_time_delta_ms(trade1_ts, trade2_ts)
-        delta_str = f"{delta_ms}ms" if delta_ms else "Unable to calculate"
-
-        # Determine market phases
-        phase1 = self._determine_market_phase(trade1_ts)
-        phase2 = self._determine_market_phase(trade2_ts)
-
-        # Assess liquidity
-        liquidity1 = self._assess_liquidity(trade1_ts)
-        liquidity2 = self._assess_liquidity(trade2_ts)
-
-        # Try to load market data for additional context
-        market_context = ""
-        try:
-            market_data = self.load_csv_as_string(self.market_data_path)
-            # Filter for the symbol if possible
-            lines = market_data.strip().split("\n")
-            relevant_lines = [lines[0]]  # Header
-            for line in lines[1:]:
-                if symbol in line:
-                    relevant_lines.append(line)
-            if len(relevant_lines) > 1:
-                market_context = "\n".join(relevant_lines[:10])  # Limit to 10 rows
-        except FileNotFoundError:
-            market_context = "Market data not available"
-
-        # Format output data
-        data = f"""## Timing Analysis Data
-
-### Trade Timestamps
-- Trade 1: {trade1_ts}
-- Trade 2: {trade2_ts}
-- Symbol: {symbol}
-- Quantity: {quantity}
-
-### Calculated Metrics
-- Time Delta: {delta_str}
-- Delta (readable): {self._format_delta_readable(delta_ms)}
-
-### Market Phase Analysis
-- Trade 1 Phase: {phase1}
-- Trade 2 Phase: {phase2}
-
-### Liquidity Assessment
-- Trade 1 Liquidity: {liquidity1}
-- Trade 2 Liquidity: {liquidity2}
-
-### Normal Execution Benchmarks
-- Normal execution for 1K-5K shares: 1-5 seconds
-- Normal execution for 5K-10K shares: 5-15 seconds
-- Normal execution for 10K+ shares: 15-60 seconds
-- Sub-second execution: Highly unusual, suggests pre-arrangement
-
-### Market Data Context
-{market_context if market_context else "Not available"}
-"""
-        return data
-
     def _format_delta_readable(self, delta_ms: Optional[int]) -> str:
         """Format time delta as readable string.
 
@@ -282,19 +189,24 @@ class TradeTimingTool(BaseTool, DataLoadingMixin):
 
         Args:
             raw_data: Timing analysis data
-            **kwargs: Trade parameters
+            **kwargs: Trade parameters (trade1_timestamp, trade2_timestamp, etc.)
 
         Returns:
             Prompt for LLM interpretation
         """
-        trade1_ts = kwargs.get("trade1_timestamp", "")
-        trade2_ts = kwargs.get("trade2_timestamp", "")
+        trade1_ts = kwargs.get("trade1_timestamp", "unknown")
+        trade2_ts = kwargs.get("trade2_timestamp", "unknown")
 
         prompt = f"""You are analyzing trade timing patterns for potential wash trade detection.
 
 ## Task
 Analyze the temporal patterns of two trades to determine if they appear pre-arranged.
 
+## Trade Timestamps
+- Trade 1: {trade1_ts}
+- Trade 2: {trade2_ts}
+
+## Timing Data
 {raw_data}
 
 ## Analysis Requirements
@@ -328,47 +240,3 @@ Provide a concise analysis (2-3 paragraphs) covering:
 Be specific about timestamps and calculated values."""
 
         return prompt
-
-
-def create_trade_timing_tool(llm: Any, data_dir: str) -> dict:
-    """Create LangChain-compatible tool for trade timing analysis.
-
-    Args:
-        llm: LangChain LLM instance
-        data_dir: Path to data directory
-
-    Returns:
-        Dictionary with tool function and metadata
-    """
-    tool = TradeTimingTool(llm, data_dir)
-
-    def trade_timing_func(
-        trade1_timestamp: str,
-        trade2_timestamp: str,
-        symbol: Optional[str] = None,
-        trade_quantity: Optional[str] = None
-    ) -> str:
-        """Analyze temporal patterns of flagged trades.
-
-        Args:
-            trade1_timestamp: Timestamp of first trade (e.g., "14:32:15.123")
-            trade2_timestamp: Timestamp of second trade (e.g., "14:32:15.625")
-            symbol: Optional trading symbol
-            trade_quantity: Optional quantity for execution time benchmarking
-
-        Returns:
-            Analysis of timing patterns and pre-arrangement probability
-        """
-        return tool(
-            trade1_timestamp=trade1_timestamp,
-            trade2_timestamp=trade2_timestamp,
-            symbol=symbol,
-            trade_quantity=trade_quantity
-        )
-
-    return {
-        "func": trade_timing_func,
-        "name": tool.name,
-        "description": tool.description,
-        "tool_instance": tool,
-    }

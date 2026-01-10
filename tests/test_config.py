@@ -168,7 +168,6 @@ class TestDataConfig:
         assert config.trader_profiles_path == tmp_path / "data" / "trader_profiles.csv"
         assert config.market_news_path == tmp_path / "data" / "market_news.txt"
         assert config.market_data_path == tmp_path / "data" / "market_data.csv"
-        assert config.peer_trades_path == tmp_path / "data" / "peer_trades.csv"
         assert config.few_shot_examples_path == tmp_path / "data" / "few_shot_examples.json"
         assert config.alerts_dir == tmp_path / "data" / "alerts"
 

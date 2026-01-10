@@ -20,7 +20,7 @@ The POC automates initial analysis of surveillance alerts by:
 - **Fully Agentic**: Pure LLM reasoning without deterministic scoring
 - **Multi-Agent Architecture**: Specialized agents for different alert types
 - **Real-Time Web UI**: Live execution DAG with SSE streaming progress
-- **10 Specialized Tools**: Each tool calls LLM internally for interpretation
+- **9 Specialized Tools**: Each tool calls LLM internally for interpretation
 - **Few-Shot Learning**: Examples stored in external JSON for easy tuning
 - **Professional Reports**: JSON + HTML (Tailwind CSS) with network visualizations
 - **Audit Trail**: All decisions logged for compliance tracking
@@ -146,7 +146,7 @@ Then open `http://localhost:8080` in your browser.
 ┌───────────────────────────┐   ┌───────────────────────────────┐
 │   Insider Trading Agent   │   │     Wash Trade Agent          │
 │      (Port 10001)         │   │       (Port 10002)            │
-│   6 tools (3 + 3)         │   │   7 tools (3 + 4)             │
+│   5 tools (3 + 2)         │   │   7 tools (3 + 4)             │
 └───────────────────────────┘   └───────────────────────────────┘
 ```
 
@@ -168,7 +168,6 @@ Then open `http://localhost:8080` in your browser.
 **Insider Trading Tools**:
 - `trader_history` - 1-year trade baseline
 - `market_news` - News timeline
-- `peer_trades` - Peer activity comparison
 
 **Wash Trade Tools**:
 - `account_relationships` - Ownership network

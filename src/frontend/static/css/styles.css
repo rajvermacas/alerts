@@ -364,11 +364,6 @@ input:focus {
     color: #065F46;
 }
 
-.tool-badge.peer-trades {
-    background-color: #EDE9FE;
-    color: #5B21B6;
-}
-
 .tool-badge.account-relationships {
     background-color: #FCE7F3;
     color: #9D174D;

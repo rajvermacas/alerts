@@ -1,28 +1,29 @@
 """Trader history tool for Insider Trading Analyzer.
 
-This tool queries and analyzes a trader's historical trading activity
+This tool analyzes a trader's historical trading activity
 to establish their baseline behavior. This is specific to insider trading
 analysis - wash trade uses RelatedAccountsHistory instead.
+
+Uses proactive information flow pattern where data is injected via execute().
 """
 
 import logging
-from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
-from alerts.tools.common.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool
 
 logger = logging.getLogger(__name__)
 
 
-class TraderHistoryTool(BaseTool, DataLoadingMixin):
-    """Tool to query and analyze trader's historical trading activity.
+class TraderHistoryTool(BaseTool):
+    """Tool to analyze trader's historical trading activity.
 
-    This tool retrieves a trader's past trades and uses the LLM to
+    This tool receives trading history data via execute() and uses the LLM to
     interpret their baseline behavior, comparing it to the flagged trade.
 
-    Supports both legacy file-based loading (__call__) and
-    proactive data injection (execute) patterns.
+    Uses proactive information flow pattern where data is injected
+    from the Big Data Layer.
     """
 
     # Expected format for execute() method
@@ -49,66 +50,6 @@ class TraderHistoryTool(BaseTool, DataLoadingMixin):
         self.history_file = data_dir / "trader_history.csv"
         self.logger.info(f"Trader history tool initialized with file: {self.history_file}")
 
-    def _validate_input(self, **kwargs: Any) -> Optional[str]:
-        """Validate input parameters.
-
-        Args:
-            **kwargs: Must contain 'trader_id', 'symbol', 'trade_date'
-
-        Returns:
-            Error message if invalid, None if valid
-        """
-        required = ["trader_id", "symbol", "trade_date"]
-        for field in required:
-            if not kwargs.get(field):
-                return f"{field} is required"
-
-        if not self.history_file.exists():
-            return f"Trader history file not found: {self.history_file}"
-
-        return None
-
-    def _load_data(self, **kwargs: Any) -> str:
-        """Load trader's historical trading data.
-
-        Args:
-            **kwargs: Must contain 'trader_id', 'symbol', 'trade_date'
-
-        Returns:
-            Filtered CSV content for the trader
-        """
-        trader_id = kwargs["trader_id"]
-        symbol = kwargs["symbol"]
-        trade_date = kwargs["trade_date"]
-
-        self.logger.info(
-            f"Loading history for trader {trader_id}, symbol {symbol}, trade date {trade_date}"
-        )
-
-        # Load full CSV
-        csv_content = self.load_csv_as_string(str(self.history_file))
-
-        # Filter for this trader
-        trader_data = self.filter_csv_by_column(csv_content, "trader_id", trader_id)
-
-        # Calculate date range (1 year lookback from trade date)
-        try:
-            trade_dt = datetime.strptime(trade_date, "%Y-%m-%d")
-            start_date = (trade_dt - timedelta(days=365)).strftime("%Y-%m-%d")
-            end_date = trade_date
-        except ValueError:
-            self.logger.warning(f"Invalid trade_date format: {trade_date}, using all data")
-            return trader_data
-
-        # Filter by date range
-        filtered_data = self.filter_csv_by_date_range(
-            trader_data, "date", start_date, end_date
-        )
-
-        self.logger.debug(f"Filtered to {filtered_data.count(chr(10))} rows")
-
-        return filtered_data
-
     def _build_interpretation_prompt(self, raw_data: str, **kwargs: Any) -> str:
         """Build prompt for LLM to interpret trader's baseline.
 
@@ -119,9 +60,9 @@ class TraderHistoryTool(BaseTool, DataLoadingMixin):
         Returns:
             Interpretation prompt
         """
-        trader_id = kwargs["trader_id"]
-        symbol = kwargs["symbol"]
-        trade_date = kwargs["trade_date"]
+        trader_id = kwargs.get("trader_id", "unknown")
+        symbol = kwargs.get("symbol", "unknown")
+        trade_date = kwargs.get("trade_date", "unknown")
 
         return f"""You are a compliance analyst establishing a trader's baseline behavior.
 

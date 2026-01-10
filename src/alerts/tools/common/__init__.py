@@ -5,14 +5,14 @@ This package contains tools that are shared across multiple agent types
 for agent-specific needs - create new tools in agent-specific packages instead.
 """
 
-from alerts.tools.common.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool, StreamWriter
 from alerts.tools.common.alert_reader import AlertReaderTool
 from alerts.tools.common.trader_profile import TraderProfileTool
 from alerts.tools.common.market_data import MarketDataTool
 
 __all__ = [
     "BaseTool",
-    "DataLoadingMixin",
+    "StreamWriter",
     "AlertReaderTool",
     "TraderProfileTool",
     "MarketDataTool",

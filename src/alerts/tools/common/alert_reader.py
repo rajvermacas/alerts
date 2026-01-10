@@ -1,28 +1,30 @@
 """Alert reader tool for SMARTS Alert Analyzer.
 
-This tool reads and parses alert XML files, extracting key information
+This tool parses alert XML content and uses LLM to extract key information
 for the agent to analyze. This is a shared tool used by all agent types.
+
+Uses proactive information flow pattern where data is injected via execute().
 """
 
 import logging
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-from alerts.tools.common.base import BaseTool, DataLoadingMixin
+from alerts.tools.common.base import BaseTool
 
 logger = logging.getLogger(__name__)
 
 
-class AlertReaderTool(BaseTool, DataLoadingMixin):
-    """Tool to read and summarize SMARTS alert XML files.
+class AlertReaderTool(BaseTool):
+    """Tool to read and summarize SMARTS alert XML content.
 
-    This tool reads the full XML content and uses the LLM to
+    This tool receives XML content via execute() and uses the LLM to
     extract and summarize the key alert information.
 
-    Supports both legacy file-based loading (__call__) and
-    proactive data injection (execute) patterns.
+    Uses proactive information flow pattern where data is injected
+    from the Big Data Layer.
     """
 
     # Expected format for execute() method
@@ -47,43 +49,6 @@ class AlertReaderTool(BaseTool, DataLoadingMixin):
         self.data_dir = data_dir
         self.alerts_dir = data_dir / "alerts"
         self.logger.info(f"Alert reader initialized with alerts dir: {self.alerts_dir}")
-
-    def _validate_input(self, **kwargs: Any) -> Optional[str]:
-        """Validate input parameters.
-
-        Args:
-            **kwargs: Must contain 'alert_file_path'
-
-        Returns:
-            Error message if invalid, None if valid
-        """
-        alert_file_path = kwargs.get("alert_file_path")
-
-        if not alert_file_path:
-            return "alert_file_path is required"
-
-        path = Path(alert_file_path)
-        if not path.exists():
-            return f"Alert file not found: {alert_file_path}"
-
-        if not path.suffix.lower() == ".xml":
-            return f"Alert file must be XML: {alert_file_path}"
-
-        return None
-
-    def _load_data(self, **kwargs: Any) -> str:
-        """Load alert XML file.
-
-        Args:
-            **kwargs: Must contain 'alert_file_path'
-
-        Returns:
-            XML content as string
-        """
-        alert_file_path = kwargs["alert_file_path"]
-        self.logger.info(f"Loading alert XML from: {alert_file_path}")
-
-        return self.load_xml_file(str(alert_file_path))
 
     def _build_interpretation_prompt(self, raw_data: str, **kwargs: Any) -> str:
         """Build prompt for LLM to interpret the alert XML.
