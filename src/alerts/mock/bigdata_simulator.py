@@ -4,27 +4,46 @@ This module simulates the production Big Data Layer for POC testing and
 contract validation. It reads from test_data/ and constructs AnalysisRequest
 objects exactly as the real Big Data Layer would.
 
+Architecture Change (AlertReaderTool Removal):
+    - alert_xml replaced with alert_context (structured AlertContext)
+    - XML parsing now happens here (Big Data Layer), not in agent
+    - Enables all tools to run in parallel from start
+    - See: .dev-resources/architecture/remove-alert-reader-tool.md
+
 Architecture:
     ┌─────────────────────────────────────────────────────────┐
     │                   BigDataSimulator                       │
-    │  Reads test_data/ files and assembles AnalysisRequest   │
+    │  1. Read alert XML file                                  │
+    │  2. Parse XML → AlertContext (structured)                │
+    │  3. Load tool data files                                 │
+    │  4. Assemble AnalysisRequest                             │
     └─────────────────────────────┬───────────────────────────┘
                                   │
                                   │ create_request(alert_file)
                                   ▼
     ┌─────────────────────────────────────────────────────────┐
     │                    AnalysisRequest                       │
-    │  - alert_xml: str                                        │
+    │  - alert_context: AlertContext (InsiderTrading | WT)     │
     │  - agent_type: "insider_trading" | "wash_trade"          │
-    │  - tool_data: Dict[str, ToolInput]                       │
+    │  - tool_data: Dict[str, ToolInput] (NO alert_reader)     │
     └─────────────────────────────────────────────────────────┘
 """
 
 import logging
-import os
+import xml.etree.ElementTree as ET
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
-from typing import Dict, Literal
+from typing import Dict, Literal, Union, cast
 
+from alerts.models.alert_context import (
+    InsiderTradingAlertContext,
+    RelatedEvent,
+    Trade,
+    Trader,
+    WashTradeAlertContext,
+    WashTradeFlaggedTrade,
+)
 from alerts.models.request import AnalysisRequest, ToolInput
 
 logger = logging.getLogger(__name__)
@@ -68,33 +87,43 @@ class BigDataSimulator:
     def create_request(self, alert_file: str) -> AnalysisRequest:
         """Create an AnalysisRequest from an alert file.
 
-        This method reads the alert XML, determines the alert type,
-        and loads all required tool data files.
+        This method reads the alert XML, parses it into structured AlertContext,
+        determines the alert type, and loads all required tool data files.
+
+        Architecture Change:
+            - XML is now parsed into AlertContext here (not in agent)
+            - alert_reader tool removed from tool_data
+            - Enables all tools to run in parallel
 
         Args:
             alert_file: Path to the alert XML file
 
         Returns:
-            AnalysisRequest with all required tool data
+            AnalysisRequest with alert_context and tool data
 
         Raises:
             FileNotFoundError: If alert file or required data files don't exist
+            ValueError: If XML parsing fails or required fields are missing
         """
         self.logger.info(f"Creating request from alert file: {alert_file}")
 
         # Read alert XML content
-        alert_xml = self._read_file(alert_file)
+        xml_content = self._read_file(alert_file)
 
-        # Determine alert type from XML content
-        agent_type = self._determine_agent_type(alert_xml)
-        self.logger.info(f"Determined agent type: {agent_type}")
+        # Parse XML into structured AlertContext
+        alert_context = self._parse_xml_to_context(xml_content)
+        agent_type = alert_context.context_type
+        self.logger.info(
+            f"Parsed alert context: alert_id={alert_context.alert_id}, "
+            f"agent_type={agent_type}"
+        )
 
-        # Load tool data for this agent type
-        tool_data = self._load_tool_data(agent_type, alert_xml)
+        # Load tool data for this agent type (NO alert_reader)
+        tool_data = self._load_tool_data(agent_type)
         self.logger.info(f"Loaded {len(tool_data)} tool data items")
 
         return AnalysisRequest(
-            alert_xml=alert_xml,
+            alert_context=alert_context,
             agent_type=agent_type,
             tool_data=tool_data,
         )
@@ -108,24 +137,36 @@ class BigDataSimulator:
         This method is used when the frontend uploads an XML file directly,
         rather than passing a file path.
 
+        Architecture Change:
+            - XML is now parsed into AlertContext here (not in agent)
+            - alert_reader tool removed from tool_data
+            - Enables all tools to run in parallel
+
         Args:
             xml_content: Raw XML content of the alert
 
         Returns:
-            AnalysisRequest with all required tool data
+            AnalysisRequest with alert_context and tool data
+
+        Raises:
+            ValueError: If XML parsing fails or required fields are missing
         """
         self.logger.info("Creating request from XML content")
 
-        # Determine alert type from content
-        agent_type = self._determine_agent_type(xml_content)
-        self.logger.info(f"Determined agent type: {agent_type}")
+        # Parse XML into structured AlertContext
+        alert_context = self._parse_xml_to_context(xml_content)
+        agent_type = alert_context.context_type
+        self.logger.info(
+            f"Parsed alert context: alert_id={alert_context.alert_id}, "
+            f"agent_type={agent_type}"
+        )
 
-        # Load tool data, using the provided XML for alert_reader
-        tool_data = self._load_tool_data(agent_type, xml_content)
+        # Load tool data for this agent type (NO alert_reader)
+        tool_data = self._load_tool_data(agent_type)
         self.logger.info(f"Loaded {len(tool_data)} tool data items")
 
         return AnalysisRequest(
-            alert_xml=xml_content,
+            alert_context=alert_context,
             agent_type=agent_type,
             tool_data=tool_data,
         )
@@ -173,25 +214,23 @@ class BigDataSimulator:
     def _load_tool_data(
         self,
         agent_type: Literal["insider_trading", "wash_trade"],
-        alert_xml: str,
     ) -> Dict[str, ToolInput]:
         """Load tool data files for the specified agent type.
 
+        Architecture Change:
+            - alert_reader REMOVED from tool data
+            - Alert context is now passed via alert_context field
+            - Enables all tools to run in parallel
+
         Args:
             agent_type: Type of agent ("insider_trading" or "wash_trade")
-            alert_xml: Alert XML content to include for alert_reader
 
         Returns:
             Dict mapping tool names to ToolInput objects
         """
         tool_data: Dict[str, ToolInput] = {}
 
-        # Alert reader always gets the XML content
-        tool_data["alert_reader"] = ToolInput(
-            format="xml",
-            data=alert_xml,
-        )
-
+        # NOTE: alert_reader removed - context is now in alert_context field
         if agent_type == "insider_trading":
             tool_data.update(self._load_insider_trading_data())
         elif agent_type == "wash_trade":
@@ -341,3 +380,299 @@ class BigDataSimulator:
 
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
+
+    # =========================================================================
+    # XML Parsing Methods (AlertReaderTool replacement)
+    # =========================================================================
+
+    def _parse_xml_to_context(
+        self,
+        xml_content: str,
+    ) -> Union[InsiderTradingAlertContext, WashTradeAlertContext]:
+        """Parse XML content into structured AlertContext.
+
+        This is pure XML→JSON transformation. NO analysis. NO computed fields.
+        Replaces AlertReaderTool's LLM-based parsing with deterministic extraction.
+
+        Architecture Reference:
+            .dev-resources/architecture/remove-alert-reader-tool.md
+            Section: AlertContext Schema
+
+        Args:
+            xml_content: Raw XML content of the alert
+
+        Returns:
+            Typed AlertContext (InsiderTradingAlertContext or WashTradeAlertContext)
+
+        Raises:
+            ValueError: If XML cannot be parsed or required fields are missing
+        """
+        self.logger.info("Parsing XML to AlertContext")
+
+        # Determine alert type first to pick the right parser
+        agent_type = self._determine_agent_type(xml_content)
+        self.logger.debug(f"Determined agent type for parsing: {agent_type}")
+
+        if agent_type == "insider_trading":
+            return self._parse_insider_trading_xml(xml_content)
+        else:
+            return self._parse_wash_trade_xml(xml_content)
+
+    def _parse_insider_trading_xml(
+        self,
+        xml_content: str,
+    ) -> InsiderTradingAlertContext:
+        """Parse IT alert XML into InsiderTradingAlertContext.
+
+        Expected XML structure:
+            <SMARTSAlert>
+                <AlertID>...</AlertID>
+                <AlertType>...</AlertType>
+                <RuleViolated>...</RuleViolated>
+                <GeneratedTimestamp>...</GeneratedTimestamp>
+                <Trader>...</Trader>
+                <SuspiciousActivity>...</SuspiciousActivity>
+                <RelatedEvent>...</RelatedEvent>  (optional)
+            </SMARTSAlert>
+
+        EXCLUDES: <AnomalyIndicators> (SMARTS pre-analysis, not raw data)
+
+        Args:
+            xml_content: Raw XML content
+
+        Returns:
+            InsiderTradingAlertContext with all parsed fields
+
+        Raises:
+            ValueError: If required fields are missing
+        """
+        self.logger.info("Parsing Insider Trading alert XML")
+
+        try:
+            root = ET.fromstring(xml_content)
+        except ET.ParseError as e:
+            self.logger.error(f"Failed to parse XML: {e}")
+            raise ValueError(f"Invalid XML content: {e}") from e
+
+        # Extract root-level fields
+        alert_id = self._get_text_required(root, "AlertID")
+        alert_type = self._get_text_required(root, "AlertType")
+        rule_violated = self._get_text_required(root, "RuleViolated")
+        generated_timestamp_str = self._get_text_required(root, "GeneratedTimestamp")
+
+        # Parse timestamp (handle Z suffix)
+        try:
+            generated_timestamp = datetime.fromisoformat(
+                generated_timestamp_str.replace("Z", "+00:00")
+            )
+        except ValueError as e:
+            self.logger.error(f"Invalid timestamp format: {generated_timestamp_str}")
+            raise ValueError(f"Invalid timestamp format: {generated_timestamp_str}") from e
+
+        # Extract Trader
+        trader_elem = root.find(".//Trader")
+        if trader_elem is None:
+            self.logger.error("Missing <Trader> element in IT alert XML")
+            raise ValueError("Missing <Trader> element in IT alert XML")
+
+        trader = Trader(
+            trader_id=self._get_text_required(trader_elem, "TraderID"),
+            name=self._get_text_required(trader_elem, "Name"),
+            department=self._get_text_required(trader_elem, "Department"),
+        )
+        self.logger.debug(f"Parsed trader: {trader.trader_id}")
+
+        # Extract SuspiciousActivity
+        activity_elem = root.find(".//SuspiciousActivity")
+        if activity_elem is None:
+            self.logger.error("Missing <SuspiciousActivity> element in IT alert XML")
+            raise ValueError("Missing <SuspiciousActivity> element in IT alert XML")
+
+        # Parse trade date
+        trade_date_str = self._get_text_required(activity_elem, "TradeDate")
+        trade_date_parsed = date.fromisoformat(trade_date_str)
+
+        # Parse side as literal type
+        side_str = self._get_text_required(activity_elem, "Side")
+        if side_str not in ("BUY", "SELL"):
+            raise ValueError(f"Invalid side value: {side_str}, expected BUY or SELL")
+        side: Literal["BUY", "SELL"] = cast(Literal["BUY", "SELL"], side_str)
+
+        trade = Trade(
+            symbol=self._get_text_required(activity_elem, "Symbol"),
+            trade_date=trade_date_parsed,
+            side=side,
+            quantity=int(self._get_text_required(activity_elem, "Quantity")),
+            price=Decimal(self._get_text_required(activity_elem, "Price")),
+            total_value=Decimal(self._get_text_required(activity_elem, "TotalValue")),
+        )
+        self.logger.debug(f"Parsed trade: {trade.symbol} {trade.side} {trade.quantity}")
+
+        # Extract RelatedEvent (optional)
+        related_event = None
+        event_elem = root.find(".//RelatedEvent")
+        if event_elem is not None:
+            event_date_str = self._get_text_required(event_elem, "EventDate")
+            event_date_parsed = date.fromisoformat(event_date_str)
+            related_event = RelatedEvent(
+                event_type=self._get_text_required(event_elem, "EventType"),
+                event_date=event_date_parsed,
+                description=self._get_text_required(event_elem, "EventDescription"),
+            )
+            self.logger.debug(f"Parsed related event: {related_event.event_type}")
+
+        context = InsiderTradingAlertContext(
+            alert_id=alert_id,
+            alert_type=alert_type,
+            rule_violated=rule_violated,
+            generated_timestamp=generated_timestamp,
+            trader=trader,
+            trade=trade,
+            related_event=related_event,
+        )
+        self.logger.info(
+            f"Successfully parsed IT alert context: {alert_id}, "
+            f"trader={trader.trader_id}, symbol={trade.symbol}"
+        )
+        return context
+
+    def _parse_wash_trade_xml(
+        self,
+        xml_content: str,
+    ) -> WashTradeAlertContext:
+        """Parse WT alert XML into WashTradeAlertContext.
+
+        Expected XML structure:
+            <SmartsAlert>
+                <AlertMetadata>
+                    <AlertID>...</AlertID>
+                    <AlertType>...</AlertType>
+                    <RuleViolated>...</RuleViolated>
+                    <GeneratedTimestamp>...</GeneratedTimestamp>
+                    <Severity>...</Severity>
+                </AlertMetadata>
+                <FlaggedTrades>
+                    <Trade sequence="1">...</Trade>
+                    <Trade sequence="2">...</Trade>
+                </FlaggedTrades>
+            </SmartsAlert>
+
+        EXCLUDES: <WashTradeIndicators>, <AnomalyScore>, <ConfidenceLevel>
+                  (SMARTS pre-analysis, not raw data)
+
+        Args:
+            xml_content: Raw XML content
+
+        Returns:
+            WashTradeAlertContext with all parsed fields
+
+        Raises:
+            ValueError: If required fields are missing or < 2 trades
+        """
+        self.logger.info("Parsing Wash Trade alert XML")
+
+        try:
+            root = ET.fromstring(xml_content)
+        except ET.ParseError as e:
+            self.logger.error(f"Failed to parse XML: {e}")
+            raise ValueError(f"Invalid XML content: {e}") from e
+
+        # Extract AlertMetadata
+        metadata = root.find(".//AlertMetadata")
+        if metadata is None:
+            self.logger.error("Missing <AlertMetadata> element in WT alert XML")
+            raise ValueError("Missing <AlertMetadata> element in WT alert XML")
+
+        alert_id = self._get_text_required(metadata, "AlertID")
+        alert_type = self._get_text_required(metadata, "AlertType")
+        rule_violated = self._get_text_required(metadata, "RuleViolated")
+        generated_timestamp_str = self._get_text_required(metadata, "GeneratedTimestamp")
+        severity = self._get_text_required(metadata, "Severity")
+
+        # Parse timestamp
+        try:
+            generated_timestamp = datetime.fromisoformat(
+                generated_timestamp_str.replace("Z", "+00:00")
+            )
+        except ValueError as e:
+            self.logger.error(f"Invalid timestamp format: {generated_timestamp_str}")
+            raise ValueError(f"Invalid timestamp format: {generated_timestamp_str}") from e
+
+        # Extract FlaggedTrades
+        trades_elem = root.find(".//FlaggedTrades")
+        if trades_elem is None:
+            self.logger.error("Missing <FlaggedTrades> element in WT alert XML")
+            raise ValueError("Missing <FlaggedTrades> element in WT alert XML")
+
+        flagged_trades = []
+        for trade_elem in trades_elem.findall("Trade"):
+            sequence_str = trade_elem.get("sequence", "0")
+            sequence = int(sequence_str) if sequence_str else 0
+
+            # Parse trade date
+            wt_trade_date_str = self._get_text_required(trade_elem, "TradeDate")
+            wt_trade_date = date.fromisoformat(wt_trade_date_str)
+
+            # Parse side as literal type
+            wt_side_str = self._get_text_required(trade_elem, "Side")
+            if wt_side_str not in ("BUY", "SELL"):
+                raise ValueError(f"Invalid side value: {wt_side_str}, expected BUY or SELL")
+            wt_side: Literal["BUY", "SELL"] = cast(Literal["BUY", "SELL"], wt_side_str)
+
+            flagged_trade = WashTradeFlaggedTrade(
+                sequence=sequence,
+                account_id=self._get_text_required(trade_elem, "AccountID"),
+                account_name=self._get_text_required(trade_elem, "AccountName"),
+                trade_date=wt_trade_date,
+                trade_time=self._get_text_required(trade_elem, "TradeTime"),
+                symbol=self._get_text_required(trade_elem, "Symbol"),
+                side=wt_side,
+                quantity=int(self._get_text_required(trade_elem, "Quantity")),
+                price=Decimal(self._get_text_required(trade_elem, "Price")),
+                total_value=Decimal(self._get_text_required(trade_elem, "TotalValue")),
+                counterparty_account=self._get_text_required(trade_elem, "CounterpartyAccount"),
+                order_id=self._get_text_required(trade_elem, "OrderID"),
+            )
+            flagged_trades.append(flagged_trade)
+            self.logger.debug(
+                f"Parsed flagged trade {sequence}: {flagged_trade.account_id} "
+                f"{flagged_trade.side} {flagged_trade.quantity}"
+            )
+
+        if len(flagged_trades) < 2:
+            self.logger.error(f"Wash trade requires at least 2 trades, found {len(flagged_trades)}")
+            raise ValueError(f"Wash trade requires at least 2 trades, found {len(flagged_trades)}")
+
+        context = WashTradeAlertContext(
+            alert_id=alert_id,
+            alert_type=alert_type,
+            rule_violated=rule_violated,
+            generated_timestamp=generated_timestamp,
+            severity=severity,
+            flagged_trades=flagged_trades,
+        )
+        self.logger.info(
+            f"Successfully parsed WT alert context: {alert_id}, "
+            f"severity={severity}, trades={len(flagged_trades)}"
+        )
+        return context
+
+    def _get_text_required(self, element: ET.Element, tag: str) -> str:
+        """Get required text from XML element.
+
+        Args:
+            element: Parent XML element
+            tag: Tag name to find
+
+        Returns:
+            Text content of the tag
+
+        Raises:
+            ValueError: If tag is missing or has no text
+        """
+        child = element.find(f".//{tag}")
+        if child is None:
+            raise ValueError(f"Missing required XML element: <{tag}>")
+        if child.text is None:
+            raise ValueError(f"Empty required XML element: <{tag}>")
+        return child.text.strip()
