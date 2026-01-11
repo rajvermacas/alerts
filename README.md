@@ -1,42 +1,30 @@
 # SMARTS Alert False Positive Analyzer
 
-An intelligent compliance filter that analyzes SMARTS surveillance alerts to reduce false positive rates before escalating to human compliance analysts. The system uses a fully agentic LLM-based approach with no hardcoded scoring weights.
-
-## Overview
-
-This system supports multiple alert types through a multi-agent architecture:
-- **Insider Trading Alerts**: Analyzes pre-announcement trading, MNPI-based trades
-- **Wash Trade Alerts**: Detects same beneficial ownership, pre-arranged execution, circular trade flows
-
-The POC automates initial analysis of surveillance alerts by:
-- Reading SMARTS alert XML files
-- Gathering evidence from multiple data sources using specialized tools
-- Using LLM interpretation at each step to extract insights
-- Applying "case law" reasoning by comparing to precedent examples
-- Producing structured decisions with detailed reasoning
+An intelligent compliance filter that uses multi-agent LLM architecture to analyze SMARTS surveillance alerts and reduce false positive rates. The system employs pure agentic reasoning without hardcoded scoring, enabling behavior tuning through examples rather than code changes.
 
 ## Features
 
-- **Fully Agentic**: Pure LLM reasoning without deterministic scoring
-- **Multi-Agent Architecture**: Specialized agents for different alert types
+- **Multi-Agent Architecture**: Specialized agents for Insider Trading and Wash Trade alerts
+- **Proactive Data Flow**: All data pre-aggregated and injected for efficient analysis
 - **Real-Time Web UI**: Live execution DAG with SSE streaming progress
-- **9 Specialized Tools**: Each tool calls LLM internally for interpretation
-- **Few-Shot Learning**: Examples stored in external JSON for easy tuning
-- **Professional Reports**: JSON + HTML (Tailwind CSS) with network visualizations
-- **Audit Trail**: All decisions logged for compliance tracking
+- **Parallel Tool Execution**: 9 specialized tools running concurrently
+- **Two-Tier LLM Interpretation**: Tools interpret data, agents reason over insights
+- **Few-Shot Learning**: Behavior tuning via external JSON examples (no code changes)
+- **Professional Reports**: JSON + HTML output with network visualizations
 - **APAC Regulatory Framework**: Supports MAS SFA, SFC SFO, ASIC, FSA FIEA
+- **Audit Trail**: Complete decision logging for compliance tracking
 
 ## Quick Start
 
 ### Prerequisites
 
 - Python 3.10+
-- OpenAI API key (or Azure OpenAI, OpenRouter, Google Gemini)
+- LLM API key (OpenAI, Azure OpenAI, OpenRouter, or Google Gemini)
 
 ### Installation
 
 ```bash
-# Clone the repository
+# Clone repository
 cd alerts
 
 # Create virtual environment
@@ -150,6 +138,19 @@ Then open `http://localhost:8080` in your browser.
 └───────────────────────────┘   └───────────────────────────────┘
 ```
 
+### Proactive Data Flow
+
+```
+BigDataSimulator → AnalysisRequest → Agent → Tools (parallel) → Decision
+    (POC mock)     (all data injected)
+```
+
+**Key Innovation**: Tools don't load data themselves. All data is pre-aggregated by the Big Data Layer and injected via `AnalysisRequest`. This enables:
+- Parallel tool execution
+- Clean separation of concerns
+- Easy production transition (replace simulator with DB/API client)
+- Tools remain unchanged regardless of data source
+
 ### Decision Outcomes
 
 | Determination | Condition | Action |
@@ -188,20 +189,23 @@ pytest --cov=alerts
 
 # Run specific test file
 pytest tests/test_tools.py -v
+
+# Run wash trade tests
+pytest -k "wash_trade" -v
 ```
 
 ## LLM Provider Support
 
 Switch between providers by setting `LLM_PROVIDER` in `.env`:
 
-**OpenAI**:
+### OpenAI
 ```bash
 LLM_PROVIDER=openai
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o
 ```
 
-**Azure OpenAI**:
+### Azure OpenAI
 ```bash
 LLM_PROVIDER=azure
 AZURE_OPENAI_API_KEY=...
@@ -210,14 +214,14 @@ AZURE_OPENAI_DEPLOYMENT=gpt-4o
 AZURE_OPENAI_API_VERSION=2024-02-15-preview
 ```
 
-**OpenRouter**:
+### OpenRouter
 ```bash
 LLM_PROVIDER=openrouter
 OPENROUTER_API_KEY=sk-or-...
 OPENROUTER_MODEL=openai/gpt-4o  # Or any model in catalog
 ```
 
-**Google Gemini**:
+### Google Gemini
 ```bash
 LLM_PROVIDER=gemini
 GOOGLE_API_KEY=...
@@ -240,10 +244,11 @@ Add new example scenarios with detailed reasoning. The agent compares current ca
 alerts/
 ├── src/alerts/              # Backend analysis engine
 │   ├── agents/              # IT and WT specialized agents
-│   ├── tools/               # Common tools + agent-specific tools
-│   ├── models/              # Pydantic output schemas
+│   ├── tools/common/        # Shared tools (BaseTool, alert_reader, etc.)
+│   ├── models/              # Pydantic output schemas + AnalysisRequest
 │   ├── reports/             # HTML/JSON report generators
-│   └── a2a/                 # A2A protocol servers
+│   ├── a2a/                 # A2A protocol servers (orchestrator + agents)
+│   └── mock/                # BigDataSimulator (POC)
 ├── src/frontend/            # FastAPI web UI
 │   ├── templates/           # HTML templates
 │   └── static/              # JavaScript, CSS
@@ -257,12 +262,13 @@ alerts/
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Agent framework | LangGraph | Battle-tested, good tool support |
+| Agent framework | LangGraph | Battle-tested, excellent tool support |
 | Architecture | Multi-agent with orchestrator | Specialized agents for different alert types |
 | Inter-agent protocol | A2A (Agent-to-Agent) | Google's standard for agent communication |
+| Data flow | Proactive (injected) | Enables parallel execution, clean separation |
 | Tool LLM calls | Each tool calls LLM | Better accuracy through focused interpretation |
 | Scoring approach | Pure LLM reasoning | Adaptable via few-shot examples |
-| Error handling | Fail-fast | Crash loudly for debugging |
+| Error handling | Fail-fast | Crash loudly for debugging (POC phase) |
 | LLM provider | Config-driven | Flexibility for enterprise deployment |
 
 ## Development
@@ -273,6 +279,7 @@ See `CLAUDE.md` for:
 - Directory index with file purposes
 - Integration points and configuration
 - Testing strategy
+- Key constraints and anti-patterns
 
 ## License
 
