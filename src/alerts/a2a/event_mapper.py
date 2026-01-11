@@ -120,6 +120,10 @@ class StreamEvent:
             elif self.event_type == "tool_progress":
                 stage = self.payload.get("stage", "processing")
                 message = f"Processing: {stage}"
+            elif self.event_type == "context_received":
+                alert_id = self.payload.get("alert_id", "unknown")
+                context_info = self.payload.get("context_info", "")
+                message = f"Alert context loaded: {alert_id}. {context_info}"
             elif self.event_type == "agent_thinking":
                 message = "Agent is analyzing the gathered evidence..."
             elif self.event_type == "analysis_complete":
@@ -335,6 +339,58 @@ class EventMapper:
             payload={
                 "message": f"Starting analysis of alert: {alert_file}",
                 "alert_file": alert_file,
+            },
+            final=False,
+        )
+
+    def create_context_received_event(
+        self,
+        alert_id: str,
+        trader_id: str = "",
+        symbol: str = "",
+        account_ids: str = "",
+    ) -> StreamEvent:
+        """Create a synthetic event when AlertContext is received.
+
+        This event replaces the alert_reader tool events in the timeline,
+        providing visual consistency for users. It signals that the agent
+        has received and parsed the alert context from the Big Data Layer.
+
+        Architecture Reference:
+            .dev-resources/architecture/remove-alert-reader-tool.md
+            Section: SSE Event Changes
+
+        Args:
+            alert_id: Alert identifier (e.g., "ITA-2024-001847")
+            trader_id: Trader ID for IT alerts (e.g., "T001")
+            symbol: Stock symbol (e.g., "ACME")
+            account_ids: Comma-separated account IDs for WT alerts
+
+        Returns:
+            StreamEvent for context_received
+        """
+        # Build context-specific info for message
+        if trader_id:
+            context_info = f"Trader: {trader_id}, Symbol: {symbol}"
+        elif account_ids:
+            context_info = f"Accounts: {account_ids}, Symbol: {symbol}"
+        else:
+            context_info = f"Symbol: {symbol}" if symbol else "Alert context loaded"
+
+        self.logger.info(
+            f"Alert context received: alert_id={alert_id}, "
+            f"trader_id={trader_id}, symbol={symbol}, account_ids={account_ids}"
+        )
+
+        return self.create_event(
+            event_type="context_received",
+            payload={
+                "message": f"Alert context loaded: {alert_id}",
+                "alert_id": alert_id,
+                "trader_id": trader_id,
+                "symbol": symbol,
+                "account_ids": account_ids,
+                "context_info": context_info,
             },
             final=False,
         )
