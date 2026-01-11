@@ -2,67 +2,26 @@
 
 Tests the proactive information flow pattern where tools receive
 data via execute() method rather than loading their own data.
+
+Architecture Note:
+- AlertReaderTool has been REMOVED from the codebase
+- Alert context is now received pre-parsed via request.alert_context
+- See: .dev-resources/architecture/remove-alert-reader-tool.md
 """
 
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from alerts.tools.common.alert_reader import AlertReaderTool
+# AlertReaderTool REMOVED - context now comes via request.alert_context
 from alerts.agents.insider_trading.tools.trader_history import TraderHistoryTool
 from alerts.tools.common.trader_profile import TraderProfileTool
 from alerts.agents.insider_trading.tools.market_news import MarketNewsTool
 from alerts.tools.common.market_data import MarketDataTool
 
 
-class TestAlertReaderTool:
-    """Tests for AlertReaderTool using proactive execute() pattern."""
-
-    def test_initialization(self, mock_llm: MagicMock, test_data_dir: Path):
-        """Test tool initialization."""
-        tool = AlertReaderTool(mock_llm, test_data_dir)
-
-        assert tool.name == "read_alert"
-        assert "alert" in tool.description.lower()
-        assert tool.call_count == 0
-        assert tool.expected_format == "xml"
-
-    def test_build_interpretation_prompt(self, mock_llm: MagicMock, test_data_dir: Path):
-        """Test prompt building."""
-        tool = AlertReaderTool(mock_llm, test_data_dir)
-        raw_data = "<test>data</test>"
-
-        prompt = tool._build_interpretation_prompt(raw_data)
-
-        assert "compliance analyst" in prompt.lower()
-        assert raw_data in prompt
-
-    def test_execute_with_xml_data(self, mock_llm: MagicMock, test_data_dir: Path):
-        """Test execute() with injected XML data."""
-        tool = AlertReaderTool(mock_llm, test_data_dir)
-        xml_data = "<Alert><AlertID>TEST-001</AlertID></Alert>"
-
-        result = tool.execute(data=xml_data, format="xml")
-
-        assert result == "Mock LLM response for testing"
-        assert tool.call_count == 1
-        assert mock_llm.invoke.called
-
-    def test_execute_wrong_format_raises(self, mock_llm: MagicMock, test_data_dir: Path):
-        """Test execute() raises error for wrong format."""
-        from alerts.exceptions import InvalidFormatError
-        tool = AlertReaderTool(mock_llm, test_data_dir)
-
-        with pytest.raises(InvalidFormatError):
-            tool.execute(data="some data", format="csv")
-
-    def test_execute_empty_data_raises(self, mock_llm: MagicMock, test_data_dir: Path):
-        """Test execute() raises error for empty data."""
-        from alerts.exceptions import MissingToolDataError
-        tool = AlertReaderTool(mock_llm, test_data_dir)
-
-        with pytest.raises(MissingToolDataError):
-            tool.execute(data="", format="xml")
+# TestAlertReaderTool class REMOVED - tool no longer exists
+# Alert context is now received pre-parsed via request.alert_context
 
 
 class TestTraderHistoryTool:
