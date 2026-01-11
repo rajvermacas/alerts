@@ -3,20 +3,28 @@
 Tests verify that tool events flow correctly from the deterministic agent loop
 through executors and ultimately to the frontend via SSE.
 
+Architecture Note:
+- AlertReaderTool REMOVED - context now comes via request.alert_context
+- All 4 tools now execute in parallel (no blocking alert_reader)
+- See: .dev-resources/architecture/remove-alert-reader-tool.md
+
 Architecture (after refactoring):
     ┌─────────────────────────────────────────────────────────────┐
     │                    AnalysisRequest                           │
-    │  (alert_xml, agent_type, tool_data: Dict[str, ToolInput])    │
+    │  (alert_context, agent_type, tool_data: Dict[str, ToolInput])│
     └─────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
     ┌─────────────────────────────────────────────────────────────┐
     │              InsiderTradingAnalyzerAgent                     │
-    │       TOOL_ORDER = [read_alert, market_news, ...]            │
+    │       TOOLS = [market_news, market_data, ...]               │
+    │       (NO alert_reader - all tools execute in parallel)     │
     │                         │                                    │
-    │       for tool_name in TOOL_ORDER:                           │
+    │       emit("context_received", ...)                          │
+    │       for tool_name in TOOLS:                                │
     │           emit("tool_started", tool_name)                    │
-    │           insight = tool.execute(data, format)               │
+    │       results = await asyncio.gather(all tools)              │
+    │       for tool_name in TOOLS:                                │
     │           emit("tool_completed", tool_name)                  │
     └─────────────────────────────────────────────────────────────┘
                                   │
@@ -25,6 +33,8 @@ Architecture (after refactoring):
 """
 
 import pytest
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import List
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -33,6 +43,13 @@ from alerts.agents.insider_trading.agent import InsiderTradingAnalyzerAgent
 from alerts.agents.wash_trade.agent import WashTradeAnalyzerAgent
 from alerts.a2a.event_mapper import StreamEvent
 from alerts.models.request import AnalysisRequest, ToolInput
+from alerts.models.alert_context import (
+    InsiderTradingAlertContext,
+    WashTradeAlertContext,
+    Trader,
+    Trade,
+    WashTradeFlaggedTrade,
+)
 
 
 @pytest.fixture
@@ -171,13 +188,82 @@ def mock_wash_trade_llm():
 
 
 @pytest.fixture
-def insider_trading_request(sample_alert_xml) -> AnalysisRequest:
-    """Create a valid AnalysisRequest for insider trading."""
+def sample_it_alert_context() -> InsiderTradingAlertContext:
+    """Create a sample InsiderTradingAlertContext for testing."""
+    return InsiderTradingAlertContext(
+        alert_id="ITA-TEST-001",
+        alert_type="Pre-Announcement Trading",
+        rule_violated="SMARTS-IT-001",
+        generated_timestamp=datetime(2024, 3, 16, 10, 30, 0),
+        trader=Trader(
+            trader_id="T001",
+            name="Test Trader",
+            department="Operations",
+        ),
+        trade=Trade(
+            symbol="TEST",
+            trade_date=date(2024, 3, 15),
+            side="BUY",
+            quantity=50000,
+            price=Decimal("101.50"),
+            total_value=Decimal("5075000"),
+        ),
+    )
+
+
+@pytest.fixture
+def sample_wt_alert_context() -> WashTradeAlertContext:
+    """Create a sample WashTradeAlertContext for testing."""
+    return WashTradeAlertContext(
+        alert_id="WT-TEST-001",
+        alert_type="Self-Trade",
+        rule_violated="SMARTS-WT-001",
+        generated_timestamp=datetime(2024, 3, 16, 10, 30, 0),
+        severity="HIGH",
+        flagged_trades=[
+            WashTradeFlaggedTrade(
+                sequence=1,
+                account_id="ACC-001",
+                account_name="Account Alpha",
+                trade_date=date(2024, 3, 15),
+                trade_time="14:32:15.123",
+                symbol="TEST",
+                side="BUY",
+                quantity=10000,
+                price=Decimal("100.00"),
+                total_value=Decimal("1000000"),
+                counterparty_account="ACC-002",
+                order_id="ORD001",
+            ),
+            WashTradeFlaggedTrade(
+                sequence=2,
+                account_id="ACC-002",
+                account_name="Account Beta",
+                trade_date=date(2024, 3, 15),
+                trade_time="14:32:15.625",
+                symbol="TEST",
+                side="SELL",
+                quantity=10000,
+                price=Decimal("100.00"),
+                total_value=Decimal("1000000"),
+                counterparty_account="ACC-001",
+                order_id="ORD002",
+            ),
+        ],
+    )
+
+
+@pytest.fixture
+def insider_trading_request(sample_it_alert_context) -> AnalysisRequest:
+    """Create a valid AnalysisRequest for insider trading.
+
+    NOTE: alert_reader REMOVED - context via alert_context
+    """
     return AnalysisRequest(
-        alert_xml=sample_alert_xml,
+        alert_context=sample_it_alert_context,
         agent_type="insider_trading",
         tool_data={
-            "alert_reader": ToolInput(format="xml", data=sample_alert_xml),
+            # NOTE: No alert_reader - 4 tools only
             "market_news": ToolInput(format="txt", data="No news before announcement."),
             "market_data": ToolInput(format="csv", data="symbol,date,price\nTEST,2024-03-15,100.00"),
             "trader_profile": ToolInput(format="csv", data="trader_id,name,role\nT001,Test,BACK_OFFICE"),
@@ -187,45 +273,16 @@ def insider_trading_request(sample_alert_xml) -> AnalysisRequest:
 
 
 @pytest.fixture
-def wash_trade_request() -> AnalysisRequest:
+def wash_trade_request(sample_wt_alert_context) -> AnalysisRequest:
     """Create a valid AnalysisRequest for wash trade.
 
-    The alert XML must contain the required fields for context extraction:
-    - AccountID (at least one, can have multiple)
-    - Symbol
-    - TradeDate
-    - TradeTime (optional, for timing analysis)
-    - Quantity (optional)
+    NOTE: alert_reader REMOVED - context via alert_context
     """
-    alert_xml = """<?xml version="1.0" encoding="UTF-8"?>
-<SmartsAlert>
-    <AlertMetadata>
-        <AlertID>WT-TEST-001</AlertID>
-        <AlertType>WashTrade</AlertType>
-    </AlertMetadata>
-    <FlaggedTrades>
-        <Trade sequence="1">
-            <AccountID>ACC-001</AccountID>
-            <TradeDate>2024-03-15</TradeDate>
-            <TradeTime>14:32:15.123</TradeTime>
-            <Symbol>TEST</Symbol>
-            <Quantity>1000</Quantity>
-        </Trade>
-        <Trade sequence="2">
-            <AccountID>ACC-002</AccountID>
-            <TradeDate>2024-03-15</TradeDate>
-            <TradeTime>14:32:15.625</TradeTime>
-            <Symbol>TEST</Symbol>
-            <Quantity>1000</Quantity>
-        </Trade>
-    </FlaggedTrades>
-</SmartsAlert>"""
-
     return AnalysisRequest(
-        alert_xml=alert_xml,
+        alert_context=sample_wt_alert_context,
         agent_type="wash_trade",
         tool_data={
-            "alert_reader": ToolInput(format="xml", data=alert_xml),
+            # NOTE: No alert_reader - 5 tools only
             "market_data": ToolInput(format="csv", data="symbol,date,price\nTEST,2024-03-15,100.00"),
             "account_relationships": ToolInput(format="csv", data="account_id,related_to,type\nACC-001,ACC-002,beneficial_owner"),
             "related_accounts_history": ToolInput(format="csv", data="account_id,date,symbol,qty\nACC-001,2024-01-01,TEST,1000"),
@@ -247,17 +304,14 @@ class TestInsiderTradingAgentStreaming:
         test_data_dir: Path,
     ):
         """Test that tool events (tool_started, tool_completed) are yielded during streaming."""
-        # Mock tool execute methods to avoid LLM calls within tools
-        # Note: read_alert uses sync execute(), but parallel tools use async aexecute()
-        with patch("alerts.tools.common.alert_reader.AlertReaderTool.execute") as mock_alert, \
-             patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.aexecute") as mock_news, \
+        # Mock all parallel tool aexecute() methods
+        # NOTE: No alert_reader - all 4 tools execute in parallel
+        with patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.aexecute") as mock_news, \
              patch("alerts.tools.common.market_data.MarketDataTool.aexecute") as mock_market, \
              patch("alerts.tools.common.trader_profile.TraderProfileTool.aexecute") as mock_profile, \
              patch("alerts.agents.insider_trading.tools.trader_history.TraderHistoryTool.aexecute") as mock_history:
 
-            # Set up tool returns
-            # read_alert uses sync execute(), parallel tools use async aexecute()
-            mock_alert.return_value = "Alert parsed: TEST-001"
+            # Set up tool returns (all async)
             mock_news.return_value = "No news before announcement"
             mock_market.return_value = "Market stable"
             mock_profile.return_value = "Back office employee"
@@ -279,6 +333,7 @@ class TestInsiderTradingAgentStreaming:
             event_types = [e.event_type for e in events]
 
             assert "analysis_started" in event_types, "Missing analysis_started event"
+            assert "context_received" in event_types, "Missing context_received event"
             assert "tool_started" in event_types, "Missing tool_started event"
             assert "tool_completed" in event_types, "Missing tool_completed event"
             assert "analysis_complete" in event_types, "Missing analysis_complete event"
@@ -291,16 +346,14 @@ class TestInsiderTradingAgentStreaming:
         tmp_path: Path,
         test_data_dir: Path,
     ):
-        """Test that all tools in TOOL_ORDER emit events."""
-        # Note: read_alert uses sync execute(), parallel tools use async aexecute()
-        with patch("alerts.tools.common.alert_reader.AlertReaderTool.execute") as mock_alert, \
-             patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.aexecute") as mock_news, \
+        """Test that all 4 tools emit events (no alert_reader)."""
+        # NOTE: No alert_reader - all 4 tools execute in parallel
+        with patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.aexecute") as mock_news, \
              patch("alerts.tools.common.market_data.MarketDataTool.aexecute") as mock_market, \
              patch("alerts.tools.common.trader_profile.TraderProfileTool.aexecute") as mock_profile, \
              patch("alerts.agents.insider_trading.tools.trader_history.TraderHistoryTool.aexecute") as mock_history:
 
             # Set up tool returns
-            mock_alert.return_value = "Alert parsed"
             mock_news.return_value = "News data"
             mock_market.return_value = "Market data"
             mock_profile.return_value = "Profile data"
@@ -320,9 +373,9 @@ class TestInsiderTradingAgentStreaming:
             tool_started_events = [e for e in events if e.event_type == "tool_started"]
             tool_completed_events = [e for e in events if e.event_type == "tool_completed"]
 
-            # Should have 5 tools (TOOL_ORDER has 5 items)
-            assert len(tool_started_events) == 5, f"Expected 5 tool_started events, got {len(tool_started_events)}"
-            assert len(tool_completed_events) == 5, f"Expected 5 tool_completed events, got {len(tool_completed_events)}"
+            # Should have 4 tools (TOOLS has 4 items, no alert_reader)
+            assert len(tool_started_events) == 4, f"Expected 4 tool_started events, got {len(tool_started_events)}"
+            assert len(tool_completed_events) == 4, f"Expected 4 tool_completed events, got {len(tool_completed_events)}"
 
     @pytest.mark.asyncio
     async def test_error_event_on_tool_failure(
@@ -333,9 +386,9 @@ class TestInsiderTradingAgentStreaming:
         test_data_dir: Path,
     ):
         """Test that error events are emitted when a tool fails."""
-        with patch("alerts.tools.common.alert_reader.AlertReaderTool.execute") as mock_alert:
-            # Make the first tool fail
-            mock_alert.side_effect = Exception("Tool failure")
+        # Make one of the parallel tools fail
+        with patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.aexecute") as mock_news:
+            mock_news.side_effect = Exception("Tool failure")
 
             agent = InsiderTradingAnalyzerAgent(
                 llm=mock_llm,
@@ -365,14 +418,13 @@ class TestWashTradeAgentStreaming:
         test_data_dir: Path,
     ):
         """Test that wash trade agent also yields tool events."""
-        with patch("alerts.tools.common.alert_reader.AlertReaderTool.execute") as mock_alert, \
-             patch("alerts.tools.common.market_data.MarketDataTool.execute") as mock_market, \
-             patch("alerts.agents.wash_trade.tools.account_relationships.AccountRelationshipsTool.execute") as mock_rel, \
-             patch("alerts.agents.wash_trade.tools.related_accounts_history.RelatedAccountsHistoryTool.execute") as mock_hist, \
-             patch("alerts.agents.wash_trade.tools.trade_timing.TradeTimingTool.execute") as mock_timing, \
-             patch("alerts.agents.wash_trade.tools.counterparty_analysis.CounterpartyAnalysisTool.execute") as mock_cp:
+        # NOTE: No alert_reader - all 5 tools execute in parallel
+        with patch("alerts.tools.common.market_data.MarketDataTool.aexecute") as mock_market, \
+             patch("alerts.agents.wash_trade.tools.account_relationships.AccountRelationshipsTool.aexecute") as mock_rel, \
+             patch("alerts.agents.wash_trade.tools.related_accounts_history.RelatedAccountsHistoryTool.aexecute") as mock_hist, \
+             patch("alerts.agents.wash_trade.tools.trade_timing.TradeTimingTool.aexecute") as mock_timing, \
+             patch("alerts.agents.wash_trade.tools.counterparty_analysis.CounterpartyAnalysisTool.aexecute") as mock_cp:
 
-            mock_alert.return_value = "Alert parsed"
             mock_market.return_value = "Market data"
             mock_rel.return_value = "Relationships data"
             mock_hist.return_value = "History data"
@@ -390,6 +442,7 @@ class TestWashTradeAgentStreaming:
                 events.append(event)
 
             event_types = [e.event_type for e in events]
+            assert "context_received" in event_types, "Wash trade agent should emit context_received"
             assert "tool_started" in event_types, "Wash trade agent should emit tool_started"
             assert "tool_completed" in event_types, "Wash trade agent should emit tool_completed"
             assert "analysis_complete" in event_types, "Wash trade agent should emit analysis_complete"
@@ -407,14 +460,12 @@ class TestEventOrdering:
         test_data_dir: Path,
     ):
         """Test that events flow in the correct sequence."""
-        # Note: read_alert uses sync execute(), parallel tools use async aexecute()
-        with patch("alerts.tools.common.alert_reader.AlertReaderTool.execute") as mock_alert, \
-             patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.aexecute") as mock_news, \
+        # NOTE: No alert_reader - all 4 tools execute in parallel
+        with patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.aexecute") as mock_news, \
              patch("alerts.tools.common.market_data.MarketDataTool.aexecute") as mock_market, \
              patch("alerts.tools.common.trader_profile.TraderProfileTool.aexecute") as mock_profile, \
              patch("alerts.agents.insider_trading.tools.trader_history.TraderHistoryTool.aexecute") as mock_history:
 
-            mock_alert.return_value = "Alert data"
             mock_news.return_value = "News data"
             mock_market.return_value = "Market data"
             mock_profile.return_value = "Profile data"
@@ -434,6 +485,10 @@ class TestEventOrdering:
 
             # analysis_started should be first
             assert event_types[0] == "analysis_started", "First event should be analysis_started"
+
+            # context_received should come early (after analysis_started)
+            context_idx = event_types.index("context_received")
+            assert context_idx == 1, "context_received should be second event"
 
             # tool events should come before analysis_complete
             tool_started_indices = [i for i, t in enumerate(event_types) if t == "tool_started"]
@@ -458,19 +513,17 @@ class TestEventOrdering:
         tmp_path: Path,
         test_data_dir: Path,
     ):
-        """Test that tools are executed in the order defined by TOOL_ORDER.
+        """Test that tools are executed matching TOOLS list.
 
-        Note: With parallel execution, tool_started events are emitted in TOOL_ORDER
+        Note: With parallel execution, tool_started events are emitted in TOOLS order
         before execution, but tool_completed events may arrive in any order.
         """
-        # Note: read_alert uses sync execute(), parallel tools use async aexecute()
-        with patch("alerts.tools.common.alert_reader.AlertReaderTool.execute") as mock_alert, \
-             patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.aexecute") as mock_news, \
+        # NOTE: No alert_reader - all 4 tools execute in parallel
+        with patch("alerts.agents.insider_trading.tools.market_news.MarketNewsTool.aexecute") as mock_news, \
              patch("alerts.tools.common.market_data.MarketDataTool.aexecute") as mock_market, \
              patch("alerts.tools.common.trader_profile.TraderProfileTool.aexecute") as mock_profile, \
              patch("alerts.agents.insider_trading.tools.trader_history.TraderHistoryTool.aexecute") as mock_history:
 
-            mock_alert.return_value = "Alert data"
             mock_news.return_value = "News data"
             mock_market.return_value = "Market data"
             mock_profile.return_value = "Profile data"
@@ -490,9 +543,9 @@ class TestEventOrdering:
             tool_started_events = [e for e in events if e.event_type == "tool_started"]
             executed_tools = [e.payload.get("tool_name") for e in tool_started_events]
 
-            # Should match TOOL_ORDER
-            expected_order = agent.TOOL_ORDER
-            assert executed_tools == expected_order, f"Tool execution order mismatch: {executed_tools} != {expected_order}"
+            # Should match TOOLS (not TOOL_ORDER anymore)
+            expected_tools = agent.TOOLS
+            assert executed_tools == expected_tools, f"Tool execution order mismatch: {executed_tools} != {expected_tools}"
 
 
 class TestApiAnalyzeStreamEndpoint:
@@ -516,6 +569,7 @@ class TestApiAnalyzeStreamEndpoint:
         from datetime import datetime
 
         # Mock the agent's astream_analyze_request to return test events
+        # NOTE: No alert_reader events - context_received instead
         async def mock_stream(*args, **kwargs):
             """Generate mock SSE events."""
             ts = datetime.now().isoformat()
@@ -532,18 +586,27 @@ class TestApiAnalyzeStreamEndpoint:
                 event_id="evt-2",
                 task_id="test-task",
                 timestamp=ts,
-                event_type="tool_started",
+                event_type="context_received",
                 agent="insider_trading",
-                payload={"tool_name": "read_alert"},
+                payload={"alert_id": "TEST-001", "trader_id": "T001", "symbol": "TEST"},
                 final=False,
             )
             yield StreamEvent(
                 event_id="evt-3",
                 task_id="test-task",
                 timestamp=ts,
+                event_type="tool_started",
+                agent="insider_trading",
+                payload={"tool_name": "query_market_news"},
+                final=False,
+            )
+            yield StreamEvent(
+                event_id="evt-4",
+                task_id="test-task",
+                timestamp=ts,
                 event_type="tool_completed",
                 agent="insider_trading",
-                payload={"tool_name": "read_alert", "summary": "Alert parsed"},
+                payload={"tool_name": "query_market_news", "summary": "No news"},
                 final=False,
             )
             yield StreamEvent(
@@ -558,8 +621,9 @@ class TestApiAnalyzeStreamEndpoint:
 
         # Test the event generation
         events = [e async for e in mock_stream()]
-        assert len(events) == 4
+        assert len(events) == 5
         assert events[0].event_type == "analysis_started"
+        assert events[1].event_type == "context_received"
         assert events[-1].final is True
 
     @pytest.mark.asyncio
@@ -574,6 +638,7 @@ class TestApiAnalyzeStreamEndpoint:
         from datetime import datetime
 
         # Mock the agent's astream_analyze_request
+        # NOTE: No alert_reader events - context_received instead
         async def mock_stream(*args, **kwargs):
             """Generate mock SSE events for wash trade."""
             ts = datetime.now().isoformat()
@@ -590,9 +655,18 @@ class TestApiAnalyzeStreamEndpoint:
                 event_id="wt-evt-2",
                 task_id="wt-test-task",
                 timestamp=ts,
+                event_type="context_received",
+                agent="wash_trade",
+                payload={"alert_id": "WT-TEST-001", "account_ids": "ACC-001,ACC-002"},
+                final=False,
+            )
+            yield StreamEvent(
+                event_id="wt-evt-3",
+                task_id="wt-test-task",
+                timestamp=ts,
                 event_type="tool_started",
                 agent="wash_trade",
-                payload={"tool_name": "read_alert"},
+                payload={"tool_name": "query_market_data"},
                 final=False,
             )
             yield StreamEvent(
@@ -606,8 +680,9 @@ class TestApiAnalyzeStreamEndpoint:
             )
 
         events = [e async for e in mock_stream()]
-        assert len(events) == 3
+        assert len(events) == 4
         assert events[0].event_type == "analysis_started"
+        assert events[1].event_type == "context_received"
         assert events[-1].final is True
 
     @pytest.mark.asyncio
@@ -624,7 +699,7 @@ class TestApiAnalyzeStreamEndpoint:
             timestamp=datetime.now().isoformat(),
             event_type="tool_completed",
             agent="insider_trading",
-            payload={"tool_name": "market_news", "summary": "No relevant news"},
+            payload={"tool_name": "query_market_news", "summary": "No relevant news"},
             final=False,
         )
 
@@ -646,7 +721,7 @@ class TestApiAnalyzeStreamEndpoint:
         assert "metadata" in result
         assert result["metadata"]["event_type"] == "tool_completed"
         assert result["metadata"]["agent"] == "insider_trading"
-        assert result["metadata"]["payload"]["tool_name"] == "market_news"
+        assert result["metadata"]["payload"]["tool_name"] == "query_market_news"
 
     @pytest.mark.asyncio
     async def test_final_event_has_correct_flag(
@@ -701,10 +776,12 @@ class TestStreamingProxyFlow:
     async def test_event_ordering_in_proxy_flow(self):
         """Test that events maintain correct order through proxy."""
         # Simulate the expected event flow
+        # NOTE: No alert_reader events - context_received instead
         events = [
             ("orchestrator", "analysis_started"),
             ("orchestrator", "routing"),
             ("agent", "analysis_started"),
+            ("agent", "context_received"),
             ("agent", "tool_started"),
             ("agent", "tool_completed"),
             ("agent", "tool_started"),
@@ -719,6 +796,10 @@ class TestStreamingProxyFlow:
         # Verify orchestrator events come first
         assert events[0][0] == "orchestrator"
         assert events[1][0] == "orchestrator"
+
+        # Verify context_received comes early in agent events
+        agent_events = [(a, t) for a, t in events if a == "agent"]
+        assert agent_events[1][1] == "context_received"
 
         # Verify tool events are bracketed (started before completed)
         tool_started_indices = [i for i, (a, t) in enumerate(events) if t == "tool_started"]

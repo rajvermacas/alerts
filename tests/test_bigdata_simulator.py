@@ -5,6 +5,12 @@ Tests cover:
 - Request creation from XML content
 - Alert type detection (insider_trading vs wash_trade)
 - Tool data loading for each agent type
+- XML parsing to AlertContext models
+
+Architecture Note:
+- AlertReaderTool REMOVED - alert_xml replaced with alert_context
+- BigDataSimulator now parses XML to structured AlertContext
+- See: .dev-resources/architecture/remove-alert-reader-tool.md
 """
 
 import pytest
@@ -12,6 +18,10 @@ from pathlib import Path
 
 from alerts.mock.bigdata_simulator import BigDataSimulator
 from alerts.models.request import AnalysisRequest, ToolInput, REQUIRED_TOOLS_BY_AGENT
+from alerts.models.alert_context import (
+    InsiderTradingAlertContext,
+    WashTradeAlertContext,
+)
 
 
 class TestBigDataSimulatorInit:
@@ -101,7 +111,9 @@ class TestCreateRequestFromFile:
 
         assert isinstance(request, AnalysisRequest)
         assert request.agent_type == "insider_trading"
-        assert "alert_reader" in request.tool_data
+        # NOTE: alert_reader REMOVED - context now in alert_context
+        assert "alert_reader" not in request.tool_data
+        assert isinstance(request.alert_context, InsiderTradingAlertContext)
 
     def test_create_request_nonexistent_file_raises(self, test_data_dir):
         """Raises FileNotFoundError for nonexistent file."""
@@ -111,21 +123,35 @@ class TestCreateRequestFromFile:
             simulator.create_request("/nonexistent/file.xml")
 
 
-class TestCreateRequestFromContent:
-    """Tests for create_request_from_content() method."""
+class TestCreateRequestAlertContext:
+    """Tests for alert context parsing in create_request()."""
 
-    def test_create_request_from_xml_content(self, test_data_dir, sample_alert_xml):
-        """Creates AnalysisRequest from XML content."""
+    def test_insider_trading_context_parsed(self, test_data_dir):
+        """Creates InsiderTradingAlertContext from IT alert."""
         simulator = BigDataSimulator(str(test_data_dir))
+        alert_file = str(test_data_dir / "alerts" / "alert_genuine.xml")
 
-        request = simulator.create_request_from_content(sample_alert_xml)
+        request = simulator.create_request(alert_file)
 
-        assert isinstance(request, AnalysisRequest)
-        assert request.alert_xml == sample_alert_xml
-        assert "alert_reader" in request.tool_data
-        # alert_reader should contain the provided XML
-        assert request.tool_data["alert_reader"].data == sample_alert_xml
-        assert request.tool_data["alert_reader"].format == "xml"
+        assert isinstance(request.alert_context, InsiderTradingAlertContext)
+        assert request.alert_context.context_type == "insider_trading"
+        # Verify key fields are populated
+        assert request.alert_context.alert_id is not None
+        assert request.alert_context.trader is not None
+        assert request.alert_context.trade is not None
+
+    def test_wash_trade_context_parsed(self, test_data_dir):
+        """Creates WashTradeAlertContext from WT alert."""
+        simulator = BigDataSimulator(str(test_data_dir))
+        alert_file = str(test_data_dir / "alerts" / "wash_trade" / "wash_genuine.xml")
+
+        request = simulator.create_request(alert_file)
+
+        assert isinstance(request.alert_context, WashTradeAlertContext)
+        assert request.alert_context.context_type == "wash_trade"
+        # Verify key fields are populated
+        assert request.alert_context.alert_id is not None
+        assert len(request.alert_context.flagged_trades) >= 2
 
 
 class TestInsiderTradingToolData:
@@ -143,14 +169,15 @@ class TestInsiderTradingToolData:
             assert tool_name in request.tool_data, f"Missing tool: {tool_name}"
             assert isinstance(request.tool_data[tool_name], ToolInput)
 
-    def test_alert_reader_is_xml(self, test_data_dir):
-        """Alert reader tool has XML format."""
+    def test_no_alert_reader_in_tools(self, test_data_dir):
+        """Alert reader tool is NOT in tool_data (REMOVED)."""
         simulator = BigDataSimulator(str(test_data_dir))
         alert_file = str(test_data_dir / "alerts" / "alert_genuine.xml")
 
         request = simulator.create_request(alert_file)
 
-        assert request.tool_data["alert_reader"].format == "xml"
+        # NOTE: alert_reader REMOVED from tool_data
+        assert "alert_reader" not in request.tool_data
 
     def test_market_news_is_txt(self, test_data_dir):
         """Market news tool has txt format."""
@@ -239,11 +266,33 @@ class TestMissingFilesHandling:
 
     def test_missing_market_news_raises_error(self, tmp_path):
         """Missing market news file raises FileNotFoundError (fail-fast)."""
-        # Create minimal test data without market_news.txt
+        # Create minimal test data structure with proper XML
         alerts_dir = tmp_path / "alerts"
         alerts_dir.mkdir(parents=True)
         alert_file = alerts_dir / "test.xml"
-        alert_file.write_text("<Alert>insider trading test</Alert>")
+        # Create a proper insider trading XML matching actual structure
+        # Uses: <AlertID>, <AlertType>, <RuleViolated>, <GeneratedTimestamp>,
+        #       <Trader>, <SuspiciousActivity> (not <Trade>!)
+        alert_file.write_text("""<?xml version="1.0"?>
+<SMARTSAlert>
+    <AlertID>TEST-001</AlertID>
+    <AlertType>Pre-Announcement Trading</AlertType>
+    <RuleViolated>SMARTS-IT-001</RuleViolated>
+    <GeneratedTimestamp>2024-03-15T10:30:00Z</GeneratedTimestamp>
+    <Trader>
+        <TraderID>T001</TraderID>
+        <Name>Test Trader</Name>
+        <Department>Trading</Department>
+    </Trader>
+    <SuspiciousActivity>
+        <Symbol>TEST</Symbol>
+        <TradeDate>2024-03-15</TradeDate>
+        <Side>BUY</Side>
+        <Quantity>1000</Quantity>
+        <Price>100.00</Price>
+        <TotalValue>100000</TotalValue>
+    </SuspiciousActivity>
+</SMARTSAlert>""")
 
         simulator = BigDataSimulator(str(tmp_path))
 
@@ -256,7 +305,27 @@ class TestMissingFilesHandling:
         alerts_dir = tmp_path / "alerts"
         alerts_dir.mkdir(parents=True)
         alert_file = alerts_dir / "test.xml"
-        alert_file.write_text("<Alert>insider trading test</Alert>")
+        # Create a proper insider trading XML matching actual structure
+        alert_file.write_text("""<?xml version="1.0"?>
+<SMARTSAlert>
+    <AlertID>TEST-001</AlertID>
+    <AlertType>Pre-Announcement Trading</AlertType>
+    <RuleViolated>SMARTS-IT-001</RuleViolated>
+    <GeneratedTimestamp>2024-03-15T10:30:00Z</GeneratedTimestamp>
+    <Trader>
+        <TraderID>T001</TraderID>
+        <Name>Test Trader</Name>
+        <Department>Trading</Department>
+    </Trader>
+    <SuspiciousActivity>
+        <Symbol>TEST</Symbol>
+        <TradeDate>2024-03-15</TradeDate>
+        <Side>BUY</Side>
+        <Quantity>1000</Quantity>
+        <Price>100.00</Price>
+        <TotalValue>100000</TotalValue>
+    </SuspiciousActivity>
+</SMARTSAlert>""")
         # Create market_news but not market_data
         (tmp_path / "market_news.txt").write_text("Test news")
 
@@ -271,7 +340,45 @@ class TestMissingFilesHandling:
         alerts_dir = tmp_path / "alerts" / "wash_trade"
         alerts_dir.mkdir(parents=True)
         alert_file = alerts_dir / "test.xml"
-        alert_file.write_text("<Alert>wash trade test</Alert>")
+        # Create a proper wash trade XML that can be parsed
+        alert_file.write_text("""<?xml version="1.0"?>
+<Alert>
+    <AlertMetadata>
+        <AlertID>WT-TEST-001</AlertID>
+        <AlertType>Self-Trade</AlertType>
+        <RuleViolated>SMARTS-WT-001</RuleViolated>
+        <GeneratedTimestamp>2024-03-15T10:30:00Z</GeneratedTimestamp>
+        <Severity>HIGH</Severity>
+    </AlertMetadata>
+    <FlaggedTrades>
+        <Trade sequence="1">
+            <AccountID>ACC-001</AccountID>
+            <AccountName>Test Account 1</AccountName>
+            <TradeDate>2024-03-15</TradeDate>
+            <TradeTime>10:30:00.123</TradeTime>
+            <Symbol>TEST</Symbol>
+            <Side>BUY</Side>
+            <Quantity>1000</Quantity>
+            <Price>100.00</Price>
+            <TotalValue>100000</TotalValue>
+            <CounterpartyAccount>ACC-002</CounterpartyAccount>
+            <OrderID>ORD001</OrderID>
+        </Trade>
+        <Trade sequence="2">
+            <AccountID>ACC-002</AccountID>
+            <AccountName>Test Account 2</AccountName>
+            <TradeDate>2024-03-15</TradeDate>
+            <TradeTime>10:30:00.456</TradeTime>
+            <Symbol>TEST</Symbol>
+            <Side>SELL</Side>
+            <Quantity>1000</Quantity>
+            <Price>100.00</Price>
+            <TotalValue>100000</TotalValue>
+            <CounterpartyAccount>ACC-001</CounterpartyAccount>
+            <OrderID>ORD002</OrderID>
+        </Trade>
+    </FlaggedTrades>
+</Alert>""")
         # Create market_data but not wash trade specific files
         (tmp_path / "market_data.csv").write_text("col1,col2\na,b")
 
