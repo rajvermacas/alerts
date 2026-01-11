@@ -10,20 +10,28 @@ Tool Execution Strategy:
 - Async (astream_analyze_request): PARALLEL execution using asyncio.gather()
   for non-blocking operation in async server contexts (FastAPI/Starlette)
 
+Architecture Change (AlertReaderTool Removal):
+- alert_context received directly from request (no AlertReaderTool)
+- ALL 4 tools execute in parallel from the start (no blocking step)
+- context_received event emitted instead of alert_reader tool events
+- See: .dev-resources/architecture/remove-alert-reader-tool.md
+
 Architecture (Async Parallel Execution):
     ┌─────────────────────────────────────────────────────────┐
     │                    AnalysisRequest                       │
-    │  (alert_xml, agent_type, tool_data: Dict[str, ToolInput])│
+    │  (alert_context, agent_type, tool_data: Dict)            │
     └─────────────────────────────┬───────────────────────────┘
                                   │
                                   ▼
     ┌─────────────────────────────────────────────────────────┐
     │              InsiderTradingAnalyzerAgent                 │
     │                                                          │
-    │  Step 1: read_alert (blocking - extracts context)        │
+    │  Step 1: Read alert_context directly (NO tool, NO LLM)   │
+    │          Emit context_received event                     │
+    │          Compute date ranges internally                  │
     │                         │                                │
     │                         ▼                                │
-    │  Step 2: PARALLEL execution via asyncio.gather()         │
+    │  Step 2: ALL 4 tools execute in PARALLEL                 │
     │          ┌──────────────┼──────────────┐                │
     │          │              │              │                │
     │          ▼              ▼              ▼                │
@@ -46,7 +54,7 @@ Architecture (Async Parallel Execution):
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple
 
@@ -54,8 +62,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from alerts.a2a.event_mapper import EventMapper, StreamEvent
 from alerts.exceptions import MissingToolDataError
+from alerts.models.alert_context import InsiderTradingAlertContext
 from alerts.models.insider_trading import InsiderTradingDecision
-from alerts.models.request import AnalysisRequest, ToolInput
+from alerts.models.request import AnalysisRequest
 from alerts.reports.html_generator import HTMLReportGenerator
 from alerts.agents.insider_trading.prompts.system_prompt import (
     get_final_decision_prompt,
@@ -63,7 +72,7 @@ from alerts.agents.insider_trading.prompts.system_prompt import (
     load_few_shot_examples,
 )
 from alerts.tools.common import (
-    AlertReaderTool,
+    # AlertReaderTool removed - context now comes via alert_context
     TraderProfileTool,
     MarketDataTool,
 )
@@ -89,9 +98,9 @@ class InsiderTradingAnalyzerAgent:
         tool_instances: Dict mapping tool names to instances
     """
 
-    # Fixed order of tool execution - no LLM routing needed
-    TOOL_ORDER: List[str] = [
-        "read_alert",
+    # Tools to execute - all run in parallel (no order dependency)
+    # NOTE: read_alert REMOVED - context comes via request.alert_context
+    TOOLS: List[str] = [
         "query_market_news",
         "query_market_data",
         "query_trader_profile",
@@ -129,17 +138,18 @@ class InsiderTradingAnalyzerAgent:
         # Initialize tool instances as a dict for name-based lookup
         self.tool_instances = self._create_tool_instances()
         self.logger.info(f"Created {len(self.tool_instances)} tool instances")
-        self.logger.info(f"Tool execution order: {self.TOOL_ORDER}")
+        self.logger.info(f"Tools (parallel execution): {self.TOOLS}")
 
     def _create_tool_instances(self) -> Dict[str, Any]:
         """Create instances of all analysis tools.
+
+        NOTE: AlertReaderTool REMOVED - context now comes via request.alert_context
 
         Returns:
             Dict mapping tool names to tool instances
         """
         tools = [
-            # Common tools
-            AlertReaderTool(self.llm, self.data_dir),
+            # Common tools (AlertReaderTool removed)
             TraderProfileTool(self.llm, self.data_dir),
             MarketDataTool(self.llm, self.data_dir),
             # Insider trading specific tools
@@ -151,15 +161,17 @@ class InsiderTradingAnalyzerAgent:
     def _get_tool_data_key(self, tool_name: str) -> str:
         """Map internal tool names to AnalysisRequest tool_data keys.
 
+        NOTE: read_alert/alert_reader REMOVED - context via request.alert_context
+
         Args:
-            tool_name: Internal tool name (e.g., "read_alert")
+            tool_name: Internal tool name (e.g., "query_market_news")
 
         Returns:
-            Key to use in AnalysisRequest.tool_data (e.g., "alert_reader")
+            Key to use in AnalysisRequest.tool_data (e.g., "market_news")
         """
         # Map from internal tool names to request.tool_data keys
+        # NOTE: read_alert removed - context via AlertContext
         tool_key_map = {
-            "read_alert": "alert_reader",
             "query_market_news": "market_news",
             "query_market_data": "market_data",
             "query_trader_profile": "trader_profile",
@@ -167,36 +179,64 @@ class InsiderTradingAnalyzerAgent:
         }
         return tool_key_map.get(tool_name, tool_name)
 
-    def _build_context_params(self, context: Dict[str, str]) -> Dict[str, Dict[str, str]]:
-        """Build per-tool context parameters from alert context.
+    def _build_context_params_from_alert(
+        self,
+        alert_context: InsiderTradingAlertContext,
+    ) -> Dict[str, Dict[str, str]]:
+        """Build per-tool context parameters from structured alert context.
 
-        Maps the extracted alert context (symbol, trader_id, dates) to the
-        specific parameters each tool requires in its _build_interpretation_prompt.
+        Computes date ranges internally (trade_date ± 30 days) and maps
+        the alert context to tool-specific parameters.
+
+        Architecture Change:
+        - Previously: AlertReaderTool extracted context from XML
+        - Now: Context comes pre-parsed via request.alert_context
+        - Date range computation moved from Big Data Layer to here
 
         Args:
-            context: Dict with keys: trader_id, symbol, trade_date, start_date, end_date
+            alert_context: Structured InsiderTradingAlertContext from request
 
         Returns:
             Dict mapping tool names to their required kwargs
         """
+        # Extract key values from structured context
+        symbol = alert_context.trade.symbol
+        trader_id = alert_context.trader.trader_id
+        trade_date = alert_context.trade.trade_date
+
+        # Compute date range: trade_date ± 30 days
+        lookback_days = 30
+        start_date = trade_date - timedelta(days=lookback_days)
+        end_date = trade_date + timedelta(days=lookback_days)
+
+        # Format dates as strings for tool prompts
+        trade_date_str = trade_date.isoformat()
+        start_date_str = start_date.isoformat()
+        end_date_str = end_date.isoformat()
+
+        self.logger.debug(
+            f"Built context params: symbol={symbol}, trader_id={trader_id}, "
+            f"trade_date={trade_date_str}, range={start_date_str} to {end_date_str}"
+        )
+
         return {
             "query_market_news": {
-                "symbol": context["symbol"],
-                "start_date": context["start_date"],
-                "end_date": context["end_date"],
+                "symbol": symbol,
+                "start_date": start_date_str,
+                "end_date": end_date_str,
             },
             "query_market_data": {
-                "symbol": context["symbol"],
-                "start_date": context["start_date"],
-                "end_date": context["end_date"],
+                "symbol": symbol,
+                "start_date": start_date_str,
+                "end_date": end_date_str,
             },
             "query_trader_profile": {
-                "trader_id": context["trader_id"],
+                "trader_id": trader_id,
             },
             "query_trader_history": {
-                "trader_id": context["trader_id"],
-                "symbol": context["symbol"],
-                "trade_date": context["trade_date"],
+                "trader_id": trader_id,
+                "symbol": symbol,
+                "trade_date": trade_date_str,
             },
         }
 
@@ -261,12 +301,17 @@ class InsiderTradingAnalyzerAgent:
     ) -> InsiderTradingDecision:
         """Analyze an alert using the proactive info flow pattern.
 
-        This method uses data injected via AnalysisRequest instead of
-        loading data from files. It extracts context parameters from the
-        alert XML and passes them to each tool for proper prompt building.
+        This method uses data injected via AnalysisRequest. The alert context
+        is received pre-parsed, enabling all tools to execute without blocking.
+
+        Architecture Change (AlertReaderTool Removal):
+        - alert_context received directly from request (no AlertReaderTool)
+        - ALL 4 tools execute sequentially (sync mode)
+        - context_received event emitted instead of alert_reader tool events
+        - See: .dev-resources/architecture/remove-alert-reader-tool.md
 
         Args:
-            request: AnalysisRequest with alert_xml, agent_type, and tool_data
+            request: AnalysisRequest with alert_context, agent_type, and tool_data
             event_callback: Optional callback for emitting events
                            Signature: (event_type, tool_name, data) -> None
 
@@ -279,58 +324,45 @@ class InsiderTradingAnalyzerAgent:
         """
         start_time = datetime.now(timezone.utc)
 
+        # Type narrow: ensure we have InsiderTradingAlertContext
+        alert_context = request.alert_context
+        if not isinstance(alert_context, InsiderTradingAlertContext):
+            raise ValueError(
+                f"Expected InsiderTradingAlertContext, got {type(alert_context).__name__}"
+            )
+
         self.logger.info("=" * 60)
         self.logger.info("Starting deterministic insider trading analysis")
+        self.logger.info(f"Alert ID: {alert_context.alert_id}")
         self.logger.info(f"Agent type: {request.agent_type}")
         self.logger.info(f"Tool data keys: {list(request.tool_data.keys())}")
         self.logger.info("=" * 60)
 
         insights: Dict[str, str] = {}
 
-        # Step 1: Execute alert_reader first to extract context parameters
-        alert_tool_name = "read_alert"
-        alert_data_key = self._get_tool_data_key(alert_tool_name)
+        # Step 1: Read context directly from request (NO tool, NO LLM)
+        self.logger.info("Step 1: Reading alert context directly from request")
+        self.logger.info(
+            f"Alert context: symbol={alert_context.trade.symbol}, "
+            f"trader_id={alert_context.trader.trader_id}, "
+            f"trade_date={alert_context.trade.trade_date}"
+        )
 
-        self.logger.info(f"Step 1: Executing {alert_tool_name} and extracting context")
-
-        alert_input = request.tool_data.get(alert_data_key)
-        if alert_input is None:
-            raise MissingToolDataError(alert_data_key)
-
-        # Emit tool started event for alert reader
+        # Emit context_received event (replaces alert_reader tool events)
         if event_callback:
-            event_callback("tool_started", alert_tool_name, None)
+            event_callback("context_received", "alert_context", {
+                "alert_id": alert_context.alert_id,
+                "trader_id": alert_context.trader.trader_id,
+                "symbol": alert_context.trade.symbol,
+            })
 
-        alert_reader = self.tool_instances.get(alert_tool_name)
-        if alert_reader is None:
-            raise ValueError(f"Unknown tool: {alert_tool_name}")
+        # Step 2: Compute date ranges and build context params
+        self.logger.info("Step 2: Computing context parameters from alert")
+        context_params = self._build_context_params_from_alert(alert_context)
 
-        try:
-            alert_insight = alert_reader.execute(
-                data=alert_input.data,
-                format=alert_input.format,
-            )
-            insights[alert_tool_name] = alert_insight
-            self.logger.info(f"Tool {alert_tool_name} completed successfully")
-
-            if event_callback:
-                event_callback("tool_completed", alert_tool_name, {"insight_length": len(alert_insight)})
-
-        except Exception as e:
-            self.logger.error(f"Tool {alert_tool_name} failed: {e}")
-            if event_callback:
-                event_callback("tool_error", alert_tool_name, {"error": str(e)})
-            raise
-
-        # Step 2: Extract context parameters from alert XML for other tools
-        self.logger.info("Step 2: Extracting context parameters from alert XML")
-        context = AlertReaderTool.parse_alert_context(alert_input.data)
-        context_params = self._build_context_params(context)
-        self.logger.info(f"Extracted context: symbol={context['symbol']}, trader_id={context['trader_id']}")
-
-        # Step 3: Execute remaining tools with context parameters
-        self.logger.info("Step 3: Executing remaining tools with context")
-        for tool_name in self.TOOL_ORDER[1:]:  # Skip alert_reader (already executed)
+        # Step 3: Execute ALL 4 tools with context parameters (sequential in sync mode)
+        self.logger.info(f"Step 3: Executing {len(self.TOOLS)} tools")
+        for tool_name in self.TOOLS:
             tool_data_key = self._get_tool_data_key(tool_name)
 
             self.logger.info(f"Executing tool: {tool_name} (data key: {tool_data_key})")
@@ -404,11 +436,17 @@ class InsiderTradingAnalyzerAgent:
         """Analyze an alert with streaming events using proactive info flow.
 
         This async generator yields StreamEvent objects as the analysis progresses,
-        enabling real-time progress updates to the client. It extracts context
-        parameters from the alert XML and passes them to each tool.
+        enabling real-time progress updates. The alert context is received
+        pre-parsed, enabling ALL 4 tools to execute in PARALLEL from the start.
+
+        Architecture Change (AlertReaderTool Removal):
+        - alert_context received directly from request (no AlertReaderTool)
+        - ALL 4 tools execute in PARALLEL using asyncio.gather()
+        - context_received event emitted instead of alert_reader tool events
+        - See: .dev-resources/architecture/remove-alert-reader-tool.md
 
         Args:
-            request: AnalysisRequest with alert_xml, agent_type, and tool_data
+            request: AnalysisRequest with alert_context, agent_type, and tool_data
             task_id: Task ID for event correlation
 
         Yields:
@@ -421,81 +459,57 @@ class InsiderTradingAnalyzerAgent:
         start_time = datetime.now(timezone.utc)
         event_mapper = EventMapper(task_id=task_id, agent_name="insider_trading")
 
+        # Type narrow: ensure we have InsiderTradingAlertContext
+        alert_context = request.alert_context
+        if not isinstance(alert_context, InsiderTradingAlertContext):
+            raise ValueError(
+                f"Expected InsiderTradingAlertContext, got {type(alert_context).__name__}"
+            )
+
         self.logger.info("=" * 60)
         self.logger.info("Starting streaming deterministic insider trading analysis")
         self.logger.info(f"Task ID: {task_id}")
+        self.logger.info(f"Alert ID: {alert_context.alert_id}")
         self.logger.info("=" * 60)
 
         # Emit analysis started event
         yield event_mapper.create_analysis_started_event("proactive_request")
 
         insights: Dict[str, str] = {}
-        context_params: Dict[str, Dict[str, str]] = {}
 
         try:
-            # Step 1: Execute alert_reader first and extract context
-            alert_tool_name = "read_alert"
-            alert_data_key = self._get_tool_data_key(alert_tool_name)
-
-            self.logger.info(f"Step 1: Executing {alert_tool_name} and extracting context")
-
-            alert_input = request.tool_data.get(alert_data_key)
-            if alert_input is None:
-                error_event = event_mapper.create_error_event(
-                    f"Missing tool data: {alert_data_key}",
-                    stage="tool_execution",
-                    fatal=True,
-                )
-                yield error_event
-                raise MissingToolDataError(alert_data_key)
-
-            yield event_mapper.create_tool_started_event(alert_tool_name)
-
-            alert_reader = self.tool_instances.get(alert_tool_name)
-            if alert_reader is None:
-                raise ValueError(f"Unknown tool: {alert_tool_name}")
-
-            try:
-                alert_insight = alert_reader.execute(
-                    data=alert_input.data,
-                    format=alert_input.format,
-                )
-                insights[alert_tool_name] = alert_insight
-
-                yield event_mapper.create_tool_completed_event(
-                    alert_tool_name,
-                    summary=alert_insight[:200] + "..." if len(alert_insight) > 200 else alert_insight
-                )
-
-            except Exception as e:
-                self.logger.error(f"Tool {alert_tool_name} failed: {e}")
-                yield event_mapper.create_error_event(
-                    str(e),
-                    stage=f"tool_{alert_tool_name}",
-                    fatal=True,
-                )
-                raise
-
-            # Step 2: Extract context parameters from alert XML
-            self.logger.info("Step 2: Extracting context parameters from alert XML")
-            context = AlertReaderTool.parse_alert_context(alert_input.data)
-            context_params = self._build_context_params(context)
-            self.logger.info(f"Extracted context: symbol={context['symbol']}, trader_id={context['trader_id']}")
-
-            # Step 3: Execute remaining tools in PARALLEL
-            parallel_tools = self.TOOL_ORDER[1:]  # All tools except read_alert
+            # Step 1: Read context directly from request (NO tool, NO LLM)
+            self.logger.info("Step 1: Reading alert context directly from request")
             self.logger.info(
-                f"Step 3: Executing {len(parallel_tools)} tools in parallel: {parallel_tools}"
+                f"Alert context: symbol={alert_context.trade.symbol}, "
+                f"trader_id={alert_context.trader.trader_id}, "
+                f"trade_date={alert_context.trade.trade_date}"
+            )
+
+            # Emit context_received event (replaces alert_reader tool events)
+            yield event_mapper.create_context_received_event(
+                alert_id=alert_context.alert_id,
+                trader_id=alert_context.trader.trader_id,
+                symbol=alert_context.trade.symbol,
+            )
+
+            # Step 2: Compute date ranges and build context params
+            self.logger.info("Step 2: Computing context parameters from alert")
+            context_params = self._build_context_params_from_alert(alert_context)
+
+            # Step 3: Execute ALL 4 tools in PARALLEL (no blocking step!)
+            self.logger.info(
+                f"Step 3: Executing {len(self.TOOLS)} tools in parallel: {self.TOOLS}"
             )
 
             # Emit all tool_started events FIRST (before parallel execution begins)
-            for tool_name in parallel_tools:
+            for tool_name in self.TOOLS:
                 yield event_mapper.create_tool_started_event(tool_name)
 
             # Create coroutines for all tools
             tool_coroutines = [
                 self._aexecute_single_tool(tool_name, request, context_params)
-                for tool_name in parallel_tools
+                for tool_name in self.TOOLS
             ]
 
             # Execute all tools concurrently using asyncio.gather
