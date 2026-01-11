@@ -105,6 +105,7 @@ class ProgressTimeline {
         // Agent events
         this.eventSource.addEventListener('agent_thinking', (e) => this.handleEvent('agent_thinking', e));
         this.eventSource.addEventListener('evaluation_started', (e) => this.handleEvent('evaluation_started', e));
+        this.eventSource.addEventListener('context_received', (e) => this.handleEvent('context_received', e));
 
         // Keep-alive (snake_case version to match backend)
         this.eventSource.addEventListener('keep_alive', (e) => this.handleKeepalive(e));
@@ -333,6 +334,7 @@ class ProgressTimeline {
             // Agent events
             'agent_thinking': { icon: 'cog', color: 'indigo' },
             'evaluation_started': { icon: 'scale', color: 'indigo' },
+            'context_received': { icon: 'document', color: 'blue' },
         };
 
         // Special handling for determination in complete events
@@ -371,6 +373,7 @@ class ProgressTimeline {
             // Agent events
             'agent_thinking': 'Agent is analyzing...',
             'evaluation_started': 'Generating final determination...',
+            'context_received': 'Alert context loaded',
         };
         return messages[type] || 'Processing...';
     }
@@ -620,6 +623,8 @@ class ProgressTimeline {
             'wifi': `<svg class="w-4 h-4 ${colorClass}" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M17.778 8.222c-4.296-4.296-11.26-4.296-15.556 0A1 1 0 01.808 6.808c5.076-5.077 13.308-5.077 18.384 0a1 1 0 01-1.414 1.414zM14.95 11.05a7 7 0 00-9.9 0 1 1 0 01-1.414-1.414 9 9 0 0112.728 0 1 1 0 01-1.414 1.414zM12.12 13.88a3 3 0 00-4.242 0 1 1 0 01-1.415-1.415 5 5 0 017.072 0 1 1 0 01-1.415 1.415zM9 16a1 1 0 011-1h.01a1 1 0 110 2H10a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>`,
             'arrow-right': `<svg class="w-4 h-4 ${colorClass}" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>`,
             'dot': `<svg class="w-4 h-4 ${colorClass}" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="4"/></svg>`,
+            'document': `<svg class="w-4 h-4 ${colorClass}" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"/></svg>`,
+            'scale': `<svg class="w-4 h-4 ${colorClass}" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1.323l3.954 1.582 1.599-.8a1 1 0 01.894 1.79l-1.233.616 1.738 5.42a1 1 0 01-.285 1.05A3.989 3.989 0 0115 15a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.285-1.05l1.715-5.349L11 6.477V16h2a1 1 0 110 2H7a1 1 0 110-2h2V6.477L6.237 7.582l1.715 5.349a1 1 0 01-.285 1.05A3.989 3.989 0 015 15a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.285-1.05l1.738-5.42-1.233-.617a1 1 0 01.894-1.788l1.599.799L9 4.323V3a1 1 0 011-1z" clip-rule="evenodd"/></svg>`,
         };
         return icons[icon] || icons['dot'];
     }
