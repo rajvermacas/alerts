@@ -7,43 +7,58 @@ injected into the analysis request.
 
 Key Models:
     - ToolInput: Container for tool-specific data with format validation
-    - AnalysisRequest: Main request model with all required tool data
+    - AnalysisRequest: Main request model with AlertContext and tool data
     - ErrorResponse: Standardized error response schema
+
+Architecture Change (AlertReaderTool Removal):
+    - alert_xml replaced with alert_context (structured AlertContext)
+    - alert_reader removed from REQUIRED_TOOLS_BY_AGENT
+    - Big Data Layer now parses XML and sends structured context
+    - See: .dev-resources/architecture/remove-alert-reader-tool.md
 
 Usage:
     from alerts.models.request import AnalysisRequest, ToolInput
+    from alerts.models.alert_context import InsiderTradingAlertContext
 
     request = AnalysisRequest(
-        alert_xml="<ALERT>...</ALERT>",
+        alert_context=InsiderTradingAlertContext(...),
         agent_type="insider_trading",
         tool_data={
-            "alert_reader": ToolInput(format="xml", data="<ALERT>..."),
             "market_news": ToolInput(format="txt", data="2024-01-15: ..."),
+            "market_data": ToolInput(format="csv", data="..."),
             ...
         }
     )
 """
 
 import logging
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
+
+# Forward reference imports for type checking
+# Runtime import is deferred to avoid circular imports
+from alerts.models.alert_context import (  # noqa: E402
+    InsiderTradingAlertContext,
+    WashTradeAlertContext,
+)
 
 logger = logging.getLogger(__name__)
 
 
 # Required tools for each agent type
 # These define the contract with the Big Data Layer
+# NOTE: alert_reader REMOVED - context now comes via alert_context field
 REQUIRED_TOOLS_BY_AGENT: Dict[str, List[str]] = {
     "insider_trading": [
-        "alert_reader",    # xml - parsed alert content
+        # alert_reader removed - context via AlertContext
         "market_news",     # txt - news timeline
         "market_data",     # csv - market conditions
         "trader_profile",  # csv - trader MNPI access
         "trader_history",  # csv - baseline behavior
     ],
     "wash_trade": [
-        "alert_reader",              # xml - parsed alert content
+        # alert_reader removed - context via AlertContext
         "market_data",               # csv - market conditions
         "account_relationships",     # csv - ownership network
         "related_accounts_history",  # csv - coordinated activity
@@ -53,8 +68,9 @@ REQUIRED_TOOLS_BY_AGENT: Dict[str, List[str]] = {
 }
 
 # Expected formats for each tool
+# NOTE: alert_reader REMOVED - context now comes via alert_context field
 TOOL_FORMATS: Dict[str, str] = {
-    "alert_reader": "xml",
+    # alert_reader removed - context via AlertContext
     "market_news": "txt",
     "market_data": "csv",
     "trader_profile": "csv",
@@ -115,24 +131,31 @@ class AnalysisRequest(BaseModel):
 
     This model represents the contract between the Big Data Layer and
     the Alert Analyzer. The Big Data Layer is responsible for:
-    1. Determining the agent_type from alert content
-    2. Aggregating all required data for each tool
-    3. Providing data in the correct format
+    1. Parsing alert XML into structured AlertContext
+    2. Determining the agent_type from alert content
+    3. Aggregating all required data for each tool
+    4. Providing data in the correct format
+
+    Architecture Change:
+        - alert_xml replaced with alert_context (structured AlertContext)
+        - Big Data Layer now parses XML before sending request
+        - Enables all tools to run in parallel (no blocking AlertReaderTool)
+        - See: .dev-resources/architecture/remove-alert-reader-tool.md
 
     The analyzer will fail-fast if any required tool data is missing
     or in the wrong format.
 
     Attributes:
-        alert_xml: Full XML content of the SMARTS alert
+        alert_context: Structured alert context parsed from XML by Big Data Layer
         agent_type: Type of analysis to perform (determined by Big Data Layer)
         tool_data: Pre-aggregated data for each tool, keyed by tool name
 
     Example:
+        >>> from alerts.models.alert_context import InsiderTradingAlertContext
         >>> request = AnalysisRequest(
-        ...     alert_xml="<ALERT>...</ALERT>",
+        ...     alert_context=InsiderTradingAlertContext(...),
         ...     agent_type="insider_trading",
         ...     tool_data={
-        ...         "alert_reader": ToolInput(format="xml", data="..."),
         ...         "market_news": ToolInput(format="txt", data="..."),
         ...         "market_data": ToolInput(format="csv", data="..."),
         ...         "trader_profile": ToolInput(format="csv", data="..."),
@@ -141,10 +164,14 @@ class AnalysisRequest(BaseModel):
         ... )
     """
 
-    alert_xml: str = Field(
+    # Import AlertContext at runtime to avoid circular imports
+    # Using Union[...] with Field for discriminated union support
+    alert_context: Union[
+        "InsiderTradingAlertContext", "WashTradeAlertContext"
+    ] = Field(
         ...,
-        description="Full XML content of the SMARTS alert",
-        min_length=1
+        description="Structured alert context parsed from XML by Big Data Layer",
+        discriminator="context_type",
     )
     agent_type: Literal["insider_trading", "wash_trade"] = Field(
         ...,
@@ -200,13 +227,28 @@ class AnalysisRequest(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "alert_xml": "<ALERT><RULE_ID>SMARTS-IT-001</RULE_ID></ALERT>",
+                    "alert_context": {
+                        "context_type": "insider_trading",
+                        "alert_id": "ITA-2024-001847",
+                        "alert_type": "Pre-Announcement Trading",
+                        "rule_violated": "MAR-03-001",
+                        "generated_timestamp": "2024-03-16T10:30:00Z",
+                        "trader": {
+                            "trader_id": "T001",
+                            "name": "John Smith",
+                            "department": "Operations"
+                        },
+                        "trade": {
+                            "symbol": "ACME",
+                            "trade_date": "2024-03-15",
+                            "side": "BUY",
+                            "quantity": 50000,
+                            "price": "101.50",
+                            "total_value": "5075000"
+                        }
+                    },
                     "agent_type": "insider_trading",
                     "tool_data": {
-                        "alert_reader": {
-                            "format": "xml",
-                            "data": "<ALERT>...</ALERT>"
-                        },
                         "market_news": {
                             "format": "txt",
                             "data": "2024-01-15: Company announces Q4 earnings"
