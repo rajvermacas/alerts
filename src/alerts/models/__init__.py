@@ -38,6 +38,15 @@ from alerts.models.request import (
     AgentType,
     DataFormat,
 )
+from alerts.models.alert_context import (
+    AlertContext,
+    InsiderTradingAlertContext,
+    WashTradeAlertContext,
+    Trader,
+    Trade,
+    RelatedEvent,
+    WashTradeFlaggedTrade,
+)
 
 __all__ = [
     # Base models
@@ -69,4 +78,12 @@ __all__ = [
     "TOOL_FORMATS",
     "AgentType",
     "DataFormat",
+    # Alert context models (structured XML data)
+    "AlertContext",
+    "InsiderTradingAlertContext",
+    "WashTradeAlertContext",
+    "Trader",
+    "Trade",
+    "RelatedEvent",
+    "WashTradeFlaggedTrade",
 ]
