@@ -1,36 +1,45 @@
 """Deterministic agent for Wash Trade Alert Analysis.
 
 This module implements the wash trade analyzer agent that orchestrates
-tool calls in a fixed order and produces the final determination for
-wash trade alerts.
+tool calls and produces the final determination for wash trade alerts.
 
 Supports both synchronous analyze() and async astream_analyze() for real-time streaming.
 
-Architecture:
+Tool Execution Strategy:
+- Sync (analyze_request): Sequential execution for CLI usage
+- Async (astream_analyze_request): PARALLEL execution using asyncio.gather()
+  for non-blocking operation in async server contexts (FastAPI/Starlette)
+
+Architecture Change (AlertReaderTool Removal):
+- alert_context received directly from request (no AlertReaderTool)
+- ALL 5 tools execute in parallel from the start (no blocking step)
+- context_received event emitted instead of alert_reader tool events
+- See: .dev-resources/architecture/remove-alert-reader-tool.md
+
+Architecture (Async Parallel Execution):
     ┌─────────────────────────────────────────────────────────┐
     │                    AnalysisRequest                       │
-    │  (alert_xml, agent_type, tool_data: Dict[str, ToolInput])│
+    │  (alert_context, agent_type, tool_data: Dict)            │
     └─────────────────────────────┬───────────────────────────┘
                                   │
                                   ▼
     ┌─────────────────────────────────────────────────────────┐
-    │                 WashTradeAnalyzerAgent                   │
-    │  ┌────────────────────────────────────────────────────┐ │
-    │  │  TOOL_ORDER = [                                     │ │
-    │  │    "alert_reader",                                  │ │
-    │  │    "market_data",                                   │ │
-    │  │    "account_relationships",                         │ │
-    │  │    "related_accounts_history",                      │ │
-    │  │    "trade_timing",                                  │ │
-    │  │    "counterparty_analysis",                         │ │
-    │  │  ]                                                  │ │
-    │  └────────────────────────────────────────────────────┘ │
+    │                  WashTradeAnalyzerAgent                  │
+    │                                                          │
+    │  Step 1: Read alert_context directly (NO tool, NO LLM)   │
+    │          Emit context_received event                     │
+    │          Compute date ranges internally                  │
     │                         │                                │
-    │       for tool_name in TOOL_ORDER:                       │
-    │           emit("tool_started", tool_name)                │
-    │           insight = tool.execute(data, format)           │
-    │           insights[tool_name] = insight                  │
-    │           emit("tool_completed", tool_name)              │
+    │                         ▼                                │
+    │  Step 2: ALL 5 tools execute in PARALLEL                 │
+    │          ┌──────────────┼──────────────┐                │
+    │          │              │              │                │
+    │          ▼              ▼              ▼                │
+    │    market_data  account_rels  related_hist              │
+    │          │              │              │                │
+    │          │     trade_timing    counterparty             │
+    │          │              │              │                │
+    │          └──────────────┼──────────────┘                │
     │                         │                                │
     │                         ▼                                │
     │              _synthesize(insights)                       │
@@ -41,19 +50,20 @@ Architecture:
                        WashTradeDecision
 """
 
+import asyncio
 import json
 import logging
-import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from alerts.a2a.event_mapper import EventMapper, StreamEvent
 from alerts.exceptions import MissingToolDataError
+from alerts.models.alert_context import WashTradeAlertContext
 from alerts.models.wash_trade import WashTradeDecision
-from alerts.models.request import AnalysisRequest, ToolInput
+from alerts.models.request import AnalysisRequest
 from alerts.reports.wash_trade_report import WashTradeHTMLReportGenerator
 from alerts.agents.wash_trade.prompts.system_prompt import (
     get_wash_trade_system_prompt,
@@ -61,7 +71,7 @@ from alerts.agents.wash_trade.prompts.system_prompt import (
     load_wash_trade_few_shot_examples,
 )
 from alerts.tools.common import (
-    AlertReaderTool,
+    # AlertReaderTool removed - context now comes via alert_context
     MarketDataTool,
 )
 from alerts.agents.wash_trade.tools import (
@@ -95,10 +105,10 @@ class WashTradeAnalyzerAgent:
         tool_instances: Dict mapping tool names to instances
     """
 
-    # Fixed order of tool execution - no LLM routing needed
+    # Tools to execute - all run in parallel (no order dependency)
+    # NOTE: read_alert REMOVED - context comes via request.alert_context
     # Note: trader_profile is NOT included for wash trade (per user decision)
-    TOOL_ORDER: List[str] = [
-        "read_alert",
+    TOOLS: List[str] = [
         "query_market_data",
         "account_relationships",
         "related_accounts_history",
@@ -138,10 +148,12 @@ class WashTradeAnalyzerAgent:
         # Initialize tool instances as a dict for name-based lookup
         self.tool_instances = self._create_tool_instances()
         self.logger.info(f"Created {len(self.tool_instances)} tool instances")
-        self.logger.info(f"Tool execution order: {self.TOOL_ORDER}")
+        self.logger.info(f"Tools (parallel execution): {self.TOOLS}")
 
     def _create_tool_instances(self) -> Dict[str, Any]:
         """Create instances of all analysis tools.
+
+        NOTE: AlertReaderTool REMOVED - context now comes via request.alert_context
 
         Returns:
             Dict mapping tool names to tool instances
@@ -149,8 +161,7 @@ class WashTradeAnalyzerAgent:
         data_dir_str = str(self.data_dir)
 
         tools = [
-            # Common tools
-            AlertReaderTool(self.llm, self.data_dir),
+            # Common tools (AlertReaderTool removed)
             MarketDataTool(self.llm, self.data_dir),
             # Wash trade specific tools
             AccountRelationshipsTool(self.llm, data_dir_str),
@@ -163,15 +174,17 @@ class WashTradeAnalyzerAgent:
     def _get_tool_data_key(self, tool_name: str) -> str:
         """Map internal tool names to AnalysisRequest tool_data keys.
 
+        NOTE: read_alert/alert_reader REMOVED - context via request.alert_context
+
         Args:
-            tool_name: Internal tool name (e.g., "read_alert")
+            tool_name: Internal tool name (e.g., "query_market_data")
 
         Returns:
-            Key to use in AnalysisRequest.tool_data (e.g., "alert_reader")
+            Key to use in AnalysisRequest.tool_data (e.g., "market_data")
         """
         # Map from internal tool names to request.tool_data keys
+        # NOTE: read_alert removed - context via AlertContext
         tool_key_map = {
-            "read_alert": "alert_reader",
             "query_market_data": "market_data",
             "account_relationships": "account_relationships",
             "related_accounts_history": "related_accounts_history",
@@ -180,133 +193,136 @@ class WashTradeAnalyzerAgent:
         }
         return tool_key_map.get(tool_name, tool_name)
 
-    @staticmethod
-    def parse_wash_trade_context(xml_content: str) -> Dict[str, Any]:
-        """Extract context parameters from wash trade alert XML for other tools.
+    def _build_context_params_from_alert(
+        self,
+        alert_context: WashTradeAlertContext,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Build per-tool context parameters from structured alert context.
 
-        Wash trade alerts have a different XML structure than insider trading alerts.
-        Key fields are nested under <FlaggedTrades>/<Trade> elements.
+        Computes date ranges internally (trade_date ± 30/7 days) and maps
+        the alert context to tool-specific parameters.
 
-        Args:
-            xml_content: Raw XML content of the wash trade alert
-
-        Returns:
-            Dict with keys:
-                - account_ids: List of account IDs involved (comma-separated string)
-                - symbol: Stock symbol being traded
-                - trade_date: Date of the suspicious trade (YYYY-MM-DD)
-                - trade1_timestamp: Timestamp of first trade
-                - trade2_timestamp: Timestamp of second trade
-                - trade_quantity: Quantity of shares traded
-                - start_date: 30 days before trade date (YYYY-MM-DD)
-                - end_date: 7 days after trade date (YYYY-MM-DD)
-
-        Raises:
-            ValueError: If required fields cannot be extracted from the XML
-        """
-        logger.debug("Parsing wash trade alert context from XML")
-
-        # Extract account IDs (may have multiple)
-        # Support both <AccountID> and <AccountId> variations
-        account_ids = re.findall(r'<AccountID>([^<]+)</AccountID>', xml_content, re.IGNORECASE)
-        if not account_ids:
-            logger.error("Could not extract AccountID from wash trade alert XML")
-            raise ValueError("Could not extract AccountID from wash trade alert XML")
-        # Join multiple account IDs for tools that need them
-        account_ids_str = ",".join([aid.strip() for aid in account_ids])
-        logger.debug(f"Extracted account_ids: {account_ids_str}")
-
-        # Extract symbol from first trade
-        symbol_match = re.search(r'<Symbol>([^<]+)</Symbol>', xml_content)
-        if not symbol_match:
-            logger.error("Could not extract Symbol from wash trade alert XML")
-            raise ValueError("Could not extract Symbol from wash trade alert XML")
-        symbol = symbol_match.group(1).strip()
-        logger.debug(f"Extracted symbol: {symbol}")
-
-        # Extract trade date from first trade
-        date_match = re.search(r'<TradeDate>([^<]+)</TradeDate>', xml_content)
-        if not date_match:
-            logger.error("Could not extract TradeDate from wash trade alert XML")
-            raise ValueError("Could not extract TradeDate from wash trade alert XML")
-        trade_date_str = date_match.group(1).strip()
-        logger.debug(f"Extracted trade_date: {trade_date_str}")
-
-        # Extract trade timestamps (for timing analysis)
-        timestamps = re.findall(r'<TradeTime>([^<]+)</TradeTime>', xml_content)
-        trade1_timestamp = timestamps[0] if len(timestamps) > 0 else ""
-        trade2_timestamp = timestamps[1] if len(timestamps) > 1 else ""
-        logger.debug(f"Extracted timestamps: {trade1_timestamp}, {trade2_timestamp}")
-
-        # Extract quantity from first trade
-        quantity_match = re.search(r'<Quantity>([^<]+)</Quantity>', xml_content)
-        trade_quantity = quantity_match.group(1).strip() if quantity_match else "Unknown"
-
-        # Parse trade date and compute date range
-        try:
-            trade_date = datetime.strptime(trade_date_str, "%Y-%m-%d")
-        except ValueError as e:
-            logger.error(f"Invalid trade date format: {trade_date_str}")
-            raise ValueError(f"Invalid trade date format '{trade_date_str}': {e}")
-
-        start_date = trade_date - timedelta(days=30)
-        end_date = trade_date + timedelta(days=7)
-
-        context = {
-            "account_ids": account_ids_str,
-            "symbol": symbol,
-            "trade_date": trade_date_str,
-            "trade1_timestamp": trade1_timestamp,
-            "trade2_timestamp": trade2_timestamp,
-            "trade_quantity": trade_quantity,
-            "start_date": start_date.strftime("%Y-%m-%d"),
-            "end_date": end_date.strftime("%Y-%m-%d"),
-        }
-
-        logger.info(
-            f"Parsed wash trade context: symbol={symbol}, accounts={account_ids_str}, "
-            f"date_range={context['start_date']} to {context['end_date']}"
-        )
-
-        return context
-
-    def _build_context_params(self, context: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-        """Build per-tool context parameters from wash trade alert context.
-
-        Maps the extracted alert context to the specific parameters each
-        wash trade tool requires in its _build_interpretation_prompt.
+        Architecture Change:
+        - Previously: parse_wash_trade_context() extracted from XML
+        - Now: Context comes pre-parsed via request.alert_context
+        - Date range computation moved from Big Data Layer to here
 
         Args:
-            context: Dict from parse_wash_trade_context()
+            alert_context: Structured WashTradeAlertContext from request
 
         Returns:
             Dict mapping tool names to their required kwargs
         """
+        # Get first trade for primary context (wash trades have multiple trades)
+        first_trade = alert_context.flagged_trades[0]
+        second_trade = alert_context.flagged_trades[1] if len(alert_context.flagged_trades) > 1 else None
+
+        # Extract key values
+        symbol = first_trade.symbol
+        trade_date = first_trade.trade_date
+        trade_quantity = str(first_trade.quantity)
+
+        # Extract account IDs from all flagged trades (comma-separated)
+        account_ids_set = {trade.account_id for trade in alert_context.flagged_trades}
+        account_ids_str = ",".join(sorted(account_ids_set))
+
+        # Extract trade timestamps
+        trade1_timestamp = first_trade.trade_time
+        trade2_timestamp = second_trade.trade_time if second_trade else ""
+
+        # Compute date range: trade_date - 30 days to trade_date + 7 days
+        start_date = trade_date - timedelta(days=30)
+        end_date = trade_date + timedelta(days=7)
+
+        # Format dates as strings for tool prompts
+        trade_date_str = trade_date.isoformat()
+        start_date_str = start_date.isoformat()
+        end_date_str = end_date.isoformat()
+
+        self.logger.debug(
+            f"Built context params: symbol={symbol}, accounts={account_ids_str}, "
+            f"trade_date={trade_date_str}, range={start_date_str} to {end_date_str}"
+        )
+
         return {
             "query_market_data": {
-                "symbol": context["symbol"],
-                "start_date": context["start_date"],
-                "end_date": context["end_date"],
+                "symbol": symbol,
+                "start_date": start_date_str,
+                "end_date": end_date_str,
             },
             "account_relationships": {
-                "account_ids": context["account_ids"],
+                "account_ids": account_ids_str,
             },
             "related_accounts_history": {
-                "account_ids": context["account_ids"],
-                "symbol": context["symbol"],
+                "account_ids": account_ids_str,
+                "symbol": symbol,
                 "time_window": "30d",
             },
             "trade_timing": {
-                "trade1_timestamp": context["trade1_timestamp"],
-                "trade2_timestamp": context["trade2_timestamp"],
-                "symbol": context["symbol"],
-                "trade_quantity": context["trade_quantity"],
+                "trade1_timestamp": trade1_timestamp,
+                "trade2_timestamp": trade2_timestamp,
+                "symbol": symbol,
+                "trade_quantity": trade_quantity,
             },
             "counterparty_analysis": {
                 # counterparty_analysis uses more complex 'trades' structure
                 # which is parsed from the full data, not just context
             },
         }
+
+    async def _aexecute_single_tool(
+        self,
+        tool_name: str,
+        request: AnalysisRequest,
+        context_params: Dict[str, Dict[str, Any]],
+    ) -> Tuple[str, str]:
+        """Execute a single tool asynchronously.
+
+        Used by astream_analyze_request() for parallel tool execution via
+        asyncio.gather(). Each coroutine executes independently using
+        the async aexecute() method which uses ainvoke() for non-blocking
+        LLM calls.
+
+        Args:
+            tool_name: Name of the tool to execute
+            request: AnalysisRequest containing all tool data
+            context_params: Dict mapping tool names to their context kwargs
+
+        Returns:
+            Tuple of (tool_name, insight) for result aggregation
+
+        Raises:
+            MissingToolDataError: If tool data is not found in request
+            ValueError: If tool instance is not found
+            Exception: If tool execution fails
+        """
+        tool_data_key = self._get_tool_data_key(tool_name)
+
+        self.logger.info(f"Async executing tool: {tool_name} (data key: {tool_data_key})")
+
+        # Get tool data from request
+        tool_input = request.tool_data.get(tool_data_key)
+        if tool_input is None:
+            raise MissingToolDataError(tool_data_key)
+
+        # Get tool instance
+        tool = self.tool_instances.get(tool_name)
+        if tool is None:
+            raise ValueError(f"Unknown tool: {tool_name}")
+
+        # Get context params for this tool (empty dict if not found)
+        tool_context = context_params.get(tool_name, {})
+        self.logger.debug(f"Tool {tool_name} context params: {tool_context}")
+
+        # Execute tool asynchronously (uses ainvoke for LLM)
+        insight = await tool.aexecute(
+            data=tool_input.data,
+            format=tool_input.format,
+            **tool_context,
+        )
+
+        self.logger.info(f"Async tool {tool_name} completed successfully")
+        return (tool_name, insight)
 
     def analyze_request(
         self,
@@ -315,12 +331,17 @@ class WashTradeAnalyzerAgent:
     ) -> WashTradeDecision:
         """Analyze an alert using the proactive info flow pattern.
 
-        This method uses data injected via AnalysisRequest instead of
-        loading data from files. It extracts context parameters from the
-        alert XML and passes them to each tool for proper prompt building.
+        This method uses data injected via AnalysisRequest. The alert context
+        is received pre-parsed, enabling all tools to execute without blocking.
+
+        Architecture Change (AlertReaderTool Removal):
+        - alert_context received directly from request (no AlertReaderTool)
+        - ALL 5 tools execute sequentially (sync mode)
+        - context_received event emitted instead of alert_reader tool events
+        - See: .dev-resources/architecture/remove-alert-reader-tool.md
 
         Args:
-            request: AnalysisRequest with alert_xml, agent_type, and tool_data
+            request: AnalysisRequest with alert_context, agent_type, and tool_data
             event_callback: Optional callback for emitting events
                            Signature: (event_type, tool_name, data) -> None
 
@@ -333,58 +354,51 @@ class WashTradeAnalyzerAgent:
         """
         start_time = datetime.now(timezone.utc)
 
+        # Type narrow: ensure we have WashTradeAlertContext
+        alert_context = request.alert_context
+        if not isinstance(alert_context, WashTradeAlertContext):
+            raise ValueError(
+                f"Expected WashTradeAlertContext, got {type(alert_context).__name__}"
+            )
+
+        # Extract account IDs for logging
+        account_ids = ",".join(
+            sorted({t.account_id for t in alert_context.flagged_trades})
+        )
+
         self.logger.info("=" * 60)
         self.logger.info("Starting deterministic wash trade analysis")
+        self.logger.info(f"Alert ID: {alert_context.alert_id}")
         self.logger.info(f"Agent type: {request.agent_type}")
         self.logger.info(f"Tool data keys: {list(request.tool_data.keys())}")
         self.logger.info("=" * 60)
 
         insights: Dict[str, str] = {}
 
-        # Step 1: Execute alert_reader first to extract context parameters
-        alert_tool_name = "read_alert"
-        alert_data_key = self._get_tool_data_key(alert_tool_name)
+        # Step 1: Read context directly from request (NO tool, NO LLM)
+        self.logger.info("Step 1: Reading alert context directly from request")
+        first_trade = alert_context.flagged_trades[0]
+        self.logger.info(
+            f"Alert context: symbol={first_trade.symbol}, "
+            f"accounts={account_ids}, "
+            f"trade_date={first_trade.trade_date}"
+        )
 
-        self.logger.info(f"Step 1: Executing {alert_tool_name} and extracting context")
-
-        alert_input = request.tool_data.get(alert_data_key)
-        if alert_input is None:
-            raise MissingToolDataError(alert_data_key)
-
-        # Emit tool started event for alert reader
+        # Emit context_received event (replaces alert_reader tool events)
         if event_callback:
-            event_callback("tool_started", alert_tool_name, None)
+            event_callback("context_received", "alert_context", {
+                "alert_id": alert_context.alert_id,
+                "account_ids": account_ids,
+                "symbol": first_trade.symbol,
+            })
 
-        alert_reader = self.tool_instances.get(alert_tool_name)
-        if alert_reader is None:
-            raise ValueError(f"Unknown tool: {alert_tool_name}")
+        # Step 2: Compute date ranges and build context params
+        self.logger.info("Step 2: Computing context parameters from alert")
+        context_params = self._build_context_params_from_alert(alert_context)
 
-        try:
-            alert_insight = alert_reader.execute(
-                data=alert_input.data,
-                format=alert_input.format,
-            )
-            insights[alert_tool_name] = alert_insight
-            self.logger.info(f"Tool {alert_tool_name} completed successfully")
-
-            if event_callback:
-                event_callback("tool_completed", alert_tool_name, {"insight_length": len(alert_insight)})
-
-        except Exception as e:
-            self.logger.error(f"Tool {alert_tool_name} failed: {e}")
-            if event_callback:
-                event_callback("tool_error", alert_tool_name, {"error": str(e)})
-            raise
-
-        # Step 2: Extract context parameters from wash trade alert XML for other tools
-        self.logger.info("Step 2: Extracting context parameters from wash trade alert XML")
-        context = self.parse_wash_trade_context(alert_input.data)
-        context_params = self._build_context_params(context)
-        self.logger.info(f"Extracted context: symbol={context['symbol']}, accounts={context['account_ids']}")
-
-        # Step 3: Execute remaining tools with context parameters
-        self.logger.info("Step 3: Executing remaining tools with context")
-        for tool_name in self.TOOL_ORDER[1:]:  # Skip alert_reader (already executed)
+        # Step 3: Execute ALL 5 tools with context parameters (sequential in sync mode)
+        self.logger.info(f"Step 3: Executing {len(self.TOOLS)} tools")
+        for tool_name in self.TOOLS:
             tool_data_key = self._get_tool_data_key(tool_name)
 
             self.logger.info(f"Executing tool: {tool_name} (data key: {tool_data_key})")
@@ -458,11 +472,17 @@ class WashTradeAnalyzerAgent:
         """Analyze an alert with streaming events using proactive info flow.
 
         This async generator yields StreamEvent objects as the analysis progresses,
-        enabling real-time progress updates to the client. It extracts context
-        parameters from the alert XML and passes them to each tool.
+        enabling real-time progress updates. The alert context is received
+        pre-parsed, enabling ALL 5 tools to execute in PARALLEL from the start.
+
+        Architecture Change (AlertReaderTool Removal):
+        - alert_context received directly from request (no AlertReaderTool)
+        - ALL 5 tools execute in PARALLEL using asyncio.gather()
+        - context_received event emitted instead of alert_reader tool events
+        - See: .dev-resources/architecture/remove-alert-reader-tool.md
 
         Args:
-            request: AnalysisRequest with alert_xml, agent_type, and tool_data
+            request: AnalysisRequest with alert_context, agent_type, and tool_data
             task_id: Task ID for event correlation
 
         Yields:
@@ -475,119 +495,93 @@ class WashTradeAnalyzerAgent:
         start_time = datetime.now(timezone.utc)
         event_mapper = EventMapper(task_id=task_id, agent_name="wash_trade")
 
+        # Type narrow: ensure we have WashTradeAlertContext
+        alert_context = request.alert_context
+        if not isinstance(alert_context, WashTradeAlertContext):
+            raise ValueError(
+                f"Expected WashTradeAlertContext, got {type(alert_context).__name__}"
+            )
+
+        # Extract account IDs for logging
+        account_ids = ",".join(
+            sorted({t.account_id for t in alert_context.flagged_trades})
+        )
+
         self.logger.info("=" * 60)
         self.logger.info("Starting streaming deterministic wash trade analysis")
         self.logger.info(f"Task ID: {task_id}")
+        self.logger.info(f"Alert ID: {alert_context.alert_id}")
         self.logger.info("=" * 60)
 
         # Emit analysis started event
         yield event_mapper.create_analysis_started_event("proactive_request")
 
         insights: Dict[str, str] = {}
-        context_params: Dict[str, Dict[str, Any]] = {}
 
         try:
-            # Step 1: Execute alert_reader first and extract context
-            alert_tool_name = "read_alert"
-            alert_data_key = self._get_tool_data_key(alert_tool_name)
+            # Step 1: Read context directly from request (NO tool, NO LLM)
+            self.logger.info("Step 1: Reading alert context directly from request")
+            first_trade = alert_context.flagged_trades[0]
+            self.logger.info(
+                f"Alert context: symbol={first_trade.symbol}, "
+                f"accounts={account_ids}, "
+                f"trade_date={first_trade.trade_date}"
+            )
 
-            self.logger.info(f"Step 1: Executing {alert_tool_name} and extracting context")
+            # Emit context_received event (replaces alert_reader tool events)
+            yield event_mapper.create_context_received_event(
+                alert_id=alert_context.alert_id,
+                account_ids=account_ids,
+                symbol=first_trade.symbol,
+            )
 
-            alert_input = request.tool_data.get(alert_data_key)
-            if alert_input is None:
-                error_event = event_mapper.create_error_event(
-                    f"Missing tool data: {alert_data_key}",
-                    stage="tool_execution",
-                    fatal=True,
-                )
-                yield error_event
-                raise MissingToolDataError(alert_data_key)
+            # Step 2: Compute date ranges and build context params
+            self.logger.info("Step 2: Computing context parameters from alert")
+            context_params = self._build_context_params_from_alert(alert_context)
 
-            yield event_mapper.create_tool_started_event(alert_tool_name)
+            # Step 3: Execute ALL 5 tools in PARALLEL (no blocking step!)
+            self.logger.info(
+                f"Step 3: Executing {len(self.TOOLS)} tools in parallel: {self.TOOLS}"
+            )
 
-            alert_reader = self.tool_instances.get(alert_tool_name)
-            if alert_reader is None:
-                raise ValueError(f"Unknown tool: {alert_tool_name}")
+            # Emit all tool_started events FIRST (before parallel execution begins)
+            for tool_name in self.TOOLS:
+                yield event_mapper.create_tool_started_event(tool_name)
 
-            try:
-                alert_insight = alert_reader.execute(
-                    data=alert_input.data,
-                    format=alert_input.format,
-                )
-                insights[alert_tool_name] = alert_insight
+            # Create coroutines for all tools
+            tool_coroutines = [
+                self._aexecute_single_tool(tool_name, request, context_params)
+                for tool_name in self.TOOLS
+            ]
 
-                yield event_mapper.create_tool_completed_event(
-                    alert_tool_name,
-                    summary=alert_insight[:200] + "..." if len(alert_insight) > 200 else alert_insight
-                )
+            # Execute all tools concurrently using asyncio.gather
+            # return_exceptions=True ensures all coroutines complete even if some fail
+            results = await asyncio.gather(*tool_coroutines, return_exceptions=True)
 
-            except Exception as e:
-                self.logger.error(f"Tool {alert_tool_name} failed: {e}")
-                yield event_mapper.create_error_event(
-                    str(e),
-                    stage=f"tool_{alert_tool_name}",
-                    fatal=True,
-                )
-                raise
-
-            # Step 2: Extract context parameters from wash trade alert XML
-            self.logger.info("Step 2: Extracting context parameters from wash trade alert XML")
-            context = self.parse_wash_trade_context(alert_input.data)
-            context_params = self._build_context_params(context)
-            self.logger.info(f"Extracted context: symbol={context['symbol']}, accounts={context['account_ids']}")
-
-            # Step 3: Execute remaining tools with context parameters
-            self.logger.info("Step 3: Executing remaining tools with context")
-            for tool_name in self.TOOL_ORDER[1:]:  # Skip alert_reader (already executed)
-                tool_data_key = self._get_tool_data_key(tool_name)
-
-                self.logger.info(f"Executing tool: {tool_name}")
-
-                # Get tool data from request
-                tool_input = request.tool_data.get(tool_data_key)
-                if tool_input is None:
-                    error_event = event_mapper.create_error_event(
-                        f"Missing tool data: {tool_data_key}",
+            # Process results and emit completion events
+            # Check for exceptions first (fail-fast behavior)
+            for result in results:
+                if isinstance(result, BaseException):
+                    self.logger.error(f"Tool execution failed: {result}")
+                    yield event_mapper.create_error_event(
+                        str(result),
                         stage="tool_execution",
                         fatal=True,
                     )
-                    yield error_event
-                    raise MissingToolDataError(tool_data_key)
+                    raise result
 
-                # Emit tool started event
-                yield event_mapper.create_tool_started_event(tool_name)
+            # All tools succeeded - collect insights and emit completion events
+            # Type narrowing: after exception check, results are all Tuple[str, str]
+            for tool_result in results:
+                # Cast is safe here since we've checked for exceptions above
+                tool_name, insight = tool_result  # type: ignore[misc]
+                insights[tool_name] = insight
+                self.logger.info(f"Tool {tool_name} completed with {len(insight)} chars")
 
-                # Get tool instance and execute
-                tool = self.tool_instances.get(tool_name)
-                if tool is None:
-                    raise ValueError(f"Unknown tool: {tool_name}")
-
-                # Get context params for this tool
-                tool_context = context_params.get(tool_name, {})
-                self.logger.debug(f"Tool {tool_name} context params: {tool_context}")
-
-                try:
-                    insight = tool.execute(
-                        data=tool_input.data,
-                        format=tool_input.format,
-                        **tool_context,  # Pass context parameters to tool
-                    )
-                    insights[tool_name] = insight
-
-                    # Emit tool completed event
-                    yield event_mapper.create_tool_completed_event(
-                        tool_name,
-                        summary=insight[:200] + "..." if len(insight) > 200 else insight
-                    )
-
-                except Exception as e:
-                    self.logger.error(f"Tool {tool_name} failed: {e}")
-                    yield event_mapper.create_error_event(
-                        str(e),
-                        stage=f"tool_{tool_name}",
-                        fatal=True,
-                    )
-                    raise
+                yield event_mapper.create_tool_completed_event(
+                    tool_name,
+                    summary=insight[:200] + "..." if len(insight) > 200 else insight
+                )
 
             # Emit evaluation started event
             yield event_mapper.create_evaluation_started_event()
