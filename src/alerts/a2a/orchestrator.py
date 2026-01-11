@@ -527,7 +527,7 @@ class OrchestratorAgent:
         in the request, so no type detection is needed.
 
         Args:
-            request: AnalysisRequest with alert_xml, agent_type, and tool_data
+            request: AnalysisRequest with alert_context, agent_type, and tool_data
 
         Returns:
             Dictionary containing the analysis result

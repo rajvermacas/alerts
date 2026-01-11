@@ -43,16 +43,22 @@ User/Browser → Orchestrator (10000) → IT Agent (10001) / WT Agent (10002) �
 - IT: Keywords `insider|pre-announcement|mnpi`, rule codes `SMARTS-IT-*|SMARTS-PAT-*`
 - WT: Keywords `wash|self-trade|circular`, rule codes `SMARTS-WT-*|WT-*|WASH_TRADE`
 
-### Proactive Data Flow (New Architecture)
+### Proactive Data Flow (AlertContext Architecture)
 
 ```
 BigDataSimulator → AnalysisRequest → Agent → Tools (parallel execution)
-                   (mock/POC)        (all data injected)
+  (mock/POC)          ↓                 ↓
+Parse XML to      alert_context   Read context directly
+AlertContext      (structured)    (no tool, no LLM)
+                     +
+                  tool_data
+                (pre-aggregated)
 ```
 
 **Key Components**:
-- `BigDataSimulator` (POC): Reads test_data/ files, creates `AnalysisRequest`
-- `AnalysisRequest`: Contains alert XML + all tool data pre-aggregated
+- `BigDataSimulator` (POC): Parses XML → structured `AlertContext`, loads tool data
+- `AnalysisRequest`: Contains `alert_context` (structured) + all tool data pre-aggregated
+- `AlertContext`: Discriminated union (`InsiderTradingAlertContext` | `WashTradeAlertContext`)
 - `ToolInput`: Format + data for each tool
 - Tools: Receive data via `execute(data, format)` - no file loading
 
@@ -61,20 +67,29 @@ BigDataSimulator → AnalysisRequest → Agent → Tools (parallel execution)
 2. Tool LLM interprets raw data → insights
 3. Agent LLM reasons over insights → decision
 
-**Common Tools** (all agents): `alert_reader`, `trader_profile`, `market_data`
+**Common Tools** (all agents): `trader_profile`, `market_data`
 **IT Tools**: `trader_history`, `market_news`
 **WT Tools**: `account_relationships`, `related_accounts_history`, `trade_timing`, `counterparty_analysis`
+
+**Note**: `AlertReaderTool` was removed - alert context is now parsed by Big Data Layer into structured `AlertContext` before reaching agents.
 
 ### Event Streaming (SSE)
 
 ```
 Browser EventSource → Frontend proxy → Orchestrator → Agent → LangGraph
                                        ↓ SSE events
-tool_started → tool_progress → tool_completed → analysis_complete
+context_received → tool_started → tool_progress → tool_completed → analysis_complete
 ```
 
 **Event Mapper**: `a2a/event_mapper.py` - LangGraph → A2A conversion
 **Frontend**: `static/js/streaming.js`, `dag-visualization.js`
+
+**Event Flow**:
+1. `context_received` - Alert context loaded (replaces old `alert_reader` tool events)
+2. `tool_started` - Tool execution begins (all tools run in parallel)
+3. `tool_progress` - Tool processing updates
+4. `tool_completed` - Tool execution finished
+5. `analysis_complete` - Final decision ready
 
 ---
 
@@ -88,6 +103,7 @@ src/alerts/
 ├── exceptions.py               # MissingToolDataError, InvalidFormatError
 ├── models/
 │   ├── base.py                 # BaseAlertDecision
+│   ├── alert_context.py        # AlertContext models (IT/WT structured context)
 │   ├── insider_trading.py      # InsiderTradingDecision (11 fields)
 │   ├── wash_trade.py           # WashTradeDecision (14 fields)
 │   └── request.py              # AnalysisRequest, ToolInput (proactive flow)
@@ -100,11 +116,10 @@ src/alerts/
 │       ├── agent.py            # WashTradeAnalyzerAgent
 │       ├── prompts/system_prompt.py
 │       └── tools/              # 4 WT-specific tools
-├── tools/common/               # 3 shared tools
+├── tools/common/               # Shared tools (2 tools)
 │   ├── base.py                 # BaseTool (LLM + streaming)
-│   ├── alert_reader.py
-│   ├── trader_profile.py
-│   └── market_data.py
+│   ├── trader_profile.py       # Trader MNPI access analysis
+│   └── market_data.py          # Market conditions analysis
 ├── reports/
 │   ├── html_generator.py       # IT HTML (Tailwind CSS)
 │   ├── wash_trade_report.py    # WT HTML + network graph
