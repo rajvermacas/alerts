@@ -242,3 +242,85 @@ export function renderCardsIntoResults(cards) {
 
     logger.info('rendered cards', { count: Object.keys(obj).length });
 }
+
+function createExpandableGraphContainer(cardKey, patternGraph) {
+    const graphId = `pattern-graph-${cardKey}`;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'mt-4';
+
+    const button = document.createElement('button');
+    button.className = 'flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors';
+    button.innerHTML = `
+        <svg class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+        <span>View Pattern Graph</span>
+    `;
+
+    const graphContainer = document.createElement('div');
+    graphContainer.id = graphId;
+    graphContainer.className = 'hidden mt-4 h-64 border border-gray-200 rounded-lg bg-gray-50';
+    graphContainer.dataset.patternGraph = JSON.stringify(patternGraph);
+
+    let expanded = false;
+    button.addEventListener('click', () => {
+        expanded = !expanded;
+        graphContainer.classList.toggle('hidden', !expanded);
+        button.querySelector('svg').style.transform = expanded ? 'rotate(90deg)' : '';
+        button.querySelector('span').textContent = expanded ? 'Hide Pattern Graph' : 'View Pattern Graph';
+
+        if (expanded && !graphContainer.dataset.initialized) {
+            graphContainer.dataset.initialized = 'true';
+            window.dispatchEvent(new CustomEvent('initPatternGraph', {
+                detail: { containerId: graphId, spec: patternGraph }
+            }));
+        }
+    });
+
+    wrapper.appendChild(button);
+    wrapper.appendChild(graphContainer);
+    return wrapper;
+}
+
+function renderAnalysisCard(key, cardData) {
+    const card = document.createElement('div');
+    card.className = 'bg-white rounded-lg shadow-md p-6';
+
+    const h3 = document.createElement('h3');
+    h3.className = 'text-lg font-semibold text-gray-900 mb-3';
+    h3.textContent = cardData.title;
+    card.appendChild(h3);
+
+    const summary = document.createElement('p');
+    summary.className = 'text-gray-700 text-sm';
+    summary.textContent = cardData.summary;
+    card.appendChild(summary);
+
+    if (cardData.patternGraph) {
+        card.appendChild(createExpandableGraphContainer(key, cardData.patternGraph));
+    }
+
+    return card;
+}
+
+export function renderAnalysisCards(analysisCards) {
+    const results = requireElementById('results-section');
+    if (!analysisCards || typeof analysisCards !== 'object') {
+        throw new Error('cards_renderer: analysisCards (object) is required');
+    }
+
+    const order = ['newsAnalysis', 'pnlAnalysis', 'clientRiskAnalysis', 'traderHistoryAnalysis'];
+
+    order.forEach((key) => {
+        if (!analysisCards[key]) {
+            throw new Error(`cards_renderer: analysisCards.${key} is required`);
+        }
+        const cardData = analysisCards[key];
+        if (!cardData.title || !cardData.summary) {
+            throw new Error(`cards_renderer: analysisCards.${key} must have title and summary`);
+        }
+        results.appendChild(renderAnalysisCard(key, cardData));
+    });
+
+    logger.info('rendered analysis cards', { count: order.length });
+}
