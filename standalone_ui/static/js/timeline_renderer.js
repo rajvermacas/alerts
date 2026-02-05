@@ -83,7 +83,7 @@ function createOutputSummaryElement(summary, durationSeconds) {
     }
 
     const details = document.createElement('details');
-    details.className = 'mt-2 bg-gray-50 rounded-md px-3 py-2 border border-gray-200';
+    details.className = 'mt-2 bg-gray-50 rounded-md px-3 py-2 border border-gray-200 interactive-details';
 
     const summaryEl = document.createElement('summary');
     summaryEl.className = 'cursor-pointer text-xs font-medium text-gray-700 flex items-center gap-2 select-none';
@@ -168,14 +168,14 @@ export class TimelineRenderer {
 
         if (eventInfo.toolName) {
             const toolBadge = document.createElement('span');
-            toolBadge.className = 'text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono';
+            toolBadge.className = 'text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono interactive-badge interactive-badge-tool';
             toolBadge.textContent = eventInfo.toolName;
             meta.appendChild(toolBadge);
         }
 
         if (eventInfo.agentName) {
             const agentBadge = document.createElement('span');
-            agentBadge.className = 'text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded';
+            agentBadge.className = 'text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded interactive-badge interactive-badge-agent';
             agentBadge.textContent = eventInfo.agentName;
             meta.appendChild(agentBadge);
         }
