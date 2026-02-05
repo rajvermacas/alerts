@@ -115,37 +115,61 @@ function renderRelationshipNetworkIfPresent(graphs) {
     initRelationshipNetwork('cytoscape-container', rn);
 }
 
-async function runDemo() {
-    const stopElapsed = startElapsedTimer();
-
+async function initDemo() {
     try {
         const spec = await loadSpecFromDom();
         setPageHeader(spec.page);
 
         const timeline = new TimelineRenderer();
-        const dag = new DAGRenderer(spec.executionFlow);
 
+        // State for playback
+        let stopElapsed = null;
+
+        // Callback when Start node is clicked
+        const onStartClick = async () => {
+            stopElapsed = startElapsedTimer();
+            const status = requireElementById('loading-status');
+            status.textContent = 'Playing demo timeline…';
+
+            try {
+                for (let i = 0; i < spec.timeline.events.length; i += 1) {
+                    const evt = spec.timeline.events[i];
+                    await sleep(evt.delayMs);
+                    timeline.addEvent(evt);
+                    dag.handleEvent(evt);
+                }
+
+                stopElapsed();
+                setHeaderComplete();
+
+                showResults();
+                renderCardsIntoResults(spec.cards);
+                renderRelationshipNetworkIfPresent(spec.graphs);
+
+                logger.info('demo complete');
+            } catch (err) {
+                if (stopElapsed) {
+                    stopElapsed();
+                }
+                logger.error('demo playback failed', err);
+                showError(err);
+                throw err;
+            }
+        };
+
+        // Initialize DAG with the start callback
+        const dag = new DAGRenderer(spec.executionFlow, onStartClick);
+
+        // Update status to indicate ready state
         const status = requireElementById('loading-status');
-        status.textContent = 'Playing demo timeline…';
+        status.textContent = 'Click "Start" in the execution flow to begin.';
 
-        for (let i = 0; i < spec.timeline.events.length; i += 1) {
-            const evt = spec.timeline.events[i];
-            await sleep(evt.delayMs);
-            timeline.addEvent(evt);
-            dag.handleEvent(evt);
-        }
+        const headerTitle = requireElementById('timeline-header-title');
+        headerTitle.textContent = 'Ready to start';
 
-        stopElapsed();
-        setHeaderComplete();
-
-        showResults();
-        renderCardsIntoResults(spec.cards);
-        renderRelationshipNetworkIfPresent(spec.graphs);
-
-        logger.info('demo complete');
+        logger.info('demo initialized, waiting for start click');
     } catch (err) {
-        stopElapsed();
-        logger.error('demo failed', err);
+        logger.error('demo init failed', err);
         showError(err);
         throw err;
     }
@@ -157,4 +181,4 @@ function bindReload() {
 }
 
 bindReload();
-runDemo();
+initDemo();

@@ -25,6 +25,8 @@ const STATES = {
     ERROR: 'error',
 };
 
+const FADE_DURATION_MS = 300;
+
 function assertNonEmptyString(value, path) {
     if (typeof value !== 'string' || value.trim().length === 0) {
         throw new Error(`dag_renderer: ${path} (non-empty string) is required`);
@@ -90,10 +92,18 @@ function validateExecutionFlow(flowSpec) {
 }
 
 export class DAGRenderer {
-    constructor(executionFlowSpec) {
+    constructor(executionFlowSpec, onStartClick) {
+        if (typeof onStartClick !== 'function') {
+            throw new Error('dag_renderer: onStartClick callback (function) is required');
+        }
         this.container = requireElementById('dag-container');
         this.cy = null;
         this._executionFlow = validateExecutionFlow(executionFlowSpec);
+        this._onStartClick = onStartClick;
+        this._playbackStarted = false;
+        this._revealedNodes = new Set();
+        this._startNodeId = this._findStartNodeId();
+        this._startNodeNaturalPosition = null;
         this.nodeResults = new Map(); // nodeId -> { title, outputSummary, durationSeconds }
         this.isMaximized = false;
         this.backdrop = null;
@@ -102,6 +112,14 @@ export class DAGRenderer {
         this._initGraph(this._executionFlow);
         this._bindControls();
         logger.info('initialized');
+    }
+
+    _findStartNodeId() {
+        const startNode = this._executionFlow.nodes.find((n) => n.kind === 'start');
+        if (!startNode) {
+            throw new Error('dag_renderer: executionFlow must have a node with kind="start"');
+        }
+        return startNode.id;
     }
 
     handleEvent(eventInfo) {
@@ -117,6 +135,45 @@ export class DAGRenderer {
         if (event.dagNodeId && event.outputSummary) {
             this._storeNodeResult(event.dagNodeId, event.toolName || event.dagNodeId, event.outputSummary, event.durationSeconds);
         }
+    }
+
+    _revealNode(nodeId) {
+        if (this._revealedNodes.has(nodeId)) {
+            return Promise.resolve();
+        }
+
+        const node = this.cy.$(`#${nodeId}`);
+        if (node.length === 0) {
+            throw new Error(`dag_renderer: cannot reveal unknown node '${nodeId}'`);
+        }
+
+        this._revealedNodes.add(nodeId);
+        logger.debug('revealing node', { nodeId });
+
+        // Reveal incoming edges (only from already-revealed source nodes)
+        const incomingEdges = node.incomers('edge').filter((edge) => {
+            const sourceId = edge.data('source');
+            return this._revealedNodes.has(sourceId);
+        });
+
+        // Remove hidden class so edges can receive state updates
+        incomingEdges.removeClass('hidden-edge');
+
+        // Animate node and edges fade in
+        return new Promise((resolve) => {
+            node.animate(
+                { style: { opacity: 1 } },
+                { duration: FADE_DURATION_MS, easing: 'ease-out' }
+            );
+            incomingEdges.animate(
+                { style: { opacity: 1 } },
+                { duration: FADE_DURATION_MS, easing: 'ease-out', complete: resolve }
+            );
+            // If no incoming edges, resolve after node animation
+            if (incomingEdges.length === 0) {
+                setTimeout(resolve, FADE_DURATION_MS);
+            }
+        });
     }
 
     resetLayout() {
@@ -152,20 +209,33 @@ export class DAGRenderer {
 
     _initGraph(executionFlowSpec) {
         const cytoscape = requireCytoscape();
-        const nodes = executionFlowSpec.nodes.map((n) => ({
-            data: { id: n.id, label: n.label, kind: n.kind },
-            classes: `node kind-${n.kind} ${STATES.PENDING}`,
-        }));
+        const startId = this._startNodeId;
+
+        const nodes = executionFlowSpec.nodes.map((n) => {
+            const isStart = n.id === startId;
+            return {
+                data: {
+                    id: n.id,
+                    label: isStart ? 'Click to Start' : n.label,
+                    originalLabel: n.label,
+                    kind: n.kind,
+                },
+                classes: isStart
+                    ? `node kind-${n.kind} ${STATES.PENDING} clickable-start`
+                    : `node kind-${n.kind} ${STATES.PENDING} hidden-node`,
+            };
+        });
+
         const edges = executionFlowSpec.edges.map((e) => ({
             data: { id: e.id, source: e.source, target: e.target },
-            classes: `edge ${STATES.PENDING}`,
+            classes: `edge ${STATES.PENDING} hidden-edge`,
         }));
 
         this.cy = cytoscape({
             container: this.container,
             elements: { nodes, edges },
             style: this._styles(),
-            layout: this._layoutConfig(),
+            layout: { name: 'preset' }, // Start with preset (no positions yet)
             userZoomingEnabled: true,
             userPanningEnabled: true,
             boxSelectionEnabled: false,
@@ -174,18 +244,62 @@ export class DAGRenderer {
             maxZoom: 3,
         });
 
-        this.cy.on('tap', 'node', (evt) => this._handleNodeClick(evt.target.data()));
+        this.cy.on('tap', 'node', (evt) => this._handleNodeClick(evt.target));
 
-        logger.info('graph initialized');
+        // Mark start node as revealed
+        this._revealedNodes.add(startId);
+
+        // Run dagre layout, store natural position, then center start node
+        const layout = this.cy.layout(this._layoutConfig());
+        layout.run();
+
+        const startNode = this.cy.$(`#${startId}`);
+        this._startNodeNaturalPosition = { ...startNode.position() };
+
+        // Center start node immediately (before browser paints)
+        this.cy.center(startNode);
+
+        logger.info('graph initialized with hidden nodes');
     }
 
-    _handleNodeClick(nodeData) {
-        if (!nodeData) {
-            throw new Error('dag_renderer: nodeData is required');
+    _handleNodeClick(node) {
+        if (!node) {
+            throw new Error('dag_renderer: node is required');
         }
+        const nodeData = node.data();
         const id = nodeData.id;
         if (!id) {
             throw new Error('dag_renderer: nodeData.id is required');
+        }
+
+        // Handle start node click to begin playback
+        if (id === this._startNodeId && !this._playbackStarted) {
+            this._playbackStarted = true;
+            node.removeClass('clickable-start');
+            node.data('label', nodeData.originalLabel);
+            logger.info('start node clicked, animating to position');
+
+            // Animate node from center to natural left position
+            node.animate(
+                { position: this._startNodeNaturalPosition },
+                {
+                    duration: 500,
+                    easing: 'ease-in-out',
+                    complete: () => {
+                        // Fit graph into view, then start playback
+                        this.cy.animate({
+                            fit: { eles: this.cy.elements(), padding: 30 }
+                        }, {
+                            duration: 300,
+                            complete: () => {
+                                logger.info('animation complete, triggering playback');
+                                this._onStartClick();
+                            }
+                        });
+                    }
+                }
+            );
+            return;
         }
 
         const result = this.nodeResults.get(id);
@@ -213,9 +327,10 @@ export class DAGRenderer {
                     'width': 120,
                     'height': 54,
                     'shape': 'round-rectangle',
+                    'opacity': 1,
                 },
             },
-            { selector: 'edge', style: { 'width': 2, 'line-color': '#CBD5E1', 'target-arrow-shape': 'triangle', 'target-arrow-color': '#CBD5E1', 'curve-style': 'bezier' } },
+            { selector: 'edge', style: { 'width': 2, 'line-color': '#CBD5E1', 'target-arrow-shape': 'triangle', 'target-arrow-color': '#CBD5E1', 'curve-style': 'bezier', 'opacity': 1 } },
             { selector: 'edge.pending', style: { 'line-color': '#CBD5E1', 'target-arrow-color': '#CBD5E1' } },
             { selector: 'edge.active', style: { 'line-color': '#DC2626', 'target-arrow-color': '#DC2626' } },
             { selector: 'edge.completed', style: { 'line-color': '#10B981', 'target-arrow-color': '#10B981' } },
@@ -228,6 +343,11 @@ export class DAGRenderer {
             { selector: '.kind-start', style: { 'shape': 'ellipse', 'width': 88, 'height': 44, 'font-size': '10px', 'text-max-width': 78 } },
             { selector: '.kind-complete', style: { 'shape': 'ellipse', 'width': 96, 'height': 44, 'font-size': '10px', 'text-max-width': 86 } },
             { selector: '.kind-evaluation', style: { 'shape': 'diamond', 'width': 72, 'height': 72, 'font-size': '9px', 'text-max-width': 66 } },
+            // Hidden nodes and edges (initially invisible)
+            { selector: '.hidden-node', style: { 'opacity': 0, 'events': 'no' } },
+            { selector: '.hidden-edge', style: { 'opacity': 0 } },
+            // Clickable start node styling
+            { selector: '.clickable-start', style: { 'border-width': 2, 'border-color': '#DC2626', 'cursor': 'pointer' } },
         ];
     }
 
@@ -261,6 +381,11 @@ export class DAGRenderer {
         }
 
         this.cy.edges().forEach((edge) => {
+            // Skip hidden edges (not yet revealed)
+            if (edge.hasClass('hidden-edge')) {
+                return;
+            }
+
             const sourceId = edge.data('source');
             const targetId = edge.data('target');
             const source = this.cy.$(`#${sourceId}`);
@@ -295,10 +420,10 @@ export class DAGRenderer {
         return STATES.PENDING;
     }
 
-    _applyDagUpdates(updates) {
+    async _applyDagUpdates(updates) {
         const list = assertArray(updates, 'eventInfo.dagUpdates');
-        list.forEach((u, idx) => {
-            const update = assertObject(u, `eventInfo.dagUpdates[${idx}]`);
+        for (let idx = 0; idx < list.length; idx += 1) {
+            const update = assertObject(list[idx], `eventInfo.dagUpdates[${idx}]`);
             const nodeId = assertNonEmptyString(update.nodeId, `eventInfo.dagUpdates[${idx}].nodeId`);
             const state = assertEnum(update.state, `eventInfo.dagUpdates[${idx}].state`, [
                 STATES.PENDING,
@@ -306,8 +431,16 @@ export class DAGRenderer {
                 STATES.COMPLETED,
                 STATES.ERROR,
             ]);
+
+            // Reveal node if not yet revealed (fade in)
+            if (!this._revealedNodes.has(nodeId)) {
+                const node = this.cy.$(`#${nodeId}`);
+                node.removeClass('hidden-node');
+                await this._revealNode(nodeId);
+            }
+
             this._setNodeState(nodeId, state);
-        });
+        }
     }
 
     _storeNodeResult(nodeId, title, outputSummary, durationSeconds) {

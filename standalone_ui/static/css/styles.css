@@ -345,3 +345,17 @@
     border-radius: 8px 8px 0 0;
     border-bottom: 1px solid #E5E7EB;
 }
+
+/* Clickable start node pulse animation (used by Cytoscape via border-color) */
+@keyframes start-node-pulse {
+    0%, 100% {
+        border-color: #DC2626;
+    }
+    50% {
+        border-color: #FCA5A5;
+    }
+}
+
+/* Note: The actual pulse effect is handled in Cytoscape styles in dag_renderer.js
+   since Cytoscape manages its own canvas-based rendering. This CSS keyframe
+   is kept for reference if needed for HTML-based elements. */
