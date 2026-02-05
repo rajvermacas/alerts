@@ -22,10 +22,10 @@ export function showToast(message, type) {
     const toast = document.createElement('div');
 
     const colors = {
-        info: 'bg-blue-500',
-        success: 'bg-green-500',
-        error: 'bg-red-500',
-        warning: 'bg-yellow-500',
+        info: 'bg-gray-700',
+        success: 'bg-gray-800',
+        error: 'bg-red-600',
+        warning: 'bg-gray-600',
     };
 
     const colorClass = colors[type];

@@ -74,7 +74,7 @@ function renderBulletList(items) {
 
 function renderJsonBlock(value) {
     const pre = document.createElement('pre');
-    pre.className = 'bg-gray-900 text-green-200 p-4 rounded-lg text-xs overflow-x-auto';
+    pre.className = 'bg-gray-900 text-gray-200 p-4 rounded-lg text-xs overflow-x-auto';
     pre.textContent = JSON.stringify(value, null, 2);
     return pre;
 }
@@ -143,12 +143,13 @@ function renderConfidenceScoresCard(value) {
 
     const barColors = {
         red: 'bg-red-500',
-        green: 'bg-green-500',
-        blue: 'bg-blue-500',
-        yellow: 'bg-yellow-500',
-        indigo: 'bg-indigo-500',
-        purple: 'bg-purple-500',
+        green: 'bg-gray-700',
+        blue: 'bg-red-500',
+        yellow: 'bg-gray-500',
+        indigo: 'bg-gray-600',
+        purple: 'bg-gray-600',
         gray: 'bg-gray-500',
+        black: 'bg-black',
     };
 
     const container = document.createElement('div');

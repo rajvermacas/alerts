@@ -11,7 +11,7 @@ function requireElementById(id) {
 }
 
 function requireSupportedColor(color) {
-    const supported = new Set(['blue', 'green', 'red', 'yellow', 'gray', 'purple', 'indigo']);
+    const supported = new Set(['blue', 'green', 'red', 'yellow', 'gray', 'purple', 'indigo', 'black']);
     if (!supported.has(color)) {
         throw new Error(`timeline_renderer: unsupported color '${color}'`);
     }
@@ -21,26 +21,28 @@ function requireSupportedColor(color) {
 function getIconBgClass(color) {
     requireSupportedColor(color);
     return {
-        blue: 'bg-blue-100',
-        green: 'bg-green-100',
+        blue: 'bg-red-100',
+        green: 'bg-gray-200',
         red: 'bg-red-100',
-        yellow: 'bg-yellow-100',
+        yellow: 'bg-gray-100',
         gray: 'bg-gray-100',
-        purple: 'bg-purple-100',
-        indigo: 'bg-indigo-100',
+        purple: 'bg-gray-200',
+        indigo: 'bg-gray-200',
+        black: 'bg-gray-300',
     }[color];
 }
 
 function getIconSvg(icon, color) {
     requireSupportedColor(color);
     const colorClass = {
-        blue: 'text-blue-600',
-        green: 'text-green-600',
+        blue: 'text-red-600',
+        green: 'text-gray-800',
         red: 'text-red-600',
-        yellow: 'text-yellow-600',
+        yellow: 'text-gray-600',
         gray: 'text-gray-600',
-        purple: 'text-purple-600',
-        indigo: 'text-indigo-600',
+        purple: 'text-gray-700',
+        indigo: 'text-gray-700',
+        black: 'text-black',
     }[color];
 
     const icons = {

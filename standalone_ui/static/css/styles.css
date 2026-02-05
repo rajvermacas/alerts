@@ -86,8 +86,8 @@
 }
 
 .timeline-item.active::before {
-    background: #3B82F6;
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+    background: #DC2626;
+    box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.2);
 }
 
 .timeline-item.completed::before {
@@ -163,7 +163,7 @@
 }
 
 .connection-status.connecting .status-dot {
-    background: #3B82F6;
+    background: #DC2626;
     animation: pulse 1.5s ease-in-out infinite;
 }
 
@@ -187,10 +187,10 @@
 
 @keyframes dag-pulse {
     0%, 100% {
-        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+        box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4);
     }
     50% {
-        box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
+        box-shadow: 0 0 0 4px rgba(220, 38, 38, 0);
     }
 }
 
@@ -308,4 +308,40 @@
 
 .tool-result-modal-close:hover {
     color: #111827;
+}
+
+/* DAG container maximized state (CSS-based fullscreen) */
+.dag-container.maximized {
+    position: fixed !important;
+    top: 60px;
+    left: 20px;
+    right: 20px;
+    bottom: 20px;
+    z-index: 10000;
+    height: auto !important;
+    min-height: auto !important;
+    background-color: #F9FAFB;
+    border-radius: 0 0 8px 8px;
+}
+
+.dag-maximize-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+.dag-maximize-floating-header {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    right: 20px;
+    z-index: 10001;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: white;
+    padding: 12px 16px;
+    border-radius: 8px 8px 0 0;
+    border-bottom: 1px solid #E5E7EB;
 }

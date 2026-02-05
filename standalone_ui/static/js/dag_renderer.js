@@ -96,9 +96,8 @@ export class DAGRenderer {
         this._executionFlow = validateExecutionFlow(executionFlowSpec);
         this.nodeResults = new Map(); // nodeId -> { title, outputSummary, durationSeconds }
         this.isMaximized = false;
-        this.overlay = null;
-        this._placeholder = null;
-        this._preMaximizeInlineStyle = null;
+        this.backdrop = null;
+        this.floatingHeader = null;
         this.modal = new ToolResultModal();
         this._initGraph(this._executionFlow);
         this._bindControls();
@@ -218,12 +217,12 @@ export class DAGRenderer {
             },
             { selector: 'edge', style: { 'width': 2, 'line-color': '#CBD5E1', 'target-arrow-shape': 'triangle', 'target-arrow-color': '#CBD5E1', 'curve-style': 'bezier' } },
             { selector: 'edge.pending', style: { 'line-color': '#CBD5E1', 'target-arrow-color': '#CBD5E1' } },
-            { selector: 'edge.active', style: { 'line-color': '#2563EB', 'target-arrow-color': '#2563EB' } },
-            { selector: 'edge.completed', style: { 'line-color': '#16A34A', 'target-arrow-color': '#16A34A' } },
+            { selector: 'edge.active', style: { 'line-color': '#DC2626', 'target-arrow-color': '#DC2626' } },
+            { selector: 'edge.completed', style: { 'line-color': '#10B981', 'target-arrow-color': '#10B981' } },
             { selector: 'edge.error', style: { 'line-color': '#DC2626', 'target-arrow-color': '#DC2626' } },
             { selector: '.pending', style: { 'background-color': '#E5E7EB', 'border-color': '#9CA3AF' } },
-            { selector: '.active', style: { 'background-color': '#DBEAFE', 'border-color': '#2563EB', 'border-width': 2 } },
-            { selector: '.completed', style: { 'background-color': '#DCFCE7', 'border-color': '#16A34A', 'border-width': 2 } },
+            { selector: '.active', style: { 'background-color': '#FEE2E2', 'border-color': '#DC2626', 'border-width': 2 } },
+            { selector: '.completed', style: { 'background-color': '#D1FAE5', 'border-color': '#10B981', 'border-width': 2 } },
             { selector: '.error', style: { 'background-color': '#FEE2E2', 'border-color': '#DC2626', 'border-width': 2 } },
             { selector: '.kind-service', style: { 'width': 150, 'height': 64, 'font-size': '9px', 'text-max-width': 140 } },
             { selector: '.kind-start', style: { 'shape': 'ellipse', 'width': 88, 'height': 44, 'font-size': '10px', 'text-max-width': 78 } },
@@ -328,90 +327,66 @@ export class DAGRenderer {
     }
 
     _maximizeGraph() {
-        if (this._placeholder) {
-            throw new Error('dag_renderer: maximize called while placeholder exists');
+        if (this.backdrop) {
+            throw new Error('dag_renderer: maximize called while already maximized');
         }
 
-        this.overlay = document.createElement('div');
-        this.overlay.className = 'dag-maximize-overlay';
+        // Create backdrop
+        this.backdrop = document.createElement('div');
+        this.backdrop.className = 'dag-maximize-backdrop';
+        this.backdrop.addEventListener('click', () => this.toggleMaximize());
+        document.body.appendChild(this.backdrop);
 
-        const header = document.createElement('div');
-        header.className = 'dag-maximize-header';
-        header.innerHTML = `<span class="text-sm font-medium text-gray-700">Execution Flow</span>`;
+        // Create floating header
+        this.floatingHeader = document.createElement('div');
+        this.floatingHeader.className = 'dag-maximize-floating-header';
+        this.floatingHeader.innerHTML = `<span class="text-sm font-medium text-gray-700">Execution Flow</span>`;
 
         const closeBtn = document.createElement('button');
         closeBtn.className = 'dag-minimize-btn';
         closeBtn.innerHTML = '&times;';
         closeBtn.addEventListener('click', () => this.toggleMaximize());
-        header.appendChild(closeBtn);
+        this.floatingHeader.appendChild(closeBtn);
+        document.body.appendChild(this.floatingHeader);
 
-        const content = document.createElement('div');
-        content.className = 'dag-maximize-content';
-
-        const parent = this.container.parentElement;
-        if (!parent) {
-            throw new Error('dag_renderer: dag container has no parent');
-        }
-
-        try {
-            this._placeholder = document.createElement('div');
-            this._placeholder.className = this.container.className;
-            this._placeholder.setAttribute('data-dag-placeholder', 'true');
-            parent.replaceChild(this._placeholder, this.container);
-
-            this._preMaximizeInlineStyle = {
-                height: this.container.style.height,
-                minHeight: this.container.style.minHeight,
-                width: this.container.style.width,
-            };
-            this.container.style.height = '100%';
-            this.container.style.minHeight = '100%';
-            this.container.style.width = '100%';
-
-            content.appendChild(this.container);
-        } catch (e) {
-            if (this._placeholder && this._placeholder.parentElement) {
-                this._placeholder.parentElement.replaceChild(this.container, this._placeholder);
-            }
-            this._placeholder = null;
-            this._preMaximizeInlineStyle = null;
-            throw e;
-        }
-
-        this.overlay.appendChild(header);
-        this.overlay.appendChild(content);
-        document.body.appendChild(this.overlay);
+        // Add maximized class to container (CSS handles fullscreen positioning)
+        this.container.classList.add('maximized');
 
         this.isMaximized = true;
-        this.cy.resize();
-        this.cy.fit(undefined, 30);
-        logger.info('maximized');
+
+        // Use requestAnimationFrame to ensure DOM has reflowed before resizing Cytoscape.
+        requestAnimationFrame(() => {
+            this.cy.resize();
+            this.cy.fit(undefined, 30);
+            logger.info('maximized');
+        });
     }
 
     _minimizeGraph() {
-        if (!this._placeholder || !this._placeholder.parentElement) {
-            throw new Error('dag_renderer: missing placeholder for minimize');
+        if (!this.backdrop) {
+            throw new Error('dag_renderer: minimize called while not maximized');
         }
 
-        this._placeholder.parentElement.replaceChild(this.container, this._placeholder);
-        this._placeholder = null;
+        // Remove backdrop
+        this.backdrop.remove();
+        this.backdrop = null;
 
-        if (!this._preMaximizeInlineStyle) {
-            throw new Error('dag_renderer: missing pre-maximize style');
-        }
-        this.container.style.height = this._preMaximizeInlineStyle.height;
-        this.container.style.minHeight = this._preMaximizeInlineStyle.minHeight;
-        this.container.style.width = this._preMaximizeInlineStyle.width;
-        this._preMaximizeInlineStyle = null;
-
-        if (this.overlay) {
-            this.overlay.remove();
+        // Remove floating header
+        if (this.floatingHeader) {
+            this.floatingHeader.remove();
+            this.floatingHeader = null;
         }
 
-        this.overlay = null;
+        // Remove maximized class from container
+        this.container.classList.remove('maximized');
+
         this.isMaximized = false;
-        this.cy.resize();
-        this.cy.fit(undefined, 30);
-        logger.info('minimized');
+
+        // Use requestAnimationFrame to ensure DOM has reflowed before resizing Cytoscape.
+        requestAnimationFrame(() => {
+            this.cy.resize();
+            this.cy.fit(undefined, 30);
+            logger.info('minimized');
+        });
     }
 }

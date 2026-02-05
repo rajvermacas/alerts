@@ -86,8 +86,8 @@ export function initRelationshipNetwork(containerId, relationshipNetworkSpec) {
                 selector: 'edge[type="ownership"]',
                 style: {
                     'line-style': 'dashed',
-                    'line-color': '#6366F1',
-                    'target-arrow-color': '#6366F1',
+                    'line-color': '#6B7280',
+                    'target-arrow-color': '#6B7280',
                 },
             },
         ],
