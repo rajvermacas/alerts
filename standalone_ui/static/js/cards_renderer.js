@@ -305,7 +305,7 @@ function renderAnalysisCard(key, cardData) {
 
 export function renderAnalysisCards(analysisCards) {
     const results = requireElementById('results-section');
-    if (!analysisCards || typeof analysisCards !== 'object') {
+    if (!analysisCards || typeof analysisCards !== 'object' || Array.isArray(analysisCards)) {
         throw new Error('cards_renderer: analysisCards (object) is required');
     }
 
