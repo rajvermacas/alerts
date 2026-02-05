@@ -169,59 +169,29 @@
     animation: dag-pulse 2s ease-in-out infinite;
 }
 
-/* DAG maximize overlay */
-.dag-maximize-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 9999;
-    background-color: rgba(0, 0, 0, 0.5);
+/* DAG fullscreen (native Fullscreen API) */
+#dag-section:fullscreen,
+#dag-section:-webkit-full-screen {
     display: flex;
     flex-direction: column;
-    padding: 20px;
-}
-
-.dag-maximize-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background-color: white;
-    padding: 12px 16px;
-    border-radius: 8px 8px 0 0;
-    border-bottom: 1px solid #E5E7EB;
-}
-
-.dag-maximize-content {
-    flex: 1;
+    width: 100vw;
+    height: 100vh;
     background-color: #F9FAFB;
-    cursor: grab;
-    min-height: 300px;
-    position: relative;
     overflow: hidden;
 }
 
-.dag-maximize-content:active {
-    cursor: grabbing;
+#dag-section:fullscreen #dag-container,
+#dag-section:-webkit-full-screen #dag-container {
+    flex: 1;
+    height: auto !important;
+    min-height: 0 !important;
+    resize: none;
 }
 
-.dag-minimize-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 6px;
-    color: #6B7280;
-    background-color: transparent;
-    border: none;
-    cursor: pointer;
-}
-
-.dag-minimize-btn:hover {
-    background-color: #F3F4F6;
-    color: #374151;
+#dag-section:fullscreen #dag-container > div,
+#dag-section:-webkit-full-screen #dag-container > div {
+    width: 100% !important;
+    height: 100% !important;
 }
 
 /* Modal */
@@ -279,42 +249,6 @@
 
 .tool-result-modal-close:hover {
     color: #111827;
-}
-
-/* DAG container maximized state (CSS-based fullscreen) */
-.dag-container.maximized {
-    position: fixed !important;
-    top: 60px;
-    left: 20px;
-    right: 20px;
-    bottom: 20px;
-    z-index: 10000;
-    height: auto !important;
-    min-height: auto !important;
-    background-color: #F9FAFB;
-    border-radius: 0 0 8px 8px;
-}
-
-.dag-maximize-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 9998;
-    background-color: rgba(0, 0, 0, 0.5);
-}
-
-.dag-maximize-floating-header {
-    position: fixed;
-    top: 20px;
-    left: 20px;
-    right: 20px;
-    z-index: 10001;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background-color: white;
-    padding: 12px 16px;
-    border-radius: 8px 8px 0 0;
-    border-bottom: 1px solid #E5E7EB;
 }
 
 /* Clickable start node pulse animation (used by Cytoscape via border-color) */
@@ -440,7 +374,9 @@
     }
     to {
         opacity: 1;
-        transform: translateY(0);
+        /* Note: no transform here - setting transform (even to identity) creates a stacking context
+           that breaks position:fixed children (e.g., DAG maximize). The translateY(10px) from
+           the 'from' state naturally animates to the element's default position. */
     }
 }
 

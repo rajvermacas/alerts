@@ -1,5 +1,6 @@
 import { createLogger } from './logger.js';
 import { ToolResultModal } from './modal.js';
+import { showToast } from './toast.js';
 
 const logger = createLogger('dag_renderer');
 
@@ -96,7 +97,9 @@ export class DAGRenderer {
         if (typeof onStartClick !== 'function') {
             throw new Error('dag_renderer: onStartClick callback (function) is required');
         }
+        this.section = requireElementById('dag-section');
         this.container = requireElementById('dag-container');
+        this._maximizeBtn = requireElementById('dag-maximize-btn');
         this.cy = null;
         this._executionFlow = validateExecutionFlow(executionFlowSpec);
         this._onStartClick = onStartClick;
@@ -106,11 +109,10 @@ export class DAGRenderer {
         this._startNodeNaturalPosition = null;
         this.nodeResults = new Map(); // nodeId -> { title, outputSummary, durationSeconds }
         this.isMaximized = false;
-        this.backdrop = null;
-        this.floatingHeader = null;
         this.modal = new ToolResultModal();
         this._initGraph(this._executionFlow);
         this._bindControls();
+        this._bindFullscreenEvents();
         logger.info('initialized');
     }
 
@@ -185,25 +187,73 @@ export class DAGRenderer {
         logger.info('reset layout');
     }
 
-    toggleMaximize() {
-        if (this.isMaximized) {
-            this._minimizeGraph();
-            return;
-        }
-        this._maximizeGraph();
+    async toggleMaximize() {
+        await this._toggleFullscreen();
     }
 
     _bindControls() {
         const resetBtn = requireElementById('dag-reset-btn');
         resetBtn.addEventListener('click', () => this.resetLayout());
 
-        const maximizeBtn = requireElementById('dag-maximize-btn');
-        maximizeBtn.addEventListener('click', () => this.toggleMaximize());
+        this._maximizeBtn.addEventListener('click', () => {
+            void this.toggleMaximize().catch((err) => {
+                const message = err instanceof Error ? err.message : String(err);
+                logger.error('fullscreen toggle failed', err);
+                showToast(message, 'error');
+            });
+        });
+    }
 
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && this.isMaximized) {
-                this.toggleMaximize();
-            }
+    _bindFullscreenEvents() {
+        document.addEventListener('fullscreenchange', () => {
+            const isFullscreen = document.fullscreenElement === this.section;
+            this.isMaximized = isFullscreen;
+            this._maximizeBtn.title = isFullscreen ? 'Exit fullscreen' : 'Fullscreen graph';
+            this._resizeAndFitGraph('fullscreenchange');
+            logger.info('fullscreenchange', {
+                active: isFullscreen,
+                fullscreenElementTag: document.fullscreenElement ? document.fullscreenElement.tagName : null,
+            });
+        });
+    }
+
+    async _toggleFullscreen() {
+        if (typeof this.section.requestFullscreen !== 'function') {
+            throw new Error('dag_renderer: Fullscreen API not available (element.requestFullscreen missing)');
+        }
+        if (typeof document.exitFullscreen !== 'function') {
+            throw new Error('dag_renderer: Fullscreen API not available (document.exitFullscreen missing)');
+        }
+
+        const current = document.fullscreenElement;
+        if (current && current !== this.section) {
+            throw new Error('dag_renderer: fullscreen already active on a different element');
+        }
+
+        if (!current) {
+            logger.info('entering fullscreen');
+            await this.section.requestFullscreen();
+            return;
+        }
+
+        logger.info('exiting fullscreen');
+        await document.exitFullscreen();
+    }
+
+    _resizeAndFitGraph(reason) {
+        if (!this.cy) {
+            throw new Error('dag_renderer: cy not initialized');
+        }
+        if (typeof reason !== 'string' || reason.trim().length === 0) {
+            throw new Error('dag_renderer: reason (non-empty string) is required');
+        }
+
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                logger.debug('resizing graph', { reason, maximized: this.isMaximized });
+                this.cy.resize();
+                this.cy.fit(undefined, 30);
+            });
         });
     }
 
@@ -457,69 +507,5 @@ export class DAGRenderer {
 
         this.nodeResults.set(nodeId, { title, outputSummary, durationSeconds });
         logger.info('stored node result', { nodeId, title });
-    }
-
-    _maximizeGraph() {
-        if (this.backdrop) {
-            throw new Error('dag_renderer: maximize called while already maximized');
-        }
-
-        // Create backdrop
-        this.backdrop = document.createElement('div');
-        this.backdrop.className = 'dag-maximize-backdrop';
-        this.backdrop.addEventListener('click', () => this.toggleMaximize());
-        document.body.appendChild(this.backdrop);
-
-        // Create floating header
-        this.floatingHeader = document.createElement('div');
-        this.floatingHeader.className = 'dag-maximize-floating-header';
-        this.floatingHeader.innerHTML = `<span class="text-sm font-medium text-gray-700">Execution Flow</span>`;
-
-        const closeBtn = document.createElement('button');
-        closeBtn.className = 'dag-minimize-btn';
-        closeBtn.innerHTML = '&times;';
-        closeBtn.addEventListener('click', () => this.toggleMaximize());
-        this.floatingHeader.appendChild(closeBtn);
-        document.body.appendChild(this.floatingHeader);
-
-        // Add maximized class to container (CSS handles fullscreen positioning)
-        this.container.classList.add('maximized');
-
-        this.isMaximized = true;
-
-        // Use requestAnimationFrame to ensure DOM has reflowed before resizing Cytoscape.
-        requestAnimationFrame(() => {
-            this.cy.resize();
-            this.cy.fit(undefined, 30);
-            logger.info('maximized');
-        });
-    }
-
-    _minimizeGraph() {
-        if (!this.backdrop) {
-            throw new Error('dag_renderer: minimize called while not maximized');
-        }
-
-        // Remove backdrop
-        this.backdrop.remove();
-        this.backdrop = null;
-
-        // Remove floating header
-        if (this.floatingHeader) {
-            this.floatingHeader.remove();
-            this.floatingHeader = null;
-        }
-
-        // Remove maximized class from container
-        this.container.classList.remove('maximized');
-
-        this.isMaximized = false;
-
-        // Use requestAnimationFrame to ensure DOM has reflowed before resizing Cytoscape.
-        requestAnimationFrame(() => {
-            this.cy.resize();
-            this.cy.fit(undefined, 30);
-            logger.info('minimized');
-        });
     }
 }
