@@ -359,3 +359,83 @@
 /* Note: The actual pulse effect is handled in Cytoscape styles in dag_renderer.js
    since Cytoscape manages its own canvas-based rendering. This CSS keyframe
    is kept for reference if needed for HTML-based elements. */
+
+/* ============================================
+   Interactive Hover States
+   ============================================ */
+
+/* Cards: subtle lift + shadow on hover */
+.interactive-card {
+    transition: transform 0.15s ease-out, box-shadow 0.15s ease-out, border-color 0.15s ease-out;
+    border: 1px solid transparent;
+}
+
+.interactive-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    border-color: #E5E7EB;
+}
+
+/* Buttons: darken + scale feedback */
+.interactive-btn {
+    transition: transform 0.15s ease-out, background-color 0.15s ease-out, color 0.15s ease-out;
+}
+
+.interactive-btn:hover {
+    transform: scale(1.05);
+}
+
+.interactive-btn:active {
+    transform: scale(0.95);
+}
+
+/* Badges: darken + slight scale */
+.interactive-badge {
+    transition: transform 0.15s ease-out, background-color 0.15s ease-out;
+    cursor: default;
+}
+
+.interactive-badge:hover {
+    transform: scale(1.03);
+}
+
+/* Tool badge specific hover */
+.interactive-badge-tool:hover {
+    background-color: #E5E7EB;
+}
+
+/* Agent badge specific hover */
+.interactive-badge-agent:hover {
+    background-color: #E0E7FF;
+}
+
+/* Table rows: background highlight */
+.interactive-row {
+    transition: background-color 0.15s ease-out;
+}
+
+.interactive-row:hover {
+    background-color: #F3F4F6;
+}
+
+/* Connection status pill: border glow */
+.connection-status {
+    transition: border-color 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+
+.connection-status:hover {
+    border-color: #9CA3AF;
+    box-shadow: 0 0 0 2px rgba(156, 163, 175, 0.2);
+}
+
+/* Expandable details: summary hover */
+.interactive-details summary {
+    transition: background-color 0.15s ease-out;
+    border-radius: 6px;
+    padding: 4px 8px;
+    margin: -4px -8px;
+}
+
+.interactive-details summary:hover {
+    background-color: #F3F4F6;
+}
