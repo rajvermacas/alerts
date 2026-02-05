@@ -439,3 +439,26 @@
 .interactive-details summary:hover {
     background-color: #F3F4F6;
 }
+
+/* ============================================
+   Timeline Item Mini-Card Hover
+   ============================================ */
+
+.timeline-item {
+    transition: transform 0.15s ease-out, background-color 0.15s ease-out,
+                box-shadow 0.15s ease-out, border-left-width 0.15s ease-out;
+    border-radius: 0 8px 8px 0;
+    margin-right: 8px;
+    padding-right: 8px;
+}
+
+.timeline-item:hover {
+    transform: translateY(-2px);
+    background-color: white;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    border-left-width: 3px;
+}
+
+.timeline-item:last-child:hover {
+    border-left-color: #E5E7EB;
+}
