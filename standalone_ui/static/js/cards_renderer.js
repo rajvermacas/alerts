@@ -259,7 +259,7 @@ function createExpandableGraphContainer(cardKey, patternGraph) {
 
     const graphContainer = document.createElement('div');
     graphContainer.id = graphId;
-    graphContainer.className = 'hidden mt-4 h-64 border border-gray-200 rounded-lg bg-gray-50';
+    graphContainer.className = 'hidden mt-4 h-96 border border-gray-200 rounded-lg bg-gray-50';
     graphContainer.dataset.patternGraph = JSON.stringify(patternGraph);
 
     let expanded = false;

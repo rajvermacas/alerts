@@ -119,11 +119,16 @@ function buildCytoscapeStyle() {
 
 function buildCytoscapeLayout() {
     return {
-        name: 'concentric',
-        concentric: (node) => (node.data('type') === 'trader' ? 10 : 5),
-        levelWidth: () => 2,
-        minNodeSpacing: 50,
-        padding: 30,
+        name: 'cose',
+        idealEdgeLength: 120,
+        nodeOverlap: 30,
+        nodeRepulsion: 800000,
+        edgeElasticity: 100,
+        gravity: 50,
+        numIter: 1000,
+        fit: true,
+        padding: 40,
+        randomize: false,
     };
 }
 
