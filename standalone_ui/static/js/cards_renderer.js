@@ -295,32 +295,49 @@ function renderAnalysisCard(key, cardData, staggerIndex) {
     return card;
 }
 
+function validateAnalysisCard(key, cardData) {
+    requireNonEmptyString(key, 'analysisCards key');
+    const card = requireObject(cardData, `analysisCards.${key}`);
+
+    requireNonEmptyString(card.title, `analysisCards.${key}.title`);
+
+    const hasSummary = Object.prototype.hasOwnProperty.call(card, 'summary');
+    const hasTableData = Object.prototype.hasOwnProperty.call(card, 'tableData');
+    const hasPatternGraph = Object.prototype.hasOwnProperty.call(card, 'patternGraph');
+
+    if (!hasSummary && !hasTableData && !hasPatternGraph) {
+        throw new Error(`cards_renderer: analysisCards.${key} must have at least one of: summary, tableData, patternGraph`);
+    }
+
+    if (hasSummary) {
+        requireNonEmptyString(card.summary, `analysisCards.${key}.summary`);
+    }
+    if (hasTableData) {
+        requireArray(card.tableData, `analysisCards.${key}.tableData`);
+    }
+    if (hasPatternGraph) {
+        requireObject(card.patternGraph, `analysisCards.${key}.patternGraph`);
+    }
+}
+
 export function renderAnalysisCards(analysisCards) {
     const results = requireElementById('results-section');
     if (!analysisCards || typeof analysisCards !== 'object' || Array.isArray(analysisCards)) {
         throw new Error('cards_renderer: analysisCards (object) is required');
     }
 
-    const order = ['newsAnalysis', 'pnlAnalysis', 'clientRiskAnalysis', 'traderHistoryAnalysis', 'tradeFlow'];
+    const entries = Object.entries(analysisCards);
+    if (entries.length === 0) {
+        throw new Error('cards_renderer: analysisCards must be non-empty');
+    }
 
-    order.forEach((key, index) => {
-        if (!analysisCards[key]) {
-            // tradeFlow is optional for backwards compatibility
-            if (key === 'tradeFlow') {
-                return;
-            }
-            throw new Error(`cards_renderer: analysisCards.${key} is required`);
-        }
-        const cardData = analysisCards[key];
-        if (!cardData.title) {
-            throw new Error(`cards_renderer: analysisCards.${key} must have title`);
-        }
-        // tradeFlow uses tableData instead of summary
-        if (key !== 'tradeFlow' && !cardData.summary) {
-            throw new Error(`cards_renderer: analysisCards.${key} must have summary`);
-        }
+    entries.forEach(([key, cardData], index) => {
+        validateAnalysisCard(key, cardData);
         results.appendChild(renderAnalysisCard(key, cardData, index));
     });
 
-    logger.info('rendered analysis cards', { count: order.length });
+    logger.info('rendered analysis cards', {
+        count: entries.length,
+        order: entries.map(([key]) => key),
+    });
 }

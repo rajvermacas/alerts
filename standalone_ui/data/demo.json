@@ -6,26 +6,98 @@
   },
   "executionFlow": {
     "nodes": [
-      { "id": "start", "label": "Start", "kind": "start" },
-      { "id": "read_alert", "label": "Read Alert", "kind": "step" },
-      { "id": "trader_history", "label": "Trader History Analysis", "kind": "service" },
-      { "id": "news", "label": "News Analysis", "kind": "service" },
-      { "id": "pnl", "label": "Profit and Loss Analysis", "kind": "service" },
-      { "id": "client_risk", "label": "Client Risk Analysis", "kind": "service" },
-      { "id": "evaluation", "label": "Evaluation", "kind": "evaluation" },
-      { "id": "complete", "label": "Complete", "kind": "complete" }
+      {
+        "id": "start",
+        "label": "Start",
+        "kind": "start"
+      },
+      {
+        "id": "read_alert",
+        "label": "Read Alert",
+        "kind": "step"
+      },
+      {
+        "id": "trader_history",
+        "label": "Trader History Analysis",
+        "kind": "service"
+      },
+      {
+        "id": "news",
+        "label": "News Analysis",
+        "kind": "service"
+      },
+      {
+        "id": "pnl",
+        "label": "Profit and Loss Analysis",
+        "kind": "service"
+      },
+      {
+        "id": "client_risk",
+        "label": "Client Risk Analysis",
+        "kind": "service"
+      },
+      {
+        "id": "evaluation",
+        "label": "Evaluation",
+        "kind": "evaluation"
+      },
+      {
+        "id": "complete",
+        "label": "Complete",
+        "kind": "complete"
+      }
     ],
     "edges": [
-      { "id": "e-start-read", "source": "start", "target": "read_alert" },
-      { "id": "e-read-trader", "source": "read_alert", "target": "trader_history" },
-      { "id": "e-read-news", "source": "read_alert", "target": "news" },
-      { "id": "e-read-pnl", "source": "read_alert", "target": "pnl" },
-      { "id": "e-read-risk", "source": "read_alert", "target": "client_risk" },
-      { "id": "e-trader-eval", "source": "trader_history", "target": "evaluation" },
-      { "id": "e-news-eval", "source": "news", "target": "evaluation" },
-      { "id": "e-pnl-eval", "source": "pnl", "target": "evaluation" },
-      { "id": "e-risk-eval", "source": "client_risk", "target": "evaluation" },
-      { "id": "e-eval-complete", "source": "evaluation", "target": "complete" }
+      {
+        "id": "e-start-read",
+        "source": "start",
+        "target": "read_alert"
+      },
+      {
+        "id": "e-read-trader",
+        "source": "read_alert",
+        "target": "trader_history"
+      },
+      {
+        "id": "e-read-news",
+        "source": "read_alert",
+        "target": "news"
+      },
+      {
+        "id": "e-read-pnl",
+        "source": "read_alert",
+        "target": "pnl"
+      },
+      {
+        "id": "e-read-risk",
+        "source": "read_alert",
+        "target": "client_risk"
+      },
+      {
+        "id": "e-trader-eval",
+        "source": "trader_history",
+        "target": "evaluation"
+      },
+      {
+        "id": "e-news-eval",
+        "source": "news",
+        "target": "evaluation"
+      },
+      {
+        "id": "e-pnl-eval",
+        "source": "pnl",
+        "target": "evaluation"
+      },
+      {
+        "id": "e-risk-eval",
+        "source": "client_risk",
+        "target": "evaluation"
+      },
+      {
+        "id": "e-eval-complete",
+        "source": "evaluation",
+        "target": "complete"
+      }
     ]
   },
   "timeline": {
@@ -38,7 +110,10 @@
         "icon": "play",
         "color": "blue",
         "dagUpdates": [
-          { "nodeId": "start", "state": "active" }
+          {
+            "nodeId": "start",
+            "state": "active"
+          }
         ]
       },
       {
@@ -49,8 +124,14 @@
         "icon": "check",
         "color": "green",
         "dagUpdates": [
-          { "nodeId": "start", "state": "completed" },
-          { "nodeId": "read_alert", "state": "active" }
+          {
+            "nodeId": "start",
+            "state": "completed"
+          },
+          {
+            "nodeId": "read_alert",
+            "state": "active"
+          }
         ]
       },
       {
@@ -61,7 +142,10 @@
         "icon": "check",
         "color": "green",
         "dagUpdates": [
-          { "nodeId": "read_alert", "state": "completed" }
+          {
+            "nodeId": "read_alert",
+            "state": "completed"
+          }
         ]
       },
       {
@@ -73,7 +157,10 @@
         "color": "blue",
         "toolName": "Trader History Analysis",
         "dagUpdates": [
-          { "nodeId": "trader_history", "state": "active" }
+          {
+            "nodeId": "trader_history",
+            "state": "active"
+          }
         ]
       },
       {
@@ -85,7 +172,10 @@
         "color": "blue",
         "toolName": "News Analysis",
         "dagUpdates": [
-          { "nodeId": "news", "state": "active" }
+          {
+            "nodeId": "news",
+            "state": "active"
+          }
         ]
       },
       {
@@ -97,7 +187,10 @@
         "color": "blue",
         "toolName": "Profit and Loss Analysis",
         "dagUpdates": [
-          { "nodeId": "pnl", "state": "active" }
+          {
+            "nodeId": "pnl",
+            "state": "active"
+          }
         ]
       },
       {
@@ -109,7 +202,10 @@
         "color": "blue",
         "toolName": "Client Risk Analysis",
         "dagUpdates": [
-          { "nodeId": "client_risk", "state": "active" }
+          {
+            "nodeId": "client_risk",
+            "state": "active"
+          }
         ]
       },
       {
@@ -124,7 +220,10 @@
         "durationSeconds": 0.88,
         "outputSummary": "Trader history indicates unusual volume concentration vs baseline over the last 90 days.",
         "dagUpdates": [
-          { "nodeId": "trader_history", "state": "completed" }
+          {
+            "nodeId": "trader_history",
+            "state": "completed"
+          }
         ]
       },
       {
@@ -139,7 +238,10 @@
         "durationSeconds": 1.06,
         "outputSummary": "No material public news explains the observed volume spike in the relevant window.",
         "dagUpdates": [
-          { "nodeId": "news", "state": "completed" }
+          {
+            "nodeId": "news",
+            "state": "completed"
+          }
         ]
       },
       {
@@ -154,7 +256,10 @@
         "durationSeconds": 0.92,
         "outputSummary": "PNL impact is positive and concentrated; the trade sequence suggests potential intent to generate artificial liquidity.",
         "dagUpdates": [
-          { "nodeId": "pnl", "state": "completed" }
+          {
+            "nodeId": "pnl",
+            "state": "completed"
+          }
         ]
       },
       {
@@ -169,7 +274,10 @@
         "durationSeconds": 0.90,
         "outputSummary": "Client risk score elevated due to prior alerts and concentrated activity across related accounts.",
         "dagUpdates": [
-          { "nodeId": "client_risk", "state": "completed" }
+          {
+            "nodeId": "client_risk",
+            "state": "completed"
+          }
         ]
       },
       {
@@ -180,7 +288,10 @@
         "icon": "scale",
         "color": "yellow",
         "dagUpdates": [
-          { "nodeId": "evaluation", "state": "active" }
+          {
+            "nodeId": "evaluation",
+            "state": "active"
+          }
         ]
       },
       {
@@ -194,8 +305,14 @@
         "durationSeconds": 0.72,
         "outputSummary": "Overall confidence is high for escalation based on combined signals across services.",
         "dagUpdates": [
-          { "nodeId": "evaluation", "state": "completed" },
-          { "nodeId": "complete", "state": "active" }
+          {
+            "nodeId": "evaluation",
+            "state": "completed"
+          },
+          {
+            "nodeId": "complete",
+            "state": "active"
+          }
         ]
       },
       {
@@ -206,7 +323,10 @@
         "icon": "flag",
         "color": "red",
         "dagUpdates": [
-          { "nodeId": "complete", "state": "completed" }
+          {
+            "nodeId": "complete",
+            "state": "completed"
+          }
         ]
       }
     ]
@@ -216,8 +336,16 @@
     "Confidence Scores": {
       "_type": "confidence_scores",
       "items": [
-        { "label": "Genuine Alert Confidence", "value": 78, "barColor": "red" },
-        { "label": "False Positive Confidence", "value": 22, "barColor": "green" }
+        {
+          "label": "Genuine Alert Confidence",
+          "value": 78,
+          "barColor": "red"
+        },
+        {
+          "label": "False Positive Confidence",
+          "value": 22,
+          "barColor": "green"
+        }
       ]
     },
     "AI Analysis Insights": "Multiple indicators suggest coordinated wash trading. Circular flows, repeated offsets, and clustered timing point to potential pre-arranged activity.",
@@ -233,6 +361,110 @@
     }
   },
   "analysisCards": {
+    "traderHistoryAnalysis": {
+      "title": "Trader History Analysis",
+      "summary": "Trader typically 5K shares/day tech. Flagged 50K healthcare = 10x volume, new sector.",
+      "patternGraph": {
+        "title": "Trading Pattern Analysis",
+        "description": "Trader activity across sectors showing volume anomaly",
+        "nodes": [
+          {
+            "id": "trader",
+            "label": "Trader",
+            "type": "trader",
+            "size": "medium"
+          },
+          {
+            "id": "tech",
+            "label": "Tech Sector",
+            "type": "sector",
+            "size": "small",
+            "volume": 5000,
+            "isBaseline": true
+          },
+          {
+            "id": "healthcare",
+            "label": "Healthcare",
+            "type": "sector",
+            "size": "large",
+            "volume": 50000,
+            "isAnomaly": true
+          },
+          {
+            "id": "baseline",
+            "label": "Baseline\n5K/day",
+            "type": "metric",
+            "size": "small"
+          },
+          {
+            "id": "flagged",
+            "label": "Flagged\n50K",
+            "type": "metric",
+            "size": "large",
+            "isAnomaly": true
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "trader",
+            "target": "tech",
+            "label": "Typical",
+            "weight": 1
+          },
+          {
+            "id": "e2",
+            "source": "trader",
+            "target": "healthcare",
+            "label": "Flagged Trade",
+            "weight": 10,
+            "isAnomaly": true
+          },
+          {
+            "id": "e3",
+            "source": "tech",
+            "target": "baseline",
+            "label": "90-day avg"
+          },
+          {
+            "id": "e4",
+            "source": "healthcare",
+            "target": "flagged",
+            "label": "10x spike",
+            "isAnomaly": true
+          }
+        ]
+      }
+    },
+    "tradeFlow": {
+      "title": "Trade Flow (Demo Table)",
+      "tableData": [
+        {
+          "sequence": 1,
+          "account": "ACC-001",
+          "side": "BUY",
+          "qty": 100,
+          "price": 12.34,
+          "ts": "12:00:02.120"
+        },
+        {
+          "sequence": 2,
+          "account": "ACC-003",
+          "side": "SELL",
+          "qty": 100,
+          "price": 12.34,
+          "ts": "12:00:02.450"
+        },
+        {
+          "sequence": 3,
+          "account": "ACC-005",
+          "side": "BUY",
+          "qty": 100,
+          "price": 12.35,
+          "ts": "12:00:02.780"
+        }
+      ]
+    },
     "newsAnalysis": {
       "title": "News Analysis",
       "summary": "No material public news explains the observed volume spike in the relevant window."
@@ -244,35 +476,6 @@
     "clientRiskAnalysis": {
       "title": "Client Risk Analysis",
       "summary": "Client risk score elevated due to prior alerts and concentrated activity across related accounts."
-    },
-    "traderHistoryAnalysis": {
-      "title": "Trader History Analysis",
-      "summary": "Trader typically 5K shares/day tech. Flagged 50K healthcare = 10x volume, new sector.",
-      "patternGraph": {
-        "title": "Trading Pattern Analysis",
-        "description": "Trader activity across sectors showing volume anomaly",
-        "nodes": [
-          { "id": "trader", "label": "Trader", "type": "trader", "size": "medium" },
-          { "id": "tech", "label": "Tech Sector", "type": "sector", "size": "small", "volume": 5000, "isBaseline": true },
-          { "id": "healthcare", "label": "Healthcare", "type": "sector", "size": "large", "volume": 50000, "isAnomaly": true },
-          { "id": "baseline", "label": "Baseline\n5K/day", "type": "metric", "size": "small" },
-          { "id": "flagged", "label": "Flagged\n50K", "type": "metric", "size": "large", "isAnomaly": true }
-        ],
-        "edges": [
-          { "id": "e1", "source": "trader", "target": "tech", "label": "Typical", "weight": 1 },
-          { "id": "e2", "source": "trader", "target": "healthcare", "label": "Flagged Trade", "weight": 10, "isAnomaly": true },
-          { "id": "e3", "source": "tech", "target": "baseline", "label": "90-day avg" },
-          { "id": "e4", "source": "healthcare", "target": "flagged", "label": "10x spike", "isAnomaly": true }
-        ]
-      }
-    },
-    "tradeFlow": {
-      "title": "Trade Flow (Demo Table)",
-      "tableData": [
-        { "sequence": 1, "account": "ACC-001", "side": "BUY", "qty": 100, "price": 12.34, "ts": "12:00:02.120" },
-        { "sequence": 2, "account": "ACC-003", "side": "SELL", "qty": 100, "price": 12.34, "ts": "12:00:02.450" },
-        { "sequence": 3, "account": "ACC-005", "side": "BUY", "qty": 100, "price": 12.35, "ts": "12:00:02.780" }
-      ]
     }
   }
 }
