@@ -258,5 +258,40 @@
       { "sequence": 2, "account": "ACC-003", "side": "SELL", "qty": 100, "price": 12.34, "ts": "12:00:02.450" },
       { "sequence": 3, "account": "ACC-005", "side": "BUY", "qty": 100, "price": 12.35, "ts": "12:00:02.780" }
     ]
+  },
+  "analysisCards": {
+    "newsAnalysis": {
+      "title": "News Analysis",
+      "summary": "No material public news explains the observed volume spike in the relevant window."
+    },
+    "pnlAnalysis": {
+      "title": "Profit And Loss Analysis",
+      "summary": "PNL impact is positive and concentrated; the trade sequence suggests potential intent to generate artificial liquidity."
+    },
+    "clientRiskAnalysis": {
+      "title": "Client Risk Analysis",
+      "summary": "Client risk score elevated due to prior alerts and concentrated activity across related accounts."
+    },
+    "traderHistoryAnalysis": {
+      "title": "Trader History Analysis",
+      "summary": "Trader typically 5K shares/day tech. Flagged 50K healthcare = 10x volume, new sector.",
+      "patternGraph": {
+        "title": "Trading Pattern Analysis",
+        "description": "Trader activity across sectors showing volume anomaly",
+        "nodes": [
+          { "id": "trader", "label": "Trader", "type": "trader", "size": "medium" },
+          { "id": "tech", "label": "Tech Sector", "type": "sector", "size": "small", "volume": 5000, "isBaseline": true },
+          { "id": "healthcare", "label": "Healthcare", "type": "sector", "size": "large", "volume": 50000, "isAnomaly": true },
+          { "id": "baseline", "label": "Baseline\n5K/day", "type": "metric", "size": "small" },
+          { "id": "flagged", "label": "Flagged\n50K", "type": "metric", "size": "large", "isAnomaly": true }
+        ],
+        "edges": [
+          { "id": "e1", "source": "trader", "target": "tech", "label": "Typical", "weight": 1 },
+          { "id": "e2", "source": "trader", "target": "healthcare", "label": "Flagged Trade", "weight": 10, "isAnomaly": true },
+          { "id": "e3", "source": "tech", "target": "baseline", "label": "90-day avg" },
+          { "id": "e4", "source": "healthcare", "target": "flagged", "label": "10x spike", "isAnomaly": true }
+        ]
+      }
+    }
   }
 }
