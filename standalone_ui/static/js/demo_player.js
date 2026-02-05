@@ -2,10 +2,16 @@ import { createLogger } from './logger.js';
 import { loadSpecFromDom } from './spec_loader.js';
 import { TimelineRenderer } from './timeline_renderer.js';
 import { DAGRenderer } from './dag_renderer.js';
-import { renderCardsIntoResults } from './cards_renderer.js';
+import { renderCardsIntoResults, renderAnalysisCards } from './cards_renderer.js';
 import { initRelationshipNetwork } from './network_graph.js';
+import { initPatternGraph } from './pattern_graph.js';
 
 const logger = createLogger('demo_player');
+
+window.addEventListener('initPatternGraph', (evt) => {
+    const { containerId, spec } = evt.detail;
+    initPatternGraph(containerId, spec);
+});
 
 function requireElementById(id) {
     const el = document.getElementById(id);
@@ -144,6 +150,9 @@ async function initDemo() {
 
                 showResults();
                 renderCardsIntoResults(spec.cards);
+                if (spec.analysisCards) {
+                    renderAnalysisCards(spec.analysisCards);
+                }
                 renderRelationshipNetworkIfPresent(spec.graphs);
 
                 logger.info('demo complete');
