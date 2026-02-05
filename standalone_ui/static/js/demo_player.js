@@ -90,7 +90,7 @@ function renderRelationshipNetworkIfPresent(graphs) {
     const rn = graphs.relationshipNetwork;
     const results = requireElementById('results-section');
     const section = document.createElement('div');
-    section.className = 'bg-white rounded-lg shadow-md p-6';
+    section.className = 'bg-white rounded-lg shadow-md p-6 interactive-card stagger-fade-in stagger-delay-5';
     section.innerHTML = `
         <h3 class="text-lg font-semibold text-gray-900 mb-4">${rn.title}</h3>
         <div class="bg-gray-50 rounded-lg p-2 mb-4">
