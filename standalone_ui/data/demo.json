@@ -1,0 +1,262 @@
+{
+  "page": {
+    "appTitle": "SMARTS Alert Analyzer",
+    "pageTitle": "Wash Trade Demo",
+    "subtitle": "Compliance Analysis Tool"
+  },
+  "executionFlow": {
+    "nodes": [
+      { "id": "start", "label": "Start", "kind": "start" },
+      { "id": "read_alert", "label": "Read Alert", "kind": "step" },
+      { "id": "trader_history", "label": "Trader History Analysis", "kind": "service" },
+      { "id": "news", "label": "News Analysis", "kind": "service" },
+      { "id": "pnl", "label": "Profit and Loss Analysis", "kind": "service" },
+      { "id": "client_risk", "label": "Client Risk Analysis", "kind": "service" },
+      { "id": "evaluation", "label": "Evaluation", "kind": "evaluation" },
+      { "id": "complete", "label": "Complete", "kind": "complete" }
+    ],
+    "edges": [
+      { "id": "e-start-read", "source": "start", "target": "read_alert" },
+      { "id": "e-read-trader", "source": "read_alert", "target": "trader_history" },
+      { "id": "e-read-news", "source": "read_alert", "target": "news" },
+      { "id": "e-read-pnl", "source": "read_alert", "target": "pnl" },
+      { "id": "e-read-risk", "source": "read_alert", "target": "client_risk" },
+      { "id": "e-trader-eval", "source": "trader_history", "target": "evaluation" },
+      { "id": "e-news-eval", "source": "news", "target": "evaluation" },
+      { "id": "e-pnl-eval", "source": "pnl", "target": "evaluation" },
+      { "id": "e-risk-eval", "source": "client_risk", "target": "evaluation" },
+      { "id": "e-eval-complete", "source": "evaluation", "target": "complete" }
+    ]
+  },
+  "timeline": {
+    "events": [
+      {
+        "delayMs": 400,
+        "type": "step_started",
+        "timestamp": "2026-02-05T12:00:00.000Z",
+        "message": "Start",
+        "icon": "play",
+        "color": "blue",
+        "dagUpdates": [
+          { "nodeId": "start", "state": "active" }
+        ]
+      },
+      {
+        "delayMs": 450,
+        "type": "step_completed",
+        "timestamp": "2026-02-05T12:00:00.450Z",
+        "message": "Start completed",
+        "icon": "check",
+        "color": "green",
+        "dagUpdates": [
+          { "nodeId": "start", "state": "completed" },
+          { "nodeId": "read_alert", "state": "active" }
+        ]
+      },
+      {
+        "delayMs": 700,
+        "type": "step_completed",
+        "timestamp": "2026-02-05T12:00:01.150Z",
+        "message": "Read Alert completed",
+        "icon": "check",
+        "color": "green",
+        "dagUpdates": [
+          { "nodeId": "read_alert", "state": "completed" }
+        ]
+      },
+      {
+        "delayMs": 250,
+        "type": "tool_started",
+        "timestamp": "2026-02-05T12:00:01.400Z",
+        "message": "Calling Trader History Analysis",
+        "icon": "cog",
+        "color": "blue",
+        "toolName": "Trader History Analysis",
+        "dagUpdates": [
+          { "nodeId": "trader_history", "state": "active" }
+        ]
+      },
+      {
+        "delayMs": 50,
+        "type": "tool_started",
+        "timestamp": "2026-02-05T12:00:01.450Z",
+        "message": "Calling News Analysis",
+        "icon": "cog",
+        "color": "blue",
+        "toolName": "News Analysis",
+        "dagUpdates": [
+          { "nodeId": "news", "state": "active" }
+        ]
+      },
+      {
+        "delayMs": 50,
+        "type": "tool_started",
+        "timestamp": "2026-02-05T12:00:01.500Z",
+        "message": "Calling Profit and Loss Analysis",
+        "icon": "cog",
+        "color": "blue",
+        "toolName": "Profit and Loss Analysis",
+        "dagUpdates": [
+          { "nodeId": "pnl", "state": "active" }
+        ]
+      },
+      {
+        "delayMs": 50,
+        "type": "tool_started",
+        "timestamp": "2026-02-05T12:00:01.550Z",
+        "message": "Calling Client Risk Analysis",
+        "icon": "cog",
+        "color": "blue",
+        "toolName": "Client Risk Analysis",
+        "dagUpdates": [
+          { "nodeId": "client_risk", "state": "active" }
+        ]
+      },
+      {
+        "delayMs": 800,
+        "type": "tool_completed",
+        "timestamp": "2026-02-05T12:00:02.350Z",
+        "message": "Trader History Analysis completed",
+        "icon": "check",
+        "color": "green",
+        "toolName": "Trader History Analysis",
+        "dagNodeId": "trader_history",
+        "durationSeconds": 0.88,
+        "outputSummary": "Trader history indicates unusual volume concentration vs baseline over the last 90 days.",
+        "dagUpdates": [
+          { "nodeId": "trader_history", "state": "completed" }
+        ]
+      },
+      {
+        "delayMs": 200,
+        "type": "tool_completed",
+        "timestamp": "2026-02-05T12:00:02.550Z",
+        "message": "News Analysis completed",
+        "icon": "check",
+        "color": "green",
+        "toolName": "News Analysis",
+        "dagNodeId": "news",
+        "durationSeconds": 1.06,
+        "outputSummary": "No material public news explains the observed volume spike in the relevant window.",
+        "dagUpdates": [
+          { "nodeId": "news", "state": "completed" }
+        ]
+      },
+      {
+        "delayMs": 450,
+        "type": "tool_completed",
+        "timestamp": "2026-02-05T12:00:03.050Z",
+        "message": "Profit and Loss Analysis completed",
+        "icon": "check",
+        "color": "green",
+        "toolName": "Profit and Loss Analysis",
+        "dagNodeId": "pnl",
+        "durationSeconds": 0.92,
+        "outputSummary": "PNL impact is positive and concentrated; the trade sequence suggests potential intent to generate artificial liquidity.",
+        "dagUpdates": [
+          { "nodeId": "pnl", "state": "completed" }
+        ]
+      },
+      {
+        "delayMs": 200,
+        "type": "tool_completed",
+        "timestamp": "2026-02-05T12:00:03.250Z",
+        "message": "Client Risk Analysis completed",
+        "icon": "check",
+        "color": "green",
+        "toolName": "Client Risk Analysis",
+        "dagNodeId": "client_risk",
+        "durationSeconds": 0.90,
+        "outputSummary": "Client risk score elevated due to prior alerts and concentrated activity across related accounts.",
+        "dagUpdates": [
+          { "nodeId": "client_risk", "state": "completed" }
+        ]
+      },
+      {
+        "delayMs": 1000,
+        "type": "evaluation_started",
+        "timestamp": "2026-02-05T12:00:03.700Z",
+        "message": "Evaluation started",
+        "icon": "scale",
+        "color": "yellow",
+        "dagUpdates": [
+          { "nodeId": "evaluation", "state": "active" }
+        ]
+      },
+      {
+        "delayMs": 2500,
+        "type": "step_completed",
+        "timestamp": "2026-02-05T12:00:04.550Z",
+        "message": "Evaluation completed",
+        "icon": "check",
+        "color": "green",
+        "dagNodeId": "evaluation",
+        "durationSeconds": 0.72,
+        "outputSummary": "Overall confidence is high for escalation based on combined signals across services.",
+        "dagUpdates": [
+          { "nodeId": "evaluation", "state": "completed" },
+          { "nodeId": "complete", "state": "active" }
+        ]
+      },
+      {
+        "delayMs": 350,
+        "type": "analysis_complete",
+        "timestamp": "2026-02-05T12:00:04.900Z",
+        "message": "Complete",
+        "icon": "flag",
+        "color": "red",
+        "dagUpdates": [
+          { "nodeId": "complete", "state": "completed" }
+        ]
+      }
+    ]
+  },
+  "graphs": {
+    "relationshipNetwork": {
+      "title": "Relationship Network",
+      "patternType": "circular",
+      "patternConfidence": 92,
+      "patternDescription": "Demo network shows a circular trade loop with overlapping beneficial ownership.",
+      "nodes": [
+        { "id": "ACC-001", "owner": "Owner A", "type": "trader", "flagged": true },
+        { "id": "ACC-002", "owner": "Owner A", "type": "broker", "flagged": false },
+        { "id": "ACC-003", "owner": "Owner B", "type": "trader", "flagged": false },
+        { "id": "ACC-004", "owner": "Owner B", "type": "broker", "flagged": false },
+        { "id": "ACC-005", "owner": "Owner A", "type": "trader", "flagged": true },
+        { "id": "ACC-006", "owner": "Owner B", "type": "trader", "flagged": false }
+      ],
+      "edges": [
+        { "id": "edge-1", "source": "ACC-001", "target": "ACC-003", "type": "trade", "label": "BUY 100 @ 12.34", "suspicious": true },
+        { "id": "edge-2", "source": "ACC-003", "target": "ACC-005", "type": "trade", "label": "SELL 100 @ 12.34", "suspicious": true },
+        { "id": "edge-3", "source": "ACC-005", "target": "ACC-001", "type": "trade", "label": "BUY 100 @ 12.35", "suspicious": true },
+        { "id": "edge-4", "source": "ACC-002", "target": "ACC-001", "type": "ownership", "label": "Introducer", "suspicious": false },
+        { "id": "edge-5", "source": "ACC-004", "target": "ACC-003", "type": "ownership", "label": "Introducer", "suspicious": false }
+      ]
+    }
+  },
+  "cards": {
+    "Confidence Scores": {
+      "_type": "confidence_scores",
+      "items": [
+        { "label": "Genuine Alert Confidence", "value": 78, "barColor": "red" },
+        { "label": "False Positive Confidence", "value": 22, "barColor": "green" }
+      ]
+    },
+    "AI Analysis Insights": "Multiple indicators suggest coordinated wash trading. Circular flows, repeated offsets, and clustered timing point to potential pre-arranged activity.",
+    "Key Findings": [
+      "Circular trade loop detected among ACC-001, ACC-003, ACC-005.",
+      "Beneficial ownership overlap across flagged accounts.",
+      "Timing clustering indicates potential coordination."
+    ],
+    "Risk Metrics": {
+      "Determination": "ESCALATE",
+      "Pattern Confidence": "92%",
+      "Pre-arrangement Confidence": "86%"
+    },
+    "Trade Flow (Demo Table)": [
+      { "sequence": 1, "account": "ACC-001", "side": "BUY", "qty": 100, "price": 12.34, "ts": "12:00:02.120" },
+      { "sequence": 2, "account": "ACC-003", "side": "SELL", "qty": 100, "price": 12.34, "ts": "12:00:02.450" },
+      { "sequence": 3, "account": "ACC-005", "side": "BUY", "qty": 100, "price": 12.35, "ts": "12:00:02.780" }
+    ]
+  }
+}

@@ -87,6 +87,7 @@ logs/
 resources/reports/*.json
 resources/reports/*.jsonl
 !resources/reports/.gitkeep
+resources/reports
 
 # Agent logs
 agent.log

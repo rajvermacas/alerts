@@ -92,6 +92,20 @@ for subdir in agents commands output-styles skills; do
     log "✓ Created: $FULL_PATH"
 done
 
+# Codex directories
+log "Creating Codex directories..."
+TARGET_DIR="$TARGET_HOME/.codex"
+log "Main Codex directory: $TARGET_DIR"
+mkdir -p "$TARGET_DIR"
+log "Created: $TARGET_DIR"
+
+for subdir in commands skills; do
+    FULL_PATH="$TARGET_DIR/$subdir"
+    log "Creating subdirectory: $FULL_PATH"
+    mkdir -p "$FULL_PATH"
+    log "✓ Created: $FULL_PATH"
+done
+
 # Gemini directories
 log "Creating Gemini directories..."
 TARGET_DIR="$TARGET_HOME/.gemini/commands"
@@ -303,6 +317,65 @@ if [ "$REPO_AVAILABLE" = true ]; then
         log "⚠ No skills directory found at: $SOURCE_DIR"
     fi
 
+    # Copy Codex configuration files
+    log ""
+    log "Processing Codex configuration..."
+    if [ -d "$TEMP_DIR/.codex" ]; then
+        log "Found Codex directory"
+
+        # AGENTS.md
+        SOURCE_FILE="$TEMP_DIR/.codex/AGENTS.md"
+        TARGET_FILE="$TARGET_HOME/.codex/AGENTS.md"
+        if [ -f "$SOURCE_FILE" ]; then
+            log_file_op "COPY" "$SOURCE_FILE" "$TARGET_FILE"
+            cp "$SOURCE_FILE" "$TARGET_FILE"
+            log "✓ Copied AGENTS.md"
+        else
+            log "AGENTS.md not found at: $SOURCE_FILE"
+        fi
+
+        # Codex commands
+        log ""
+        log "Processing Codex commands..."
+        SOURCE_DIR="$TEMP_DIR/.codex/commands"
+        TARGET_DIR="$TARGET_HOME/.codex/commands"
+        if [ -d "$SOURCE_DIR" ]; then
+            log "Found Codex commands directory at: $SOURCE_DIR"
+            log "Listing command files to copy:"
+            for file in "$SOURCE_DIR"/*; do
+                if [ -f "$file" ]; then
+                    filename=$(basename "$file")
+                    log "  - $filename"
+                    log_file_op "COPY" "$file" "$TARGET_DIR/$filename"
+                    cp "$file" "$TARGET_DIR/" 2>/dev/null || log "    Warning: Failed to copy $filename"
+                fi
+            done
+            log "✓ Copied Codex commands"
+        else
+            log "No Codex commands directory found at: $SOURCE_DIR"
+        fi
+
+        # Codex skills
+        log ""
+        log "Processing Codex skills..."
+        SOURCE_DIR="$TEMP_DIR/.codex/skills"
+        TARGET_DIR="$TARGET_HOME/.codex/skills"
+        if [ -d "$SOURCE_DIR" ]; then
+            log "Found Codex skills directory at: $SOURCE_DIR"
+            # Enable dotglob to include hidden files in glob expansion
+            shopt -s dotglob
+            cp -r "$SOURCE_DIR"/* "$TARGET_DIR/" 2>/dev/null || true
+            shopt -u dotglob
+            log "✓ Copied Codex skills directory"
+        else
+            log "No Codex skills directory found at: $SOURCE_DIR"
+        fi
+
+        log "✓ Copied Codex config"
+    else
+        log "No Codex directory found at: $TEMP_DIR/.codex"
+    fi
+
     log "File copy operations completed"
 else
     log ""
@@ -349,6 +422,13 @@ fi
 log ""
 log "=== STEP 4: Installing Utility Packages ==="
 log "Preparing package installation..."
+
+# Remove problematic yarn repository if it exists (added by node feature but has expired GPG key)
+if [ -f /etc/apt/sources.list.d/yarn.list ]; then
+    log "Removing yarn repository (not needed, has expired GPG key)..."
+    rm -f /etc/apt/sources.list.d/yarn.list
+    log "✓ Removed yarn.list"
+fi
 
 # Essential packages only
 PACKAGES=(
@@ -514,6 +594,11 @@ log "    - Output styles: ~/.claude/output-styles/"
 log "    - Skills: ~/.claude/skills/"
 log "    - Settings: ~/.claude/settings.json"
 log "    - Configuration: ~/.claude/CLAUDE.md"
+log ""
+log "  • Codex configuration: ~/.codex/"
+log "    - Commands: ~/.codex/commands/"
+log "    - Skills: ~/.codex/skills/"
+log "    - Configuration: ~/.codex/AGENTS.md"
 log ""
 log "  • Gemini configuration: ~/.gemini/"
 log "    - Commands: ~/.gemini/commands/"

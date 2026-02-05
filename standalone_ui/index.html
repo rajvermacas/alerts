@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Standalone UI Demo</title>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Cytoscape.js + dagre -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+
+    <link rel="stylesheet" href="static/css/styles.css" />
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'escalate': '#dc2626',
+                        'close': '#16a34a',
+                        'review': '#ca8a04',
+                    }
+                }
+            }
+        };
+    </script>
+</head>
+
+<body class="bg-gray-100 min-h-screen" data-spec-src="data/demo.json">
+    <header class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                    <svg class="h-8 w-8 text-blue-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                    </svg>
+                    <h1 id="app-title" class="text-xl font-semibold text-gray-900">Loading…</h1>
+                </div>
+                <span id="app-subtitle" class="text-sm text-gray-500">Loading…</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+        <div class="max-w-4xl mx-auto space-y-6">
+            <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                <div class="timeline-header">
+                    <div class="flex items-center gap-3">
+                        <div id="timeline-spinner-container">
+                            <div class="inline-block animate-spin rounded-full h-8 w-8 border-3 border-blue-600 border-t-transparent"></div>
+                        </div>
+                        <div>
+                            <h2 id="timeline-header-title" class="text-lg font-semibold text-gray-900">Loading demo…</h2>
+                            <p id="loading-status" class="text-sm text-gray-600">Preparing UI…</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <div id="connection-status" class="connection-status connecting">
+                            <span class="status-dot"></span>
+                            <span id="connection-status-text">Demo</span>
+                        </div>
+                        <div class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium timeline-elapsed">
+                            <span id="timeline-elapsed">0:00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="dag-section" class="border-b border-gray-200 bg-gray-50">
+                    <div class="flex justify-between items-center px-3 py-1.5 border-b border-gray-200 bg-white">
+                        <span class="text-xs font-medium text-gray-600">Execution Flow</span>
+                        <div class="flex items-center gap-1">
+                            <button id="dag-reset-btn"
+                                    class="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded hover:bg-gray-100"
+                                    title="Reset layout">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                </svg>
+                            </button>
+                            <button id="dag-maximize-btn"
+                                    class="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded hover:bg-gray-100"
+                                    title="Maximize graph">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="dag-container" class="dag-container"></div>
+
+                    <div id="dag-legend" class="flex justify-center items-center gap-6 py-2 text-xs text-gray-600 border-t border-gray-200 bg-white">
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-3 h-3 rounded-full bg-gray-300 border border-gray-400"></span>
+                            <span>Pending</span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-3 h-3 rounded-full bg-blue-500 border border-blue-600 dag-legend-active"></span>
+                            <span>Active</span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-3 h-3 rounded-full bg-green-500 border border-green-600"></span>
+                            <span>Completed</span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-3 h-3 rounded-full bg-red-500 border border-red-600"></span>
+                            <span>Error</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="progress-timeline" class="timeline-container p-4" role="list" aria-label="Demo progress">
+                    <div class="text-center text-gray-400 py-8">
+                        <svg class="mx-auto h-8 w-8 animate-pulse mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                        <p class="text-sm">Waiting for demo…</p>
+                    </div>
+                </div>
+
+                <div class="timeline-footer">
+                    <div class="flex items-center gap-4">
+                        <span id="timeline-event-count">0 events</span>
+                        <span class="text-gray-300">|</span>
+                        <span id="timeline-tool-count">0 tools executed</span>
+                    </div>
+                    <div class="text-xs text-gray-400">Demo playback (JSON-driven)</div>
+                </div>
+            </div>
+
+            <div id="results-section" class="hidden space-y-6"></div>
+
+            <div id="error-section" class="hidden">
+                <div class="bg-white rounded-lg shadow-md p-8">
+                    <div class="text-center">
+                        <svg class="mx-auto h-16 w-16 text-red-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                        <h2 class="text-xl font-semibold text-gray-900 mb-2">Demo Failed</h2>
+                        <p id="error-message" class="text-gray-600 mb-6"></p>
+                        <button id="try-again-btn"
+                                class="bg-blue-600 text-white py-2 px-6 rounded-lg font-semibold hover:bg-blue-700 transition-colors">
+                            Reload
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-white border-t border-gray-200 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
+            <p class="text-center text-sm text-gray-500">SMARTS Alert Analyzer - Standalone UI Demo</p>
+        </div>
+    </footer>
+
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
+    <div id="tool-result-modal" class="tool-result-modal" aria-hidden="true"></div>
+
+    <script type="module" src="static/js/demo_player.js"></script>
+</body>
+</html>
+

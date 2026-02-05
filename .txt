@@ -1,0 +1,20 @@
+Look at the frontend UI where cytoscape.js is used to create the network graphs for execution fllow, the events timeline and the analysis part. I want to create a new UI in a separate folder without any backend. But with same look and feel. So ideally what you should create is a skeleton with the same animations and everything but with dummy data which should be provided in a json file. for all the contents. The json file should be so configurable that just by adding a new property it should create a card with the contents in it. The number of nodes shown on the UI should come from the json with the exact names.
+Brainstorm with me.
+-----------------------------
+
+There are couple of issues in the implementation.
+1. In the execution flow the text overflow the boxes.
+2. Clicking on the full screen button removes the graph all together and is not seen on the UI
+3. The AI confidence score section is missing
+
+Note:
+1. There will be 5 steps in the execution process. They are:
+    a. Start
+    b. Read Alert
+    c. In parallel it should call Trader History Analysis, News Analysis, Profit and Loss Analysis, Client Risk Analysis
+    d. Once it gets response from all the above services it will then call Evaluation
+    e. Complete
+
+    Also please ensure that these are configured in the json so that tomorrow I can change the json and the graph should reflect the same.
+
+And tell me one thing just like Trade Flow (Demo Table) if i want to add another table in card will it be possible to do it just by configuring it in the json.
