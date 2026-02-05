@@ -145,15 +145,23 @@
 
 /* DAG container */
 .dag-container {
-    height: 260px;
-    min-height: 220px;
-    resize: vertical;
+    height: clamp(380px, 55vh, 680px);
     overflow: hidden;
     cursor: grab;
 }
 
 .dag-container:active {
     cursor: grabbing;
+}
+
+#dag-container {
+    width: 100%;
+}
+
+#dag-container > div,
+#dag-container canvas {
+    width: 100% !important;
+    height: 100% !important;
 }
 
 @keyframes dag-pulse {

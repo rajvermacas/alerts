@@ -27,6 +27,7 @@ const STATES = {
 };
 
 const FADE_DURATION_MS = 300;
+const FIT_PADDING_PX = 16;
 
 function assertNonEmptyString(value, path) {
     if (typeof value !== 'string' || value.trim().length === 0) {
@@ -113,7 +114,18 @@ export class DAGRenderer {
         this._initGraph(this._executionFlow);
         this._bindControls();
         this._bindFullscreenEvents();
+        this._bindWindowResize();
         logger.info('initialized');
+    }
+
+    _bindWindowResize() {
+        window.addEventListener('resize', () => {
+            try {
+                this._resizeAndFitGraph('windowresize');
+            } catch (err) {
+                logger.error('window resize handling failed', err);
+            }
+        });
     }
 
     _findStartNodeId() {
@@ -183,7 +195,7 @@ export class DAGRenderer {
             throw new Error('dag_renderer: cy not initialized');
         }
         this.cy.layout(this._layoutConfig()).run();
-        this.cy.fit(undefined, 30);
+        this.cy.fit(undefined, FIT_PADDING_PX);
         logger.info('reset layout');
     }
 
@@ -252,7 +264,7 @@ export class DAGRenderer {
             requestAnimationFrame(() => {
                 logger.debug('resizing graph', { reason, maximized: this.isMaximized });
                 this.cy.resize();
-                this.cy.fit(undefined, 30);
+                this.cy.fit(undefined, FIT_PADDING_PX);
             });
         });
     }
@@ -289,9 +301,9 @@ export class DAGRenderer {
             userZoomingEnabled: true,
             userPanningEnabled: true,
             boxSelectionEnabled: false,
-            wheelSensitivity: 0.12,
+            wheelSensitivity: 0.18,
             minZoom: 0.5,
-            maxZoom: 3,
+            maxZoom: 6,
         });
 
         this.cy.on('tap', 'node', (evt) => this._handleNodeClick(evt.target));
@@ -338,7 +350,7 @@ export class DAGRenderer {
                     complete: () => {
                         // Fit graph into view, then start playback
                         this.cy.animate({
-                            fit: { eles: this.cy.elements(), padding: 30 }
+                            fit: { eles: this.cy.elements(), padding: FIT_PADDING_PX }
                         }, {
                             duration: 300,
                             complete: () => {
@@ -367,15 +379,15 @@ export class DAGRenderer {
                     'label': 'data(label)',
                     'text-valign': 'center',
                     'text-halign': 'center',
-                    'font-size': '10px',
+                    'font-size': '16px',
                     'color': '#111827',
                     'background-color': '#E5E7EB',
                     'border-width': 1,
                     'border-color': '#9CA3AF',
                     'text-wrap': 'wrap',
-                    'text-max-width': 120,
-                    'width': 120,
-                    'height': 54,
+                    'text-max-width': 140,
+                    'width': 150,
+                    'height': 82,
                     'shape': 'round-rectangle',
                     'opacity': 1,
                 },
@@ -389,10 +401,10 @@ export class DAGRenderer {
             { selector: '.active', style: { 'background-color': '#FEE2E2', 'border-color': '#DC2626', 'border-width': 2 } },
             { selector: '.completed', style: { 'background-color': '#D1FAE5', 'border-color': '#10B981', 'border-width': 2 } },
             { selector: '.error', style: { 'background-color': '#FEE2E2', 'border-color': '#DC2626', 'border-width': 2 } },
-            { selector: '.kind-service', style: { 'width': 150, 'height': 64, 'font-size': '9px', 'text-max-width': 140 } },
-            { selector: '.kind-start', style: { 'shape': 'ellipse', 'width': 88, 'height': 44, 'font-size': '10px', 'text-max-width': 78 } },
-            { selector: '.kind-complete', style: { 'shape': 'ellipse', 'width': 96, 'height': 44, 'font-size': '10px', 'text-max-width': 86 } },
-            { selector: '.kind-evaluation', style: { 'shape': 'diamond', 'width': 72, 'height': 72, 'font-size': '9px', 'text-max-width': 66 } },
+            { selector: '.kind-service', style: { 'width': 210, 'height': 98, 'font-size': '15px', 'text-max-width': 196 } },
+            { selector: '.kind-start', style: { 'shape': 'ellipse', 'width': 126, 'height': 64, 'font-size': '16px', 'text-max-width': 116 } },
+            { selector: '.kind-complete', style: { 'shape': 'ellipse', 'width': 134, 'height': 64, 'font-size': '16px', 'text-max-width': 124 } },
+            { selector: '.kind-evaluation', style: { 'shape': 'diamond', 'width': 104, 'height': 104, 'font-size': '15px', 'text-max-width': 96 } },
             // Hidden nodes and edges (initially invisible)
             { selector: '.hidden-node', style: { 'opacity': 0, 'events': 'no' } },
             { selector: '.hidden-edge', style: { 'opacity': 0 } },
