@@ -372,7 +372,10 @@
             "id": "trader",
             "label": "Trader",
             "type": "trader",
-            "size": "medium"
+            "size": "medium",
+            "volume": 0,
+            "isAnomaly": false,
+            "isBaseline": false
           },
           {
             "id": "tech",
@@ -380,6 +383,7 @@
             "type": "sector",
             "size": "small",
             "volume": 5000,
+            "isAnomaly": false,
             "isBaseline": true
           },
           {
@@ -388,20 +392,26 @@
             "type": "sector",
             "size": "large",
             "volume": 50000,
-            "isAnomaly": true
+            "isAnomaly": true,
+            "isBaseline": false
           },
           {
             "id": "baseline",
             "label": "Baseline\n5K/day",
             "type": "metric",
-            "size": "small"
+            "size": "small",
+            "volume": 0,
+            "isAnomaly": false,
+            "isBaseline": true
           },
           {
             "id": "flagged",
             "label": "Flagged\n50K",
             "type": "metric",
             "size": "large",
-            "isAnomaly": true
+            "volume": 0,
+            "isAnomaly": true,
+            "isBaseline": false
           }
         ],
         "edges": [
@@ -410,7 +420,8 @@
             "source": "trader",
             "target": "tech",
             "label": "Typical",
-            "weight": 1
+            "weight": 1,
+            "isAnomaly": false
           },
           {
             "id": "e2",
@@ -424,13 +435,16 @@
             "id": "e3",
             "source": "tech",
             "target": "baseline",
-            "label": "90-day avg"
+            "label": "90-day avg",
+            "weight": 1,
+            "isAnomaly": false
           },
           {
             "id": "e4",
             "source": "healthcare",
             "target": "flagged",
             "label": "10x spike",
+            "weight": 10,
             "isAnomaly": true
           }
         ]

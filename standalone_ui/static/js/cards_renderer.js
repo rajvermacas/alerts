@@ -253,7 +253,7 @@ function createVisibleGraphContainer(cardKey, patternGraph) {
 
     const graphContainer = document.createElement('div');
     graphContainer.id = graphId;
-    graphContainer.className = 'mt-4 h-96 border border-gray-200 rounded-lg bg-gray-50 graph-fade-in';
+    graphContainer.className = 'pattern-graph-container border border-gray-200 rounded-lg bg-gray-50 graph-fade-in';
     graphContainer.dataset.patternGraph = JSON.stringify(patternGraph);
 
     wrapper.appendChild(graphContainer);

@@ -158,6 +158,26 @@
     width: 100%;
 }
 
+/* Pattern graphs (analysis cards) */
+.pattern-graph-container {
+    height: clamp(420px, 60vh, 760px);
+    width: 100%;
+    overflow: hidden;
+    cursor: grab;
+    position: relative;
+    touch-action: pan-y;
+}
+
+.pattern-graph-container:active {
+    cursor: grabbing;
+}
+
+#results-section .pattern-graph-container > div,
+#results-section .pattern-graph-container canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
 #dag-container > div,
 #dag-container canvas {
     width: 100% !important;
