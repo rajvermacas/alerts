@@ -243,42 +243,24 @@ export function renderCardsIntoResults(cards) {
     logger.info('rendered cards', { count: Object.keys(obj).length });
 }
 
-function createExpandableGraphContainer(cardKey, patternGraph) {
+function createVisibleGraphContainer(cardKey, patternGraph) {
     const graphId = `pattern-graph-${cardKey}`;
     const wrapper = document.createElement('div');
     wrapper.className = 'mt-4';
 
-    const button = document.createElement('button');
-    button.className = 'flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors';
-    button.innerHTML = `
-        <svg class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-        </svg>
-        <span>View Pattern Graph</span>
-    `;
-
     const graphContainer = document.createElement('div');
     graphContainer.id = graphId;
-    graphContainer.className = 'hidden mt-4 h-96 border border-gray-200 rounded-lg bg-gray-50';
+    graphContainer.className = 'mt-4 h-96 border border-gray-200 rounded-lg bg-gray-50';
     graphContainer.dataset.patternGraph = JSON.stringify(patternGraph);
 
-    let expanded = false;
-    button.addEventListener('click', () => {
-        expanded = !expanded;
-        graphContainer.classList.toggle('hidden', !expanded);
-        button.querySelector('svg').style.transform = expanded ? 'rotate(90deg)' : '';
-        button.querySelector('span').textContent = expanded ? 'Hide Pattern Graph' : 'View Pattern Graph';
-
-        if (expanded && !graphContainer.dataset.initialized) {
-            graphContainer.dataset.initialized = 'true';
-            window.dispatchEvent(new CustomEvent('initPatternGraph', {
-                detail: { containerId: graphId, spec: patternGraph }
-            }));
-        }
-    });
-
-    wrapper.appendChild(button);
     wrapper.appendChild(graphContainer);
+
+    setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('initPatternGraph', {
+            detail: { containerId: graphId, spec: patternGraph }
+        }));
+    }, 0);
+
     return wrapper;
 }
 
@@ -297,7 +279,7 @@ function renderAnalysisCard(key, cardData) {
     card.appendChild(summary);
 
     if (cardData.patternGraph) {
-        card.appendChild(createExpandableGraphContainer(key, cardData.patternGraph));
+        card.appendChild(createVisibleGraphContainer(key, cardData.patternGraph));
     }
 
     return card;

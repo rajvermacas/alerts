@@ -211,29 +211,7 @@
       }
     ]
   },
-  "graphs": {
-    "relationshipNetwork": {
-      "title": "Relationship Network",
-      "patternType": "circular",
-      "patternConfidence": 92,
-      "patternDescription": "Demo network shows a circular trade loop with overlapping beneficial ownership.",
-      "nodes": [
-        { "id": "ACC-001", "owner": "Owner A", "type": "trader", "flagged": true },
-        { "id": "ACC-002", "owner": "Owner A", "type": "broker", "flagged": false },
-        { "id": "ACC-003", "owner": "Owner B", "type": "trader", "flagged": false },
-        { "id": "ACC-004", "owner": "Owner B", "type": "broker", "flagged": false },
-        { "id": "ACC-005", "owner": "Owner A", "type": "trader", "flagged": true },
-        { "id": "ACC-006", "owner": "Owner B", "type": "trader", "flagged": false }
-      ],
-      "edges": [
-        { "id": "edge-1", "source": "ACC-001", "target": "ACC-003", "type": "trade", "label": "BUY 100 @ 12.34", "suspicious": true },
-        { "id": "edge-2", "source": "ACC-003", "target": "ACC-005", "type": "trade", "label": "SELL 100 @ 12.34", "suspicious": true },
-        { "id": "edge-3", "source": "ACC-005", "target": "ACC-001", "type": "trade", "label": "BUY 100 @ 12.35", "suspicious": true },
-        { "id": "edge-4", "source": "ACC-002", "target": "ACC-001", "type": "ownership", "label": "Introducer", "suspicious": false },
-        { "id": "edge-5", "source": "ACC-004", "target": "ACC-003", "type": "ownership", "label": "Introducer", "suspicious": false }
-      ]
-    }
-  },
+  "graphs": {},
   "cards": {
     "Confidence Scores": {
       "_type": "confidence_scores",
