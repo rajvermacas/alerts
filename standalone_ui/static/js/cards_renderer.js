@@ -277,10 +277,16 @@ function renderAnalysisCard(key, cardData, staggerIndex) {
     h3.textContent = cardData.title;
     card.appendChild(h3);
 
-    const summary = document.createElement('p');
-    summary.className = 'text-gray-700 text-sm';
-    summary.textContent = cardData.summary;
-    card.appendChild(summary);
+    if (cardData.summary) {
+        const summary = document.createElement('p');
+        summary.className = 'text-gray-700 text-sm';
+        summary.textContent = cardData.summary;
+        card.appendChild(summary);
+    }
+
+    if (cardData.tableData) {
+        card.appendChild(renderTable(cardData.tableData));
+    }
 
     if (cardData.patternGraph) {
         card.appendChild(createVisibleGraphContainer(key, cardData.patternGraph));
@@ -295,15 +301,23 @@ export function renderAnalysisCards(analysisCards) {
         throw new Error('cards_renderer: analysisCards (object) is required');
     }
 
-    const order = ['newsAnalysis', 'pnlAnalysis', 'clientRiskAnalysis', 'traderHistoryAnalysis'];
+    const order = ['newsAnalysis', 'pnlAnalysis', 'clientRiskAnalysis', 'traderHistoryAnalysis', 'tradeFlow'];
 
     order.forEach((key, index) => {
         if (!analysisCards[key]) {
+            // tradeFlow is optional for backwards compatibility
+            if (key === 'tradeFlow') {
+                return;
+            }
             throw new Error(`cards_renderer: analysisCards.${key} is required`);
         }
         const cardData = analysisCards[key];
-        if (!cardData.title || !cardData.summary) {
-            throw new Error(`cards_renderer: analysisCards.${key} must have title and summary`);
+        if (!cardData.title) {
+            throw new Error(`cards_renderer: analysisCards.${key} must have title`);
+        }
+        // tradeFlow uses tableData instead of summary
+        if (key !== 'tradeFlow' && !cardData.summary) {
+            throw new Error(`cards_renderer: analysisCards.${key} must have summary`);
         }
         results.appendChild(renderAnalysisCard(key, cardData, index));
     });

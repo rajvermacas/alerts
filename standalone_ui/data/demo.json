@@ -230,12 +230,7 @@
       "Determination": "ESCALATE",
       "Pattern Confidence": "92%",
       "Pre-arrangement Confidence": "86%"
-    },
-    "Trade Flow (Demo Table)": [
-      { "sequence": 1, "account": "ACC-001", "side": "BUY", "qty": 100, "price": 12.34, "ts": "12:00:02.120" },
-      { "sequence": 2, "account": "ACC-003", "side": "SELL", "qty": 100, "price": 12.34, "ts": "12:00:02.450" },
-      { "sequence": 3, "account": "ACC-005", "side": "BUY", "qty": 100, "price": 12.35, "ts": "12:00:02.780" }
-    ]
+    }
   },
   "analysisCards": {
     "newsAnalysis": {
@@ -270,6 +265,14 @@
           { "id": "e4", "source": "healthcare", "target": "flagged", "label": "10x spike", "isAnomaly": true }
         ]
       }
+    },
+    "tradeFlow": {
+      "title": "Trade Flow (Demo Table)",
+      "tableData": [
+        { "sequence": 1, "account": "ACC-001", "side": "BUY", "qty": 100, "price": 12.34, "ts": "12:00:02.120" },
+        { "sequence": 2, "account": "ACC-003", "side": "SELL", "qty": 100, "price": 12.34, "ts": "12:00:02.450" },
+        { "sequence": 3, "account": "ACC-005", "side": "BUY", "qty": 100, "price": 12.35, "ts": "12:00:02.780" }
+      ]
     }
   }
 }
