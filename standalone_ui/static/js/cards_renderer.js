@@ -118,6 +118,7 @@ function renderTable(rows) {
     tbody.className = 'divide-y divide-gray-200';
     rows.forEach((row) => {
         const tr = document.createElement('tr');
+        tr.className = 'interactive-row';
         keys.forEach((k) => {
             const td = document.createElement('td');
             td.className = 'px-4 py-2 text-gray-800';
@@ -229,7 +230,9 @@ export function renderCardsIntoResults(cards) {
         requireNonEmptyString(title, 'card title');
 
         const card = document.createElement('div');
-        card.className = 'bg-white rounded-lg shadow-md p-6';
+        const staggerIndex = Object.keys(obj).indexOf(title);
+        const delayClass = staggerIndex < 8 ? `stagger-delay-${staggerIndex + 1}` : 'stagger-delay-8';
+        card.className = `bg-white rounded-lg shadow-md p-6 interactive-card stagger-fade-in ${delayClass}`;
 
         const h3 = document.createElement('h3');
         h3.className = 'text-lg font-semibold text-gray-900 mb-4';
@@ -250,7 +253,7 @@ function createVisibleGraphContainer(cardKey, patternGraph) {
 
     const graphContainer = document.createElement('div');
     graphContainer.id = graphId;
-    graphContainer.className = 'mt-4 h-96 border border-gray-200 rounded-lg bg-gray-50';
+    graphContainer.className = 'mt-4 h-96 border border-gray-200 rounded-lg bg-gray-50 graph-fade-in';
     graphContainer.dataset.patternGraph = JSON.stringify(patternGraph);
 
     wrapper.appendChild(graphContainer);
@@ -264,9 +267,10 @@ function createVisibleGraphContainer(cardKey, patternGraph) {
     return wrapper;
 }
 
-function renderAnalysisCard(key, cardData) {
+function renderAnalysisCard(key, cardData, staggerIndex) {
     const card = document.createElement('div');
-    card.className = 'bg-white rounded-lg shadow-md p-6';
+    const delayClass = staggerIndex < 8 ? `stagger-delay-${staggerIndex + 1}` : 'stagger-delay-8';
+    card.className = `bg-white rounded-lg shadow-md p-6 interactive-card stagger-fade-in ${delayClass}`;
 
     const h3 = document.createElement('h3');
     h3.className = 'text-lg font-semibold text-gray-900 mb-3';
@@ -293,7 +297,7 @@ export function renderAnalysisCards(analysisCards) {
 
     const order = ['newsAnalysis', 'pnlAnalysis', 'clientRiskAnalysis', 'traderHistoryAnalysis'];
 
-    order.forEach((key) => {
+    order.forEach((key, index) => {
         if (!analysisCards[key]) {
             throw new Error(`cards_renderer: analysisCards.${key} is required`);
         }
@@ -301,7 +305,7 @@ export function renderAnalysisCards(analysisCards) {
         if (!cardData.title || !cardData.summary) {
             throw new Error(`cards_renderer: analysisCards.${key} must have title and summary`);
         }
-        results.appendChild(renderAnalysisCard(key, cardData));
+        results.appendChild(renderAnalysisCard(key, cardData, index));
     });
 
     logger.info('rendered analysis cards', { count: order.length });
